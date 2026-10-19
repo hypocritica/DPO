@@ -2,11 +2,11 @@
   "seed": 17,
   "model": {
     "family": "sdxl",
-    "path": "${MODEL_PATH}",
+    "path": "/path/to/sdxl-base",
     "revision": "FILL_VERIFIED_SDXL_BASE_REVISION"
   },
   "data": {
-    "pairs": "${PAIRS_PATH}",
+    "pairs": "/path/to/pairs.jsonl",
     "split": "train",
     "require_reviewed": false,
     "require_human_preference": true,
@@ -55,8 +55,8 @@
   },
   "evaluation": {
     "enabled": true,
-    "prompts": "${MONITOR_PROMPTS}",
-    "scorers_config": "${SCORERS_CONFIG}",
+    "prompts": "/path/to/pickapic-monitor.jsonl",
+    "scorers_config": "../scorers.json",
     "expected_prompts": 128,
     "first_step": 200,
     "every": 500,

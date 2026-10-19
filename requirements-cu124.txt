@@ -1,8 +1,0 @@
-# Independent Conda environment, Python 3.10; CUDA 12.4-compatible GPUs.
-# Install the GPU builds FIRST, from the official CUDA 12.4 index:
-# python -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
-# Then install this file. RTX 5090 uses requirements-5090.txt / cu128 instead.
-# This deployment profile has not been GPU-validated on SLAI.
-torch==2.6.0
-torchvision==0.21.0
--r requirements-common.txt

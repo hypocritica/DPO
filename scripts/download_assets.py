@@ -1,7 +1,7 @@
 """Explicit SLAI downloads. list is offline; plan/download query upstream metadata.
 
 No model imports, resource submissions, automatic extraction, or training.
-Run after sourcing paths.sh. Large assets live outside the code checkout.
+Pass --out for the destination. Large assets live outside the code checkout.
 """
 import argparse
 import fnmatch
@@ -116,10 +116,10 @@ def atomic_json(path, value):
     temp.replace(path)
 
 
-def plan_asset(asset, *, revision=None, train_shards=None, api=None):
+def plan_asset(asset, *, revision=None, train_shards=None, api=None, out=None):
     from huggingface_hub import HfApi
     repo, kind, _, revvar, _ = ASSETS[asset]
-    target = destination(asset)
+    target = Path(out).expanduser().resolve() if out is not None else destination(asset)
     marker = target / '.scd-download.json'
     previous = json.loads(marker.read_text()) if marker.exists() else None
     if previous and (previous['repo_id'], previous['repo_type']) != (repo, kind):
@@ -178,8 +178,8 @@ def checked_members(tar, prefix):
     return members
 
 
-def extract_hpdv2():
-    root = env_path('HPDV2_RAW')
+def extract_hpdv2(root=None):
+    root = Path(root).expanduser().resolve() if root is not None else env_path('HPDV2_RAW')
     # Never silently replace an earlier extraction or merge into existing images.
     for split in ('train', 'test'):
         archive = root / (split + '.tar.gz')
@@ -198,11 +198,11 @@ def extract_hpdv2():
         atomic_json(root / (split + '-extracted.json'), {'archive':archive.name, 'uncompressed_bytes':required})
 
 
-def extract_hpdv3():
+def extract_hpdv3(root=None):
     """Stream concatenated volumes through gzip; do not create a second 140GB archive."""
     import gzip
     import io
-    root = env_path('HPDV3_RAW')
+    root = Path(root).expanduser().resolve() if root is not None else env_path('HPDV3_RAW')
     receipt = json.loads((root/'.scd-download.json').read_text())
     if not receipt.get('complete'):
         raise ValueError('Download is incomplete')
@@ -261,26 +261,28 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('action', choices=['list', 'plan', 'download', 'extract-hpdv2', 'extract-hpdv3'])
     p.add_argument('assets', nargs='*', help='Asset names from list')
+    p.add_argument('--out', help='Download destination for one asset, or the raw directory to extract')
     p.add_argument('--revision', help='Override a single asset revision on first download')
     p.add_argument('--train-shards', type=int, help='Pick-a-Pic train shard subset; recorded as a new dataset version')
     a = p.parse_args()
     if any(name not in ASSETS for name in a.assets):p.error('Unknown asset; use list')
+    if a.out and len(a.assets)>1:p.error('--out accepts one asset at a time')
     if a.action == 'list':
         for name, spec in ASSETS.items():
             print(name, spec[0], spec[2])
         return
     if a.action == 'extract-hpdv2':
-        extract_hpdv2()
+        extract_hpdv2(a.out)
         return
     if a.action == 'extract-hpdv3':
-        extract_hpdv3()
+        extract_hpdv3(a.out)
         return
     if not a.assets or (a.revision and len(a.assets) != 1):
         p.error('Select assets; --revision accepts exactly one asset')
     if a.train_shards is not None and (a.train_shards < 1 or 'pickapic-v2' not in a.assets):
         p.error('--train-shards must be positive and used with pickapic-v2')
     for asset in a.assets:
-        plan = plan_asset(asset, revision=a.revision, train_shards=a.train_shards if asset == 'pickapic-v2' else None)
+        plan = plan_asset(asset, revision=a.revision, train_shards=a.train_shards if asset == 'pickapic-v2' else None,out=a.out)
         print(json.dumps({k:v for k,v in plan.items() if k != 'files'}, indent=2), flush=True)
         if a.action == 'download':
             download(plan)

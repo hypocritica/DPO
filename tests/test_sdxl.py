@@ -22,7 +22,32 @@ from self_correct_dpo.losses import preference_logits
 from self_correct_dpo.models import PreferenceBackend, detach_condition
 from self_correct_dpo.render import validate_config as validate_render, validate_adapter_backend, model_spec, load_pipeline
 from self_correct_dpo.training import validate_config
-from test_portability import make_pairs
+from self_correct_dpo.common import sha256, write_jsonl
+
+
+def make_pairs(root):
+    from PIL import Image
+    rows = []
+    for i, split in enumerate(("train", "validation")):
+        names = []
+        hashes = []
+        for j in range(2):
+            name = f"{i}-{j}.png"
+            Image.new("RGB", (4, 4), (i * 80, j * 80, 10)).save(root / name)
+            names.append(name)
+            hashes.append(sha256(root / name))
+        caption = f"test scene {i}"
+        rows.append({"pair_id":str(i), "scene_id":str(i), "split":split,
+            "winner":names[0], "loser":names[1],
+            "winner_sha256":hashes[0], "loser_sha256":hashes[1],
+            "prompts":[{"variant_id":"canonical", "prompt":caption,
+                        "template_family":"canonical", "transform_type":"canonical"}],
+            "human_preference":{"source":"pickapic", "source_revision":"test-only",
+                "labels":[1,0], "winner_index":0, "image_sha256":hashes,
+                "original_prompt":caption}})
+    write_jsonl(root / "pairs.jsonl", rows)
+    return rows
+
 
 
 def pipeline_metadata(root):
@@ -109,6 +134,16 @@ class SdxlConfigTests(unittest.TestCase):
     def test_sdxl_config_helper_and_portable_training_check_only(self):
         with tempfile.TemporaryDirectory() as d:
             r=Path(d);pipeline_metadata(r/'base');(r/'data').mkdir();make_pairs(r/'data')
+            env={k:v for k,v in os.environ.items() if k not in
+                 ('MODEL_PATH','PAIRS_PATH','MONITOR_PROMPTS','SCORERS_CONFIG','SD15_MODEL','SDXL_MODEL')}
+            result=subprocess.run([sys.executable,'-I',str(ROOT/'scripts/make_config.py'),
+                '--family','sdxl','--model',str(r/'base'),'--model-revision','fixture-sdxl-base',
+                '--pairs',str(r/'data/pairs.jsonl'),'--monitor-prompts',str(r/'monitor.jsonl'),
+                '--out',str(r/'normal.json')],env=env,cwd=r,capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            normal=load_config(r/'normal.json')
+            self.assertEqual(normal['model']['path'],str(r/'base'))
+            self.assertEqual(normal['evaluation']['scorers_config'],str(ROOT/'configs/scorers.json'))
             command=[sys.executable,'-I',str(ROOT/'scripts/make_config.py'),'--family','sdxl','--model',str(r/'base'),
                 '--model-revision','fixture-sdxl-base','--pairs',str(r/'data/pairs.jsonl'),'--smoke','--out',str(r/'config.json')]
             result=subprocess.run(command,capture_output=True,text=True,timeout=30)

@@ -1,38 +1,36 @@
 {
   "scorers": {
     "pickscore": {
-      "model": "${PICKSCORE_MODEL}",
-      "processor": "${PICKSCORE_PROCESSOR}"
+      "model": "/path/to/PickScore_v1",
+      "processor": "/path/to/clip-vit-h14"
     },
     "clip": {
-      "open_clip_source": "${HPS_OPEN_CLIP_SOURCE}",
-      "checkpoint": "${CLIP_H14_CHECKPOINT}"
+      "open_clip_source": "/path/to/HPSv2/hpsv2/src",
+      "checkpoint": "/path/to/clip-vit-h14/open_clip_pytorch_model.bin"
     },
     "hpsv2": {
-      "open_clip_source": "${HPS_OPEN_CLIP_SOURCE}",
-      "checkpoint": "${HPSV2_CHECKPOINT}",
+      "open_clip_source": "/path/to/HPSv2/hpsv2/src",
+      "checkpoint": "/path/to/hpsv2/HPS_v2_compressed.pt",
       "version": "v2.0"
     },
     "aesthetic": {
-      "model": "${AESTHETIC_CLIP_MODEL}",
-      "processor": "${AESTHETIC_CLIP_MODEL}",
-      "checkpoint": "${AESTHETIC_CHECKPOINT}"
+      "model": "/path/to/clip-vit-l14",
+      "processor": "/path/to/clip-vit-l14",
+      "checkpoint": "/path/to/aesthetic/sac+logos+ava1-l14-linearMSE.pth"
     },
     "hpsv3": {
-      "source": "${HPSV3_SOURCE}",
-      "model": "${HPSV3_BASE_MODEL}",
-      "checkpoint": "${HPSV3_CHECKPOINT}",
-      "config": "${HPSV3_CONFIG}",
-      "python": "${HPSV3_PYTHON}",
+      "source": "/path/to/HPSv3",
+      "model": "/path/to/Qwen2-VL-7B-Instruct",
+      "checkpoint": "/path/to/HPSv3.safetensors",
+      "config": "/path/to/HPSv3/hpsv3/config/HPSv3_7B.yaml",
       "batch_size": 1,
       "disable_flash_attn2": true
     },
     "image_reward": {
-      "source": "${IMAGE_REWARD_SOURCE}",
-      "checkpoint": "${IMAGE_REWARD_CHECKPOINT}",
-      "config": "${IMAGE_REWARD_CONFIG}",
-      "tokenizer": "${IMAGE_REWARD_TOKENIZER}",
-      "python": "${IMAGE_REWARD_PYTHON}",
+      "source": "/path/to/ImageReward",
+      "checkpoint": "/path/to/ImageReward.pt",
+      "config": "/path/to/med_config.json",
+      "tokenizer": "/path/to/bert-base-uncased",
       "batch_size": 1
     }
   }

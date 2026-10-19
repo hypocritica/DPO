@@ -15,11 +15,11 @@ def main():
     p.add_argument("--family", choices=['sd15','sdxl'], help='Select family defaults; omitted: SD1.5 or the supplied template family')
     p.add_argument("--template", help='Override the family template')
     p.add_argument("--out", required=True)
-    p.add_argument("--model", help="Local Diffusers pipeline; otherwise SD15_MODEL/SDXL_MODEL from paths.sh")
+    p.add_argument("--model", help="Local Diffusers pipeline; optionally read SD15_MODEL/SDXL_MODEL")
     p.add_argument("--model-revision", help='Verified base checkpoint revision/provenance')
     p.add_argument("--vae", help='Optional local SDXL AutoencoderKL directory, e.g. sdxl-vae-fp16-fix')
     p.add_argument("--vae-revision", help='Required provenance when --vae is used')
-    p.add_argument("--pairs", help='Prepared pair manifest; otherwise model-specific path from paths.sh')
+    p.add_argument("--pairs", help='Prepared pair manifest; optionally read PAIRS_PATH')
     p.add_argument('--portable-paths', action='store_true', help='Keep paths.sh variable references in the new config; source paths.sh on every run')
     p.add_argument('--dataset',choices=['pickapic','hpdv3'],default='pickapic',help='Model-specific prepared manifest from paths.sh')
     p.add_argument("--diagnostic-suite", help="Required with historical diagnostic-suite templates")
@@ -48,7 +48,7 @@ def main():
     model_path=args.model or os.environ.get(model_variable)
     prepared=os.environ.get(prepared_variable)
     pairs_path=args.pairs or (str(Path(prepared)/'pairs.jsonl') if prepared else os.environ.get('PAIRS_PATH'))
-    if not model_path or not pairs_path:p.error('Provide --model and --pairs, or edit and source paths.sh')
+    if not model_path or not pairs_path:p.error('Provide --model and --pairs')
     if 'CHANGE_ME' in model_path or 'CHANGE_ME' in pairs_path:p.error('Replace CHANGE_ME in paths.sh first')
     if args.portable_paths and (args.model or args.pairs or not prepared or not os.environ.get(model_variable)):
         p.error('--portable-paths uses model-specific paths.sh variables; omit --model/--pairs and source paths.sh')
@@ -93,6 +93,13 @@ def main():
         c['evaluation']['prompts']=str(Path(args.monitor_prompts).expanduser().resolve())
     if args.scorers_config:
         c['evaluation']['scorers_config']=str(Path(args.scorers_config).expanduser().resolve())
+    if c.get('evaluation',{}).get('enabled'):
+        if not args.monitor_prompts and os.environ.get('MONITOR_PROMPTS'):
+            c['evaluation']['prompts']=str(Path(os.environ['MONITOR_PROMPTS']).expanduser().resolve())
+        # Relative scorer paths belong to the input template, not the output config.
+        scorer=c['evaluation']['scorers_config']
+        if '$' not in scorer and not Path(scorer).is_absolute():
+            c['evaluation']['scorers_config']=str((Path(args.template or default).resolve().parent/scorer).resolve())
     if args.resolution is not None:
         t['resolution']=args.resolution
         if c.get('evaluation',{}).get('enabled'):

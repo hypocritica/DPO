@@ -312,32 +312,36 @@ def main():
     p.add_argument('--model')
     p.add_argument('--images')
     p.add_argument('--out')
+    p.add_argument('--hpdv3', help='Optional HPDv3 directory for cross-dataset held-out exclusion')
+    p.add_argument('--pickapic', help='Optional raw Pick-a-Pic directory for cross-dataset held-out exclusion')
+    p.add_argument('--train-pairs', help='Training pair manifest for benchmark overlap exclusion')
+    p.add_argument('--pickapic-test', help='Exported official-test-unique.jsonl for benchmarks')
+    p.add_argument('--hpdv2', help='Optional official HPDv2 test.json for benchmarks')
     p.add_argument('--revision', help='Required provenance for manually downloaded Parquet files')
     a = p.parse_args()
     if a.family=='unfiltered' and a.action!='hpdv3':p.error('unfiltered is a data-only HPDv3 export for a separate SD3 trainer')
     if a.min_confidence is not None and (a.action!='hpdv3' or not 0<=a.min_confidence<=1):p.error('--min-confidence must be in [0,1] and used with hpdv3')
     dataset='hpdv3' if a.action=='hpdv3' else a.dataset
     variable=('HPDV3' if dataset=='hpdv3' else 'PICKAPIC')+'_'+a.family.upper()+'_PREPARED'
-    prepared = env_path(variable)
-    hpdv3_raw=env_path('HPDV3_RAW')
-    hpd_test=hpdv3_raw/'test.json'
-    if not hpd_test.is_file():raise FileNotFoundError('Download HPDv3 test.json before data preparation')
+    hpdv3_raw=Path(a.hpdv3 or os.environ['HPDV3_RAW']) if a.hpdv3 or os.environ.get('HPDV3_RAW') else None
+    hpd_test=hpdv3_raw/'test.json' if hpdv3_raw else None
+    if hpd_test is not None and not hpd_test.is_file():raise FileNotFoundError(hpd_test)
     if a.action == 'pickapic':
-        prepare_pickapic(a.raw or env_path('PICKAPIC_RAW'), a.out or prepared,
+        prepare_pickapic(a.raw or env_path('PICKAPIC_RAW'), a.out or env_path(variable),
                         a.images or env_path('PICKAPIC_IMAGES'), family=a.family,
                         model=a.model or env_path('SD15_MODEL' if a.family == 'sd15' else 'SDXL_MODEL'),
                         hpdv3_test=hpd_test, revision=a.revision)
     elif a.action=='hpdv3':
-        prepare_hpdv3(a.raw or hpdv3_raw,a.out or prepared,family=a.family,
+        pickapic_raw=a.pickapic or os.environ.get('PICKAPIC_RAW')
+        prepare_hpdv3(a.raw or hpdv3_raw or env_path('HPDV3_RAW'),a.out or env_path(variable),family=a.family,
                      model=a.model or (None if a.family=='unfiltered' else env_path('SD15_MODEL' if a.family=='sd15' else 'SDXL_MODEL')),
-                     pickapic_raw=env_path('PICKAPIC_RAW'),revision=a.revision,min_confidence=a.min_confidence)
+                     pickapic_raw=pickapic_raw,revision=a.revision,min_confidence=a.min_confidence)
     else:
-        if not (prepared / 'ready.json').is_file():
-            raise ValueError('Prepare Pick-a-Pic successfully first')
-        pick_prepared=env_path('PICKAPIC_SD15_PREPARED' if a.family=='sd15' else 'PICKAPIC_SDXL_PREPARED')
-        old_test=Path(os.environ['HPDV2_RAW'])/'test.json' if os.environ.get('HPDV2_RAW') else None
-        prepare_panels(pick_prepared / 'official-test-unique.jsonl', old_test if old_test and old_test.is_file() else None,
-                       a.out or env_path('SCD_EVALUATION_ROOT'), train_pairs=prepared / 'pairs.jsonl',hpdv3=hpd_test)
+        train_pairs=Path(a.train_pairs) if a.train_pairs else env_path(variable)/'pairs.jsonl'
+        pick_test=Path(a.pickapic_test) if a.pickapic_test else env_path('PICKAPIC_SD15_PREPARED' if a.family=='sd15' else 'PICKAPIC_SDXL_PREPARED')/'official-test-unique.jsonl'
+        old_test=Path(a.hpdv2) if a.hpdv2 else Path(os.environ['HPDV2_RAW'])/'test.json' if os.environ.get('HPDV2_RAW') else None
+        prepare_panels(pick_test, old_test if old_test and old_test.is_file() else None,
+                       a.out or env_path('SCD_EVALUATION_ROOT'), train_pairs=train_pairs,hpdv3=hpd_test)
 
 
 if __name__ == '__main__':

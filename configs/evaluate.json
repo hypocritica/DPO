@@ -1,12 +1,12 @@
 {
   "benchmarks": {
-    "hpdv2": "${HPDV2_PROMPTS}",
-    "pickapic": "${PICKAPIC_TEST_PROMPTS}",
-    "partiprompts": "${PARTI_PROMPTS}",
-    "hpdv3": "${HPDV3_PROMPTS}",
-    "imagereward": "${IMAGE_REWARD_PROMPTS}"
+    "hpdv2": "/path/to/hpdv2-test.jsonl",
+    "pickapic": "/path/to/pickapic-test.jsonl",
+    "partiprompts": "/path/to/partiprompts.jsonl",
+    "hpdv3": "/path/to/hpdv3-test.jsonl",
+    "imagereward": "/path/to/imagereward-test.jsonl"
   },
-  "scorers_config": "${SCORERS_CONFIG}",
+  "scorers_config": "scorers.json",
   "sampling": {
     "scheduler": "PNDMScheduler",
     "dtype": "bfloat16",

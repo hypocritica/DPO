@@ -2,11 +2,11 @@
   "seed": 17,
   "model": {
     "family": "sd15",
-    "path": "${MODEL_PATH}",
+    "path": "/path/to/sd15",
     "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
   },
   "data": {
-    "pairs": "${PAIRS_PATH}",
+    "pairs": "/path/to/pairs.jsonl",
     "split": "train",
     "require_reviewed": false,
     "require_human_preference": true,
@@ -55,8 +55,8 @@
   },
   "evaluation": {
     "enabled": true,
-    "prompts": "${MONITOR_PROMPTS}",
-    "scorers_config": "${SCORERS_CONFIG}",
+    "prompts": "/path/to/pickapic-monitor.jsonl",
+    "scorers_config": "scorers.json",
     "expected_prompts": 128,
     "first_step": 200,
     "every": 500,

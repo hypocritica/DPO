@@ -36,3 +36,28 @@ python scripts/prepare_pickapic.py --raw /data/raw.jsonl --groups /data/groups.j
 这一步会**新建划分**：按caption组、图像UID/哈希的连通分量分组，seed17，约90%/5%/5%；保留原始source_split作为来源记录，不沿用它作为最终split。去除平局、重复图像对、冲突投票，禁止跨split共享图像/已知prompt组。未知语义同义仍需要人工检查。这条路径适合新实验，复现已有实验应使用上面的原清单导出方式。
 
 训练配置默认要求原始人类偏好证据及非空validation。不要用合成标签替代正式训练数据。轻量测试中的合成图像只用于验证数据工具，不随仓库提供训练数据。
+
+## 可选下载与处理工具
+
+已经有模型和 `pairs.jsonl` 时无需执行这些步骤。需要下载时，逐个指定输出目录：
+
+```bash
+python scripts/download_assets.py download sd15 --out /models/sd15
+python scripts/download_assets.py download pickapic-v2 --out /data/pickapic-raw
+python scripts/download_assets.py download hpdv3 --out /data/hpdv3
+python scripts/download_assets.py extract-hpdv3 --out /data/hpdv3
+```
+
+将原始 Parquet 或 HPDv3 标注转成训练清单：
+
+```bash
+python scripts/prepare_downloaded_data.py pickapic --family sd15 \
+  --raw /data/pickapic-raw --model /models/sd15 \
+  --images /data/pickapic-images --out /data/pickapic-prepared
+python scripts/prepare_downloaded_data.py hpdv3 --family sd15 \
+  --raw /data/hpdv3 --model /models/sd15 --out /data/hpdv3-prepared
+```
+
+如果跨 Pick-a-Pic / HPDv3 做比较，处理 Pick-a-Pic 时传 `--hpdv3 /data/hpdv3`，处理 HPDv3 时传 `--pickapic /data/pickapic-raw`，排除另一数据集官方 held-out 的重合。未提供另一数据集时仅执行本数据集的隔离规则。自己下载且没有下载记录的数据须用 `--revision` 写明来源版本。
+
+处理输出包含 `pairs.jsonl`、`ready.json` 和审计清单。保留原人类胜负，过滤平局和冲突，不用奖励模型重标标签。大规模下载和预处理在已分配资源上执行。
