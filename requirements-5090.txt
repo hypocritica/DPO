@@ -1,0 +1,7 @@
+# RTX 5090 / Blackwell: install these from the official cu128 index FIRST:
+# python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+# Then install this file in an isolated Python3.10/3.11 environment.
+# This is a deployment profile, not a claim of SLAI GPU validation.
+torch==2.7.1
+torchvision==0.22.1
+-r requirements-common.txt

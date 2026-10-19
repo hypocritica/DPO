@@ -1,0 +1,24 @@
+{
+  "benchmarks": {
+    "hpdv2": "${HPDV2_PROMPTS}",
+    "pickapic": "${PICKAPIC_TEST_PROMPTS}",
+    "partiprompts": "${PARTI_PROMPTS}",
+    "hpdv3": "${HPDV3_PROMPTS}",
+    "imagereward": "${IMAGE_REWARD_PROMPTS}"
+  },
+  "scorers_config": "${SCORERS_CONFIG}",
+  "sampling": {
+    "scheduler": "EulerDiscreteScheduler",
+    "dtype": "bfloat16",
+    "height": 1024,
+    "width": 1024,
+    "num_inference_steps": 50,
+    "guidance_scale": 5.0,
+    "negative_prompt": "",
+    "seeds": [
+      17
+    ],
+    "prompt_truncation": "truncate"
+  },
+  "model_family": "sdxl"
+}

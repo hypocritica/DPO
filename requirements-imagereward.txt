@@ -1,0 +1,9 @@
+# Dependencies for a SEPARATE ImageReward Python 3.10 environment.
+# Install GPU-compatible torch/torchvision first, then:
+# python -m pip install -r requirements-imagereward.txt -e "$IMAGE_REWARD_SOURCE"
+# Official source revision: 78f8051059b34fef8e0032ccb40561c23a2ddbbb
+# Dependency combination is prepared for deployment; not GPU-validated here.
+image-reward==1.5
+transformers==4.27.4
+timm==0.6.13
+numpy>=1.26,<2

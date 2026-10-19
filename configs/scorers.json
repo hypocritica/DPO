@@ -1,0 +1,39 @@
+{
+  "scorers": {
+    "pickscore": {
+      "model": "${PICKSCORE_MODEL}",
+      "processor": "${PICKSCORE_PROCESSOR}"
+    },
+    "clip": {
+      "open_clip_source": "${HPS_OPEN_CLIP_SOURCE}",
+      "checkpoint": "${CLIP_H14_CHECKPOINT}"
+    },
+    "hpsv2": {
+      "open_clip_source": "${HPS_OPEN_CLIP_SOURCE}",
+      "checkpoint": "${HPSV2_CHECKPOINT}",
+      "version": "v2.0"
+    },
+    "aesthetic": {
+      "model": "${AESTHETIC_CLIP_MODEL}",
+      "processor": "${AESTHETIC_CLIP_MODEL}",
+      "checkpoint": "${AESTHETIC_CHECKPOINT}"
+    },
+    "hpsv3": {
+      "source": "${HPSV3_SOURCE}",
+      "model": "${HPSV3_BASE_MODEL}",
+      "checkpoint": "${HPSV3_CHECKPOINT}",
+      "config": "${HPSV3_CONFIG}",
+      "python": "${HPSV3_PYTHON}",
+      "batch_size": 1,
+      "disable_flash_attn2": true
+    },
+    "image_reward": {
+      "source": "${IMAGE_REWARD_SOURCE}",
+      "checkpoint": "${IMAGE_REWARD_CHECKPOINT}",
+      "config": "${IMAGE_REWARD_CONFIG}",
+      "tokenizer": "${IMAGE_REWARD_TOKENIZER}",
+      "python": "${IMAGE_REWARD_PYTHON}",
+      "batch_size": 1
+    }
+  }
+}

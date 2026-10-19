@@ -1,0 +1,62 @@
+{
+  "seed": 17,
+  "model": {
+    "family": "sd15",
+    "path": "${MODEL_PATH}",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+  },
+  "data": {
+    "pairs": "${PAIRS_PATH}",
+    "split": "train",
+    "require_reviewed": false,
+    "require_human_preference": true,
+    "diagnostic_suite": "${DIAGNOSTIC_SUITE}",
+    "num_workers": 4
+  },
+  "training": {
+    "objective": "dpo",
+    "dtype": "bfloat16",
+    "resolution": 512,
+    "max_steps": 6000,
+    "batch_size": 8,
+    "gradient_accumulation_steps": 32,
+    "sampling": "balanced",
+    "prompt_mode": "canonical",
+    "checkpoint_policy": "bounded",
+    "checkpoint_fractions": [
+      0.1,
+      0.3,
+      0.6,
+      1.0
+    ],
+    "max_lora_checkpoints": 4,
+    "checkpoint_every": 100,
+    "learning_rate": 1e-05,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0,
+    "lora_rank": 16,
+    "lora_alpha": 16,
+    "gradient_checkpointing": true,
+    "beta": 5000.0,
+    "temperature": 0.1,
+    "consistency_weight": 0.0,
+    "warmup_steps": 200,
+    "lr_schedule": "constant",
+    "diagnostic": {
+      "pairs": 4,
+      "every": 250,
+      "seed": 271828
+    },
+    "world_size": 1,
+    "logging": "tensorboard",
+    "vae_batch_size": 4,
+    "formal_arm": "C",
+    "noise_views": 2,
+    "independent_rollout": {
+      "stride": 33,
+      "min_anchor_t": 20,
+      "state_source": "oracle",
+      "cfg_scale": 1.0
+    }
+  }
+}

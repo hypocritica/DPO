@@ -1,0 +1,123 @@
+{
+  "repository": "https://github.com/Whynot0101/Linear-DPO",
+  "commit": "663179c7adbbbd2d77b97b5841534447eb291ebd",
+  "inspected_on": "2026-10-18",
+  "sources": [
+    {
+      "path": "validation/validate.py",
+      "git_blob_sha": "666f66aaf15bf01efbfcd055c3d52758b4074c21",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/validation/validate.py"
+    },
+    {
+      "path": "rewards/pick_score.py",
+      "git_blob_sha": "17f76fbcc47b80d6e2ede48656f0a7c930bcb301",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/rewards/pick_score.py"
+    },
+    {
+      "path": "rewards/clip_score.py",
+      "git_blob_sha": "05ee949395a861f4408c7554116553c294fc8473",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/rewards/clip_score.py"
+    },
+    {
+      "path": "rewards/hpsv2.py",
+      "git_blob_sha": "c9e5bf5d2a9be5fd118ad92944ba782b0d622cbe",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/rewards/hpsv2.py"
+    },
+    {
+      "path": "rewards/aesthetic_score.py",
+      "git_blob_sha": "9be685c8d5c594bc61321b501c37668df8769243",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/rewards/aesthetic_score.py"
+    },
+    {
+      "path": "utils/extract_pickapicv2_prompts.py",
+      "git_blob_sha": "16d847e0081616c2772858f7c80fa5dc72be2bfd",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/utils/extract_pickapicv2_prompts.py"
+    },
+    {
+      "path": "utils/extract_hpsv2_prompts.py",
+      "git_blob_sha": "98ed0752847a0c2f9f56b264cb095e14f2f2e0ea",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/utils/extract_hpsv2_prompts.py"
+    }
+  ],
+  "notes": [
+    "Independent local-weight adapters, not a vendored copy of the upstream code.",
+    "Default HPS is v2.0; PickScore/CLIP/HPS are raw paired cosine. Aesthetic is the improved-LAION MLP.",
+    "Prompt and sampling configurations are explicit; numerical reproduction of the paper is not claimed.",
+    "HPSv3 and ImageReward are opt-in official local APIs. No upstream private scoring service is used.",
+    "HPSv3 uses mu, not sigma. ImageReward uses the official standardized reward, with local tokenizer assets."
+  ],
+  "optional_upstreams": [
+    {
+      "repository": "https://github.com/MizzenAI/HPSv3",
+      "commit": "bd0c5fcb5f587617b0169c07222ab78d01e2f3c2",
+      "sources": [
+        {
+          "path": "environment.yaml",
+          "git_blob_sha": "d3516ed9b378e1971e0f0daed75f3fa2892b8aaa",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/environment.yaml"
+        },
+        {
+          "path": "hpsv3/inference.py",
+          "git_blob_sha": "d00169f9f7982f63ba193f671863a140a5becd0c",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/hpsv3/inference.py"
+        },
+        {
+          "path": "hpsv3/config/HPSv3_7B.yaml",
+          "git_blob_sha": "b7aa7b09588b03d15f172d0483da5edc8f53fd10",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/hpsv3/config/HPSv3_7B.yaml"
+        },
+        {
+          "path": "hpsv3/train.py",
+          "git_blob_sha": "0446b03efde97e99e3ef299e462a8f55c1f17bd9",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/hpsv3/train.py"
+        },
+        {
+          "path": "hpsv3/utils/parser.py",
+          "git_blob_sha": "12e9c9e91941369730b5e6f12e1193f4a61890c1",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/hpsv3/utils/parser.py"
+        },
+        {
+          "path": "hpsv3/dataset/utils.py",
+          "git_blob_sha": "9eb062cae5b893467e73e6d7fe831695811bc0ae",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/hpsv3/dataset/utils.py"
+        },
+        {
+          "path": "README.md",
+          "git_blob_sha": "44de14da830403f6451cd0ac211eb17507055a07",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/README.md"
+        },
+        {
+          "path": "evaluate/README.md",
+          "git_blob_sha": "9672fdcbf1fdd5352c1197aa8b981ec02302b326",
+          "url": "https://github.com/MizzenAI/HPSv3/blob/bd0c5fcb5f587617b0169c07222ab78d01e2f3c2/evaluate/README.md"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/zai-org/ImageReward",
+      "commit": "78f8051059b34fef8e0032ccb40561c23a2ddbbb",
+      "sources": [
+        {
+          "path": "ImageReward/utils.py",
+          "git_blob_sha": "c129a2b95ea4340ebf9336eca9388d1f599cf8c9",
+          "url": "https://github.com/zai-org/ImageReward/blob/78f8051059b34fef8e0032ccb40561c23a2ddbbb/ImageReward/utils.py"
+        },
+        {
+          "path": "ImageReward/ImageReward.py",
+          "git_blob_sha": "b3dfba373313d894f9187a13b4d296743d9e4594",
+          "url": "https://github.com/zai-org/ImageReward/blob/78f8051059b34fef8e0032ccb40561c23a2ddbbb/ImageReward/ImageReward.py"
+        },
+        {
+          "path": "ImageReward/models/BLIP/blip_pretrain.py",
+          "git_blob_sha": "793cb07944810eebe1d28f26aa19482b0abcf0a5",
+          "url": "https://github.com/zai-org/ImageReward/blob/78f8051059b34fef8e0032ccb40561c23a2ddbbb/ImageReward/models/BLIP/blip_pretrain.py"
+        },
+        {
+          "path": "ImageReward/models/BLIP/blip.py",
+          "git_blob_sha": "0dfdb72ab619587b62357904349358b221f631e4",
+          "url": "https://github.com/zai-org/ImageReward/blob/78f8051059b34fef8e0032ccb40561c23a2ddbbb/ImageReward/models/BLIP/blip.py"
+        }
+      ]
+    }
+  ]
+}

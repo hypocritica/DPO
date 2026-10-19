@@ -1,0 +1,39 @@
+{
+  "repository": "https://github.com/Whynot0101/Linear-DPO",
+  "commit": "663179c7adbbbd2d77b97b5841534447eb291ebd",
+  "inspected_on": "2026-10-18",
+  "sources": [
+    {
+      "path": "run_sdxl_pickapic.sh",
+      "git_blob_sha": "b5e89bf08d218a17c03cc400821fff0200bfb21e",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/run_sdxl_pickapic.sh"
+    },
+    {
+      "path": "run_sdxl_pickapic_linear.sh",
+      "git_blob_sha": "c0de09e0f25fe4420d11328854df5209152ec1cb",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/run_sdxl_pickapic_linear.sh"
+    },
+    {
+      "path": "train/train_sd_dpo.py",
+      "git_blob_sha": "ecdbc667f6f7e6745008b337d71b777b7893583b",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/train/train_sd_dpo.py"
+    },
+    {
+      "path": "validation/validate.py",
+      "git_blob_sha": "666f66aaf15bf01efbfcd055c3d52758b4074c21",
+      "url": "https://github.com/Whynot0101/Linear-DPO/blob/663179c7adbbbd2d77b97b5841534447eb291ebd/validation/validate.py"
+    }
+  ],
+  "official_configs": [
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/unet/config.json",
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/text_encoder_2/config.json",
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/vae/config.json",
+    "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/blob/main/config.json"
+  ],
+  "notes": [
+    "Existing Diffusers/PEFT backend extended independently; no Linear-DPO training source vendored.",
+    "SDXL template: lr 1e-5, beta 500, effective batch 128, 2000 steps and zero warmup inspired by upstream SDXL linear script. Our objective remains B/C with detached rollout.",
+    "Our single-process LoRA/BF16, frozen reference, local assets, square resizing and evaluation schedule differ from upstream full-UNet/FP16/distributed training.",
+    "Remote main config links describe architecture only; verify the actual local base/VAE revisions before training. No model weights are bundled or downloaded."
+  ]
+}

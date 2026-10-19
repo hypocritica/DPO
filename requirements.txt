@@ -1,0 +1,6 @@
+# SLAI image: nvidia24.04-ubuntu22.04-py3.10-cuda12.4-cudnn9.1-torch2.3.0-transformerengine1.5
+# Retain the image's NVIDIA torch/torchvision builds, including 2.3.0a0/0.18.0a0.
+# Do not request a nonexistent official torch 2.3 CUDA 12.4 wheel.
+torch>=2.3.0a0,<2.4
+torchvision>=0.18.0a0,<0.19
+-r requirements-common.txt

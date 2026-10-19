@@ -1,0 +1,80 @@
+{
+  "seed": 17,
+  "model": {
+    "family": "sdxl",
+    "path": "${MODEL_PATH}",
+    "revision": "FILL_VERIFIED_SDXL_BASE_REVISION"
+  },
+  "data": {
+    "pairs": "${PAIRS_PATH}",
+    "split": "train",
+    "require_reviewed": false,
+    "require_human_preference": true,
+    "num_workers": 4
+  },
+  "training": {
+    "objective": "dpo",
+    "dtype": "bfloat16",
+    "resolution": 1024,
+    "max_steps": 2000,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 128,
+    "sampling": "balanced",
+    "prompt_mode": "canonical",
+    "checkpoint_policy": "bounded",
+    "max_lora_checkpoints": null,
+    "checkpoint_every": 200,
+    "learning_rate": 1e-05,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0,
+    "lora_rank": 16,
+    "lora_alpha": 16,
+    "gradient_checkpointing": true,
+    "beta": 500.0,
+    "temperature": 0.1,
+    "consistency_weight": 0.0,
+    "warmup_steps": 0,
+    "lr_schedule": "constant",
+    "diagnostic": {
+      "pairs": 4,
+      "every": 250,
+      "seed": 271828
+    },
+    "world_size": 1,
+    "logging": "tensorboard",
+    "vae_batch_size": 1,
+    "formal_arm": "B",
+    "noise_views": 2,
+    "independent_rollout": {
+      "stride": 33,
+      "min_anchor_t": 20,
+      "state_source": "model",
+      "cfg_scale": 1.0
+    },
+    "lora_checkpoint_every": 1000
+  },
+  "evaluation": {
+    "enabled": true,
+    "prompts": "${MONITOR_PROMPTS}",
+    "scorers_config": "${SCORERS_CONFIG}",
+    "expected_prompts": 128,
+    "first_step": 200,
+    "every": 500,
+    "include_base": true,
+    "keep_images_every": 1000,
+    "sampling": {
+      "scheduler": "EulerDiscreteScheduler",
+      "dtype": "bfloat16",
+      "height": 1024,
+      "width": 1024,
+      "num_inference_steps": 30,
+      "guidance_scale": 5.0,
+      "negative_prompt": "",
+      "seeds": [
+        17
+      ],
+      "prompt_truncation": "truncate"
+    }
+  },
+  "experiment_note": "SDXL base B/C LoRA; optimizer scale inspired by Linear-DPO SDXL script, not its full-UNet Linear-DPO objective. Built-in VAE in FP32 for training; optional model.vae for a local FP16-fix VAE."
+}

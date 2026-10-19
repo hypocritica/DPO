@@ -1,0 +1,27 @@
+# Dependencies for a SEPARATE HPSv3 Python 3.10 environment, not the training env.
+# Install GPU-compatible torch/torchvision first, then:
+# python -m pip install -r requirements-hpsv3.txt -e "$HPSV3_SOURCE"
+# Official source revision: bd0c5fcb5f587617b0169c07222ab78d01e2f3c2
+# Core pins follow the official environment.yaml; torch/torchvision use your GPU build.
+# Upstream's pyproject omits plotting/logging imports; include them here.
+# Not installed or GPU-validated here.
+hpsv3==1.0.0
+transformers==4.45.2
+peft==0.10.0
+trl==0.8.6
+accelerate==1.8.0
+datasets==3.6.0
+deepspeed==0.15.4
+diffusers==0.33.1
+numpy==2.1.2
+Pillow==11.0.0
+omegaconf==2.3.0
+qwen-vl-utils==0.0.11
+timm==1.0.15
+opencv-python==4.11.0.86
+safetensors==0.5.3
+PyYAML==6.0.2
+matplotlib==3.10.3
+pandas==2.3.0
+tensorboard==2.19.0
+fire==0.7.0

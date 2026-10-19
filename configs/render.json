@@ -1,0 +1,21 @@
+{
+  "model": {
+    "family": "sd15",
+    "path": "${MODEL_PATH}",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+  },
+  "sampling": {
+    "scheduler": "DDIMScheduler",
+    "dtype": "bfloat16",
+    "height": 512,
+    "width": 512,
+    "num_inference_steps": 30,
+    "guidance_scale": 7.5,
+    "negative_prompt": "",
+    "seeds": [
+      17,
+      29,
+      43
+    ]
+  }
+}

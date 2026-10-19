@@ -1,0 +1,11 @@
+# Install a torchvision build matching your installed PyTorch.
+torchvision
+timm>=0.9
+ftfy
+regex
+einops
+webdataset
+matplotlib>=3.7,<4
+PyYAML>=6
+# The scorer uses a separate local checkout of official HPSv2 open_clip.
+# Do not install HPSv2 requirements wholesale: its old protobuf pin conflicts.

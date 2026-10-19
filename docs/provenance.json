@@ -1,0 +1,279 @@
+{
+  "note": "Source and config inventory only. No experiment results, weights, data or logs are bundled. Historical run checkpoints require their original source and environment; these reorganized sources start new experiments.",
+  "source_files": [
+    {
+      "source": "joint_sd15/robustdpo/__init__.py",
+      "sha256": "1c8d6b899fa8c8e034732e77f00651f4e924792a63a65af3dd8ac27fec067118",
+      "destination": "src/self_correct_dpo/__init__.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/arrow_images.py",
+      "sha256": "9627b9f465c08496a25515683c823741bc246f962c134149626a4e9b39ada451",
+      "destination": "src/self_correct_dpo/arrow_images.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/auto_preferences.py",
+      "sha256": "c91d02babc3b05a63b595c554faebbb397f39238306dc1c3bc3157034368bcf1",
+      "destination": "src/self_correct_dpo/auto_preferences.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/checkpoints.py",
+      "sha256": "10e6b27e1a8667bcf556f963d15077398eb6838a6f069dcbd00bf38e1399dfee",
+      "destination": "src/self_correct_dpo/checkpoints.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/data.py",
+      "sha256": "7c65b33bbbce175041b42eaba9cd337d7f97d8bab516ea199ab92d21bbf12967",
+      "destination": "src/self_correct_dpo/data.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/diagnostics.py",
+      "sha256": "c2d0f14680e88025242e176c5c9c5e25e142109e527e01ab44fc507760f6766a",
+      "destination": "src/self_correct_dpo/diagnostics.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/distributed.py",
+      "sha256": "d356c10df444121e186706b7d4fcb9a64f644d8a3b76985ac314959c05d4b3bf",
+      "destination": "src/self_correct_dpo/distributed.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/formal.py",
+      "sha256": "41bc4ab3bc095d651fa4449233f3fbf2b5610914e798ee7cdfa718768aca348b",
+      "destination": "src/self_correct_dpo/formal.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/independent.py",
+      "sha256": "274c93bf3da0796f15b4e7bf4f5ebcb9db8cf9fd2c942b755e2e1c06f71b8b0b",
+      "destination": "src/self_correct_dpo/independent.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/joint.py",
+      "sha256": "49a63655a6cff00101203dda0875f9293b0061dd2ce9f93da04691293ce250ec",
+      "destination": "src/self_correct_dpo/joint.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/losses.py",
+      "sha256": "264fc5e9a7cd6a07facefeeeda7b48eae5f171398d6c2dd5524bc7b3a07c6ecc",
+      "destination": "src/self_correct_dpo/losses.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/models.py",
+      "sha256": "fc5f02d93fe80fc108cddb03f0981ae50b0ea28a75da8f413333c7fe67dba9c9",
+      "destination": "src/self_correct_dpo/models.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/pickapic.py",
+      "sha256": "9f4b08c5fb52468cbb9e7418b50acdc09914a2cceecc6e8dc301d9847d995004",
+      "destination": "src/self_correct_dpo/pickapic.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/prompt_generalization.py",
+      "sha256": "9ecc25fbbf48059bf423797c7ab0c7a60574327ea6b4a71c844dced39e599652",
+      "destination": "src/self_correct_dpo/prompt_generalization.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/reward_preferences.py",
+      "sha256": "b8cd24da508bf5136e1c8aea716b25ca828456cd41752bf25885886a6e9b528e",
+      "destination": "src/self_correct_dpo/reward_preferences.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/staging.py",
+      "sha256": "7ded8f0f9467f5ffbd38e63cbd22e204db0aaf777c7e74056b65bd819bc20d85",
+      "destination": "src/self_correct_dpo/staging.py"
+    },
+    {
+      "source": "joint_sd15/robustdpo/training.py",
+      "sha256": "38bc2ae958fe2179bbdf45b7f186538fc436fef0e5a3c78fbe7789e8ffee4eeb",
+      "destination": "src/self_correct_dpo/training.py"
+    },
+    {
+      "source": "joint_sd15/common.py",
+      "sha256": "c3eb425a6c1cf34d4ceb2ba0770133231d916eb9311f71c383db427832e62a3d",
+      "destination": "src/self_correct_dpo/common.py"
+    },
+    {
+      "source": "joint_sd15/render.py",
+      "sha256": "77717df0e732ff921224068e4a8d9574084e44d0d56efb3d1d5038748f9390bf",
+      "destination": "src/self_correct_dpo/render.py"
+    },
+    {
+      "source": "joint_sd15/quality_metrics.py",
+      "sha256": "e691bdf17a60cc1c910aefce95e29802aeee0c981ca03ae5dad5587d2cce6e7b",
+      "destination": "src/self_correct_dpo/quality_metrics.py"
+    },
+    {
+      "source": "joint_sd15/train.py",
+      "sha256": "a9cea41a66c12115a5c77ec3677a212608e23bba7cb450cba1e74150d7d4a2cd",
+      "destination": "src/self_correct_dpo/train.py"
+    },
+    {
+      "source": "formal_sd15/robustdpo/formal.py",
+      "sha256": "df087973bbe4ff1488087d83ea203543ca9d8d9b511f0fa84375b4b9141ad102",
+      "destination": "src/self_correct_dpo/formal.py"
+    },
+    {
+      "source": "joint_sd15/tests/test_joint.py",
+      "sha256": "417414e7796f0da662a01969d47c6b8c076182ac9a654ec257ec656fb6d3dcf5",
+      "destination": "tests/test_joint.py"
+    },
+    {
+      "source": "formal_sd15/tests/test_formal.py",
+      "sha256": "ef74266d6198a6c07119b327a750de38204d289256c834cbb47a4558ba791cb5",
+      "destination": "tests/test_formal.py"
+    },
+    {
+      "source": "independent_sd15/tests/test_stage_pause.py",
+      "sha256": "3b8e32a63cfe14880f9dea3c8d4d3dcb19a240debc0dceebc0db94a220c1c209",
+      "destination": "tests/test_stage_pause.py"
+    }
+  ],
+  "experiments": [
+    {
+      "name": "dpo",
+      "source_config": "experiments/sd15-pickapic-extend10000-20261009T072043Z/train.json",
+      "source_sha256": "efcc42c895895855f8034526c515ae9f0f5378ddf4e252cf52695e9280b623f7",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "docs/legacy/dpo.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved.",
+      "status": "Archived only; active SD1.5 methods are B/C."
+    },
+    {
+      "name": "multiview-C",
+      "source_config": "experiments/sd15-cd-single-20261011T190700Z/train-C.json",
+      "source_sha256": "4e14ed436a1c358fd3ae730429fbd368744b8d31bce280593b5e5b8cefe47144",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/multiview-C.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "multiview-D",
+      "source_config": "experiments/sd15-cd-single-20261011T190700Z/train-D.json",
+      "source_sha256": "77a9101819b02d3a0f6585829c659f3161ee166d033cb4580dd143fa2fda1f6d",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "docs/legacy/multiview-D.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved.",
+      "status": "Archived only; active SD1.5 methods are B/C."
+    },
+    {
+      "name": "rollout-K1",
+      "source_config": "experiments/sd15-independent-k1-40gb-20261013T171000Z/train-R.json",
+      "source_sha256": "2d5dfa0d05c43f547e553e97e16ae70ea9ff403bd4fe3731915432fe72cf84aa",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "docs/legacy/rollout-K1.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved.",
+      "status": "Archived only; active SD1.5 methods are B/C."
+    },
+    {
+      "name": "model-K2-B",
+      "source_config": "experiments/sd15-joint-repair-two80-20261015T002300Z/train-model-K2-B.json",
+      "source_sha256": "3090328e3469203694d7d4de8c0f3d968590747a590e65da21c7f28ad0416507",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/model-K2-B.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "model-K2-C",
+      "source_config": "experiments/sd15-joint-repair-two80-20261015T002300Z/train-model-K2-C.json",
+      "source_sha256": "bb6bdeccef7224fd9747ac42b15a54ace37adc79d21a94601e442c5d31c1dc13",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/model-K2-C.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "oracle-K1-C",
+      "source_config": "experiments/sd15-joint-repair-two80-20261015T002300Z/train-oracle-K1-C.json",
+      "source_sha256": "38c9ef6718b9ad6a89f2aa92fb82c99d8b36c03ef0b73c4d90f7ea8f9d6a9dae",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/oracle-K1-C.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "oracle-K2-C",
+      "source_config": "experiments/sd15-joint-repair-two80-20261015T002300Z/train-oracle-K2-C.json",
+      "source_sha256": "9a285591759864a25f643d9beafbf9cbd3ccbfdafc2bee79ef7665922b5a8916",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/oracle-K2-C.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "model-K2-B-6000",
+      "source_config": "experiments/sd15-joint-extend6000-20261015T135600Z/train-model-K2-B.json",
+      "source_sha256": "2196a68d6e7d694a67225e3115604ad2a8054e567d356e729421f05ec441d27d",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/model-K2-B-6000.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "model-K2-C-6000",
+      "source_config": "experiments/sd15-joint-extend6000-20261015T135600Z/train-model-K2-C.json",
+      "source_sha256": "2dd3095a521ef19d8c2efa628ced40944b9eb389936a5a696b28919b2fbaddc9",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/model-K2-C-6000.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "oracle-K1-C-6000",
+      "source_config": "experiments/sd15-joint-extend6000-20261015T135600Z/train-oracle-K1-C.json",
+      "source_sha256": "45f48714c66bfdb3d2131e3a62325eee0d7d8b1bce6608e25f907cc3de1559d2",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/oracle-K1-C-6000.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    },
+    {
+      "name": "oracle-K2-C-6000",
+      "source_config": "experiments/sd15-joint-extend6000-20261015T135600Z/train-oracle-K2-C.json",
+      "source_sha256": "570911392e9341c40c7aecb206d410e2250cb07a138ca6cfd7a46f7c1ddcda30",
+      "original_paths": {
+        "model.path": "/irip_16t_0/xietianyu_2024/model/runwayml/stable-diffusion-v1-5",
+        "data.pairs": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/pairs.jsonl",
+        "data.diagnostic_suite": "/irip_16t_0/xietianyu_2024/SemancticDPO/RobustDPO/data/pickapic_native_20261005_v1/diagnostic/prompts.jsonl"
+      },
+      "portable_config": "configs/historical/oracle-K2-C-6000.json",
+      "changes": "Only model/data location fields replaced with environment variables. Training hyperparameters preserved."
+    }
+  ]
+}
