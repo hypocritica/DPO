@@ -30,19 +30,19 @@ DEFAULT_PATHS = {
     'PICKAPIC_RAW': DATASETS / 'pickapic-v2',
     'HPDV2_RAW': DATASETS / 'hpdv2',
     'HPDV3_RAW': DATASETS / 'hpdv3',
-    'PICKSCORE_MODEL': MODELS / 'pickscore',
-    'PICKSCORE_PROCESSOR': MODELS / 'clip-h14',
-    'AESTHETIC_CLIP_MODEL': MODELS / 'clip-l14',
-    'HPSV2_MODEL_DIR': MODELS / 'hpsv2',
-    'HPSV3_MODEL_DIR': MODELS / 'hpsv3',
-    'HPSV3_BASE_MODEL': MODELS / 'Qwen2-VL-7B-Instruct',
-    'IMAGE_REWARD_MODEL_DIR': MODELS / 'image-reward',
-    'IMAGE_REWARD_TOKENIZER': MODELS / 'bert-base-uncased',
+    'PICKSCORE_MODEL': MODELS / 'preference/pickscore',
+    'PICKSCORE_PROCESSOR': MODELS / 'clip/clip-h14',
+    'AESTHETIC_CLIP_MODEL': MODELS / 'clip/clip-l14',
+    'HPSV2_MODEL_DIR': MODELS / 'preference/hpsv2',
+    'HPSV3_MODEL_DIR': MODELS / 'preference/hpsv3',
+    'HPSV3_BASE_MODEL': MODELS / 'backbones/Qwen2-VL-7B-Instruct',
+    'IMAGE_REWARD_MODEL_DIR': MODELS / 'preference/image-reward',
+    'IMAGE_REWARD_TOKENIZER': MODELS / 'backbones/bert-base-uncased',
 }
 
 # repo, repo type, destination variable, revision variable, file patterns
 ASSETS = {
-    'pickapic-v2': ('yuvalkirstain/pickapic_v2', 'dataset', 'PICKAPIC_RAW', 'PICKAPIC_REVISION', ['*.parquet', 'README.md']),
+    'pickapic-v2': ('liuhuohuo2/pick-a-pic-v2', 'dataset', 'PICKAPIC_RAW', 'PICKAPIC_REVISION', ['*.parquet', 'README.md']),
     'hpdv2': ('ymhao/HPDv2', 'dataset', 'HPDV2_RAW', 'HPDV2_REVISION', ['test.json', 'README.md']),
     'hpdv2-images': ('ymhao/HPDv2', 'dataset', 'HPDV2_RAW', 'HPDV2_REVISION', ['train.json', 'test.json', 'train.tar.gz', 'test.tar.gz', 'README.md']),
     'hpdv3': ('MizzenAI/HPDv3', 'dataset', 'HPDV3_RAW', 'HPDV3_REVISION', ['train.json', 'test.json', 'images.tar.gz.*', 'README.md']),
@@ -51,6 +51,8 @@ ASSETS = {
     'sdxl-vae': ('madebyollin/sdxl-vae-fp16-fix', 'model', 'SDXL_VAE', None, ['config.json', 'diffusion_pytorch_model.safetensors']),
     'sd35': ('stabilityai/stable-diffusion-3.5-medium', 'model', 'SD35_MODEL', 'SD35_REVISION', None),
     'pickscore': ('yuvalkirstain/PickScore_v1', 'model', 'PICKSCORE_MODEL', None, ['config.json', 'model.safetensors', 'pytorch_model.bin']),
+    'pickscore-processor': ('laion/CLIP-ViT-H-14-laion2B-s32B-b79K', 'model', 'PICKSCORE_PROCESSOR', None,
+                           ['*.json', 'vocab.json', 'merges.txt', 'tokenizer.model']),
     'clip-h14': ('laion/CLIP-ViT-H-14-laion2B-s32B-b79K', 'model', 'PICKSCORE_PROCESSOR', None,
                  ['*.json', 'vocab.json', 'merges.txt', 'tokenizer.model', 'open_clip_pytorch_model.bin']),
     'clip-l14': ('openai/clip-vit-large-patch14', 'model', 'AESTHETIC_CLIP_MODEL', None,
@@ -113,6 +115,7 @@ def select_files(asset, siblings, train_shards=None):
         'hpsv2':['HPS_v2_compressed.pt'], 'hpsv3':['HPSv3.safetensors','config.json'],
         'image-reward':['ImageReward.pt','med_config.json'],
         'clip-h14':['open_clip_pytorch_model.bin','preprocessor_config.json'],
+        'pickscore-processor':['preprocessor_config.json','tokenizer_config.json','vocab.json','merges.txt'],
     }.get(asset,[])
     if any(name not in files for name in required):
         raise ValueError(f'Missing expected upstream files for {asset}: {required}')

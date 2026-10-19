@@ -8,6 +8,27 @@
 
 训练监控只需要 `scorers.pickscore.model`（PickScore 模型）和 `processor`（CLIP-ViT-H/14 processor）。CLIP/HPSv2 的 `open_clip_source` 指向本地官方 HPSv2 checkout 中包含 `open_clip/` 的目录。HPSv2 默认 v2.0，对应 `HPS_v2_compressed.pt`；不能混用 v2.1 权重。
 
+`configs/scorers.json` 已填写 SLAI 的分类路径，模型根目录是 `/mnt/afs/L202500030/xietianyu/workspace/models`：
+
+| 子目录 | 用途 |
+|---|---|
+| `stable_diffusion/sd15` | SD1.5 基座，包含 VAE 和文本编码器；DPO reference 复用此基座 |
+| `preference/pickscore` | PickScore 权重 |
+| `clip/clip-h14` | PickScore processor，以及独立 CLIP 指标的 ViT-H/14 权重 |
+| `preference/hpsv2` | HPS v2.0 权重，`source/` 存官方代码 |
+| `clip/clip-l14` | LAION aesthetic 使用的 OpenAI CLIP ViT-L/14 |
+| `aesthetic/improved-aesthetic-predictor` | LAION aesthetic 的 MLP 评分头及官方代码 |
+
+已有 SD1.5 时，下载四项默认评估需要的模型和官方代码：
+
+```bash
+python scripts/download_assets.py download pickscore clip-h14 hpsv2 clip-l14
+bash scripts/download_sources.sh hpsv2 /mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv2/source
+bash scripts/download_sources.sh aesthetic /mnt/afs/L202500030/xietianyu/workspace/models/aesthetic/improved-aesthetic-predictor
+```
+
+美学评分头是官方仓库内的 `sac+logos+ava1-l14-linearMSE.pth`，没有它仅下载 CLIP-L 还不能算美学分。若暂时仅运行训练监控，可只下载 `pickscore pickscore-processor`；后者只含预处理/tokenizer 小文件，完整 CLIP 指标仍需 `clip-h14`。HPSv3 和 ImageReward 放在 `preference/`，它们的 Qwen/BERT 底座放在 `backbones/`，均保持可选。
+
 ## 运行
 
 ```bash

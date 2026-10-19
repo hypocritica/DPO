@@ -6,6 +6,8 @@
 
 ## 保留已有实验的数据划分
 
+旧实验使用本地 20 万条、98 个 Arrow 分片缓存，先按规范化 caption、保守词序/同义词族及图片 UID/SHA 的连通分量划分，seed17；lighthouse/bottle/armchair/vase 诊断域固定在 test。去除无效偏好对和超过 CLIP 长度的 caption 后保留 169,069 对：train 151,418、validation 8,689、test 8,962。缓存的最初下载仓库没有完整记录，不能据内容吻合断言下载自某个仓库。
+
 原数据迁移最稳妥的方式是导出图片，保留原split、caption、pair_id、偏好标签和图像SHA256：
 
 ```bash
@@ -40,6 +42,8 @@ python scripts/prepare_pickapic.py --raw /data/raw.jsonl --groups /data/groups.j
 ## 可选下载与处理工具
 
 已经有模型和 `pairs.jsonl` 时无需执行这些步骤。需要下载时，逐个指定输出目录：
+
+现在 Pick-a-Pic 下载源使用替代仓库 [liuhuohuo2/pick-a-pic-v2](https://huggingface.co/datasets/liuhuohuo2/pick-a-pic-v2)，其中保留 train、validation/test 及 test_unique 分片，图片位于 jpg_0/jpg_1。重新构建沿用下面的新流程，不保证与旧 20 万条缓存或 151,418 对训练集相同。下载工具记录替代仓库的 commit；全量约 335 GB，可先用 `--train-shards N` 下载明确记录的训练分片子集（这不是原 20 万条缓存）。
 
 ```bash
 python scripts/download_assets.py download sd15 --out /models/sd15
