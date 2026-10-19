@@ -1,6 +1,6 @@
 # Self Correct DPO
 
-首次从私有GitHub迁移并使用RTX5090，按 [完整SD1.5部署与对照指南](docs/SLAI_SD15_5090_GUIDE.md) 执行。5090使用独立 `requirements-5090.txt`；下面的torch2.3/NGC24.04环境说明用于旧GPU方案。
+首次从私有GitHub迁移并使用RTX5090，按 [完整SD1.5部署与对照指南](docs/SLAI_SD15_5090_GUIDE.md) 执行。新建独立Conda环境：5090使用 `requirements-5090.txt` / cu128；其他兼容GPU可使用 `requirements-cu124.txt` / cu124，详见 [Conda安装步骤](docs/SLAI.md#独立conda环境)。
 
 迁入SLAI后，统一编辑根目录 [paths.sh](paths.sh)。Pick-a-Pic v2、HPDv3与模型的下载、预处理和可迁移配置命令见 [SLAI数据准备](docs/SLAI_DATA.md)。下载与预处理是显式步骤，训练和评估入口继续只读取本地资产。
 
@@ -54,19 +54,25 @@ tests/ / docs/                    CPU 检查、方法和部署说明
 
 ## 环境
 
-先按 [SLAI.md](docs/SLAI.md) 获得 CCI/ACP GPU 资源，使用自己的环境与目录：
+在SLAI先安装自己的Conda，并在 [paths.sh](paths.sh) 设置持久目录和 `SCD_CONDA_BASE`。以下为5090环境；cu124环境与驱动检查见 [SLAI.md](docs/SLAI.md#独立conda环境)。环境和数据可以先在CPU容器准备，CUDA检查及训练在分配的GPU上执行。
 
 ```bash
-# 在所选 NGC24.04 镜像内，继承其 NVIDIA torch/torchvision 构建。
-python -m venv --system-site-packages .venv-slai23
-source .venv-slai23/bin/activate
-python -m pip install -r requirements.txt -r requirements-eval.txt
+source paths.sh
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
+conda create --prefix "$SCD_5090_ENV" python=3.10 pip -y
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
+python -m pip install torch==2.7.1 torchvision==0.22.1 \
+  --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -r requirements-5090.txt -r requirements-eval.txt
 python -m pip install --no-deps -e .
+python -m pip check
+export SCD_PYTHON="$CONDA_PREFIX/bin/python"
 ```
 
 模型、数据和评分权重均从本地加载。训练器和评估器不自动下载。`requirements-eval.txt` 适配官方 HPSv2 的本地 OpenCLIP 源码，不要整份安装 HPSv2 仓库的旧依赖以免改变本项目的 protobuf 等版本。
 
-截图镜像的CUDA12.4来自NVIDIA定制torch构建，不存在对应的官方torch2.3/cu124 pip安装组合。上述项目venv保留GPU构建，再安装本项目依赖，不直接替换原镜像的torch。其他机器新建环境时先安装与实际GPU/驱动匹配的torch/torchvision。独立Conda兼容测试使用torch2.3 CPU包，不能当作SLAI GPU镜像的逐项复刻。
+镜像自带CUDA12.4不强制新Conda环境也使用cu124；预编译PyTorch wheel携带其CUDA运行依赖，实际还需宿主驱动支持对应GPU和运行版本。5090按cu128配置；cu124 profile固定torch2.6.0/torchvision0.21.0。`requirements.txt`仍用于继承旧NGC定制torch2.3的环境，勿在上述新环境中混装。CPU兼容测试不能代替SLAI GPU验证。
 
 ## 准备监控和完整评估的 prompt
 

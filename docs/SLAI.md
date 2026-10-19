@@ -1,6 +1,6 @@
 # SLAI / SenseCore 部署
 
-RTX5090（Blackwell）请优先使用 [SLAI_SD15_5090_GUIDE.md](SLAI_SD15_5090_GUIDE.md) 的torch2.7.1/cu128独立环境与完整迁移步骤；不要使用下文torch2.3镜像中的GPU构建直接训练5090。
+RTX5090（Blackwell）请使用 [SLAI_SD15_5090_GUIDE.md](SLAI_SD15_5090_GUIDE.md) 的torch2.7.1/cu128独立Conda环境与完整迁移步骤；CUDA12.4镜像也可作为容器基础，但宿主驱动必须实际支持5090及cu128。
 
 统一路径与在线下载准备：先编辑根目录 [paths.sh](../paths.sh)，按 [SLAI_DATA.md](SLAI_DATA.md) 下载Pick-a-Pic v2、HPDv3及所需权重，生成清单和配置。下文原有环境与GPU资源说明仍适用。
 
@@ -10,7 +10,7 @@ UU进入的是Windows电脑。训练先在SenseCore申请CCI GPU容器，或创�
 
 1. 首次使用CCI，复制团队已成功运行的兼容GPU镜像和挂载配置，使用自己的实例名和目录。核对实际GPU型号、显存、卡数、CPU、内存、自动停止时间。
 2. 代码及恢复checkpoint建议放在自己可写的AFS子目录，例如`/mnt/afs/<your-directory>/self_correct_dpo`。AFS/AOSS挂载及写权限需核实；不要把别人环境路径当通用配置。滚动checkpoint使用原子rename及普通文件语义，放在支持这些操作的文件系统上。
-3. 当前用户选择的镜像为 `nvidia24.04-ubuntu22.04-py3.10-cuda12.4-cudnn9.1-torch2.3.0-transformerengine1.5`。requirements已针对Python3.10、torch2.3、Diffusers0.33.1、Transformers4.45.2、PEFT0.10.0、Accelerate0.34.2整理。旧实验的torch2.6/Transformers4.53.3环境保持原样，不因迁移修改。
+3. 当前用户选择的镜像为 `nvidia24.04-ubuntu22.04-py3.10-cuda12.4-cudnn9.1-torch2.3.0-transformerengine1.5`。用户在其中新建独立Conda环境，先安装匹配GPU的torch/torchvision，再安装共享DPO依赖；镜像自带torch2.3不决定新环境的torch版本。下文仍保留复用旧镜像构建的可选方式。
 4. 核对`nvidia-smi`及PyTorch。GPU名称包含5090或80g不代表实际卡型/显存；新GPU可能需要不同PyTorch构建。独立环境重新冒烟，不改团队共享环境。
 
 ```bash
@@ -21,7 +21,79 @@ python -c "import torch; print(torch.__version__, torch.version.cuda); print(tor
 
 默认一个GPU进程，也支持同一节点2/4/8卡DDP。SD1.5模板为全局batch256；`make_config.py --world-size 2`、`4` 或 `8` 会保持全局batch并调整累积。SDXL保持全局batch128。资源配置选择一个worker副本、节点内N张GPU；协调入口只启动一次，由它管理torchrun阶段。启动与恢复见[DISTRIBUTED.md](DISTRIBUTED.md)。
 
-## 所选镜像的环境
+## 独立Conda环境
+
+按用户的部署方式，在自己可写的AFS目录安装Conda，再单独创建训练环境。CPU容器可先安装包和准备数据；进入已分配GPU的容器后再验证CUDA并训练。Conda本身和环境都放在持久目录，CCI/ACP切换后挂载同一AFS。
+
+**镜像中的CUDA Toolkit、PyTorch wheel携带的CUDA运行依赖、宿主机NVIDIA驱动是三层不同的东西。** 本项目使用预编译PyTorch，不编译CUDA扩展；镜像自带cu124不禁止新环境安装cu128，也无需另外叠装整套cudatoolkit/cuDNN。但Conda安装不会升级宿主驱动；是否可用须在实际GPU节点检查。[PyTorch安装版本表](https://pytorch.org/get-started/previous-versions/)、[NVIDIA兼容说明](https://docs.nvidia.com/deploy/cuda-compatibility/latest/index.html)。
+
+| 实际GPU/方案 | 独立环境组合 | 项目依赖文件 |
+|---|---|---|
+| RTX5090 / Blackwell | Python3.10、torch2.7.1、torchvision0.22.1、cu128 | `requirements-5090.txt` |
+| 其他支持CUDA12.4的GPU | Python3.10、torch2.6.0、torchvision0.21.0、cu124 | `requirements-cu124.txt` |
+| 复用NGC24.04原有定制torch | 原torch2.3.0a0/torchvision0.18.0a0 | `requirements.txt`，见下一节 |
+
+5090所需Blackwell支持和cu128 wheel来自PyTorch2.7；不能因镜像名是cu124就给5090安装cu124 profile。[PyTorch发布说明](https://pytorch.org/blog/pytorch-2-7/)。
+
+先编辑 `paths.sh` 中的 `SCD_STORAGE_ROOT` 和 `SCD_CONDA_BASE`，后者指向你在SLAI实际安装的Miniconda根目录；这不是当前集群的Conda路径。先检查持久目录余量和AFS配额，环境连同GPU运行库需数GB空间。
+
+```bash
+cd /mnt/afs/<your-directory>/code/DPO
+source paths.sh
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
+df -h "$SCD_STORAGE_ROOT" /tmp
+
+# 以下二选一，在新的prefix创建环境；不覆盖已有venv或Conda环境。
+# A：RTX5090，镜像仍可为CUDA12.4，宿主驱动须支持5090/cu128。
+conda create --prefix "$SCD_5090_ENV" python=3.10 pip -y
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
+python -m pip install torch==2.7.1 torchvision==0.22.1 \
+  --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -r requirements-5090.txt -r requirements-eval.txt
+```
+
+如果实际GPU适用cu124，则选择下面这一组代替上面的A：
+
+```bash
+conda create --prefix "$SCD_CU124_ENV" python=3.10 pip -y
+conda activate "$SCD_CU124_ENV"
+export PYTHONNOUSERSITE=1
+python -m pip install torch==2.6.0 torchvision==0.21.0 \
+  --index-url https://download.pytorch.org/whl/cu124
+python -m pip install -r requirements-cu124.txt -r requirements-eval.txt
+```
+
+两组安装后均执行：
+
+```bash
+python -m pip install --no-deps -e .
+python -m pip check
+export SCD_PYTHON="$CONDA_PREFIX/bin/python"
+python -c "import sys, torch, torchvision, diffusers, transformers, peft, accelerate; print(sys.executable); print(torch.__version__, torchvision.__version__, torch.version.cuda); print(diffusers.__version__, transformers.__version__, peft.__version__, accelerate.__version__)"
+```
+
+在实际分配的GPU上执行下面检查；应打印所选profile的运行版本（cu124为12.4，5090为12.8）及真实GPU名称，并完成一次前反传：
+
+```bash
+nvidia-smi
+python - <<'PY'
+import torch
+assert torch.cuda.is_available(), 'CUDA unavailable: check the GPU allocation, driver and installed torch build'
+print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))
+x=torch.randn(128,128,device='cuda',dtype=torch.bfloat16,requires_grad=True)
+(x@x.T).float().square().mean().backward()
+torch.cuda.synchronize()
+assert torch.isfinite(x.grad).all()
+print('CUDA forward/backward passed')
+PY
+```
+
+后续新终端和ACP非交互启动均需先 `source paths.sh`、`source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"`、`conda activate "$SCD_5090_ENV"`（cu124改用对应prefix），并设置 `SCD_PYTHON="$CONDA_PREFIX/bin/python"`。以 `torch.version.cuda` 判断当前Python包的运行版本；`nvcc --version`描述镜像Toolkit，`nvidia-smi`显示驱动信息，三者不必显示相同CUDA版本。安装顺序不要再混用旧 `requirements.txt`，以免将torch降回2.3。
+
+两种独立GPU profile属于部署配置；尚未在SLAI完成安装或GPU验证。本地torch2.3 CPU测试不等价于它们。
+
+## 复用所选镜像原有torch的可选方式
 
 官方NGC24.04使用Python3.10、CUDA12.4.1、cuDNN9.1及定制PyTorch2.3.0a0构建，见[NVIDIA说明](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-04.html)。平台名称写torch2.3.0，进入后仍需核对实际版本/tag。官方普通torch2.3 wheel只有CUDA11.8/12.1和CPU构建，不能使用不存在的cu124安装命令代替该镜像，见[PyTorch版本表](https://pytorch.org/get-started/previous-versions/#v230)。
 

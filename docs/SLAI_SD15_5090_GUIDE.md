@@ -1,6 +1,6 @@
 # 私有GitHub → SLAI → RTX 5090：SD1.5普通DPO与纯K=2对照
 
-这份指南对应2026-10-19（北京时间）的代码。用户确认第一轮比较 **普通DPO（K=1）与纯K=2（不加model/oracle扰动）**。两组都从同一个SD1.5基座重新初始化LoRA，使用相同Pick-a-Pic训练清单、全局batch256、2000次优化器更新、seed17和固定监控面板。后续SDXL/SD3与HPDv3训练不挤入第一轮。命令中的 `<你的目录>`、`<EIP地址>` 等占位符须先替换为自己的实际值。
+这份指南对应2026-10-19（北京时间）的代码，环境步骤于2026-10-20按用户要求更新为独立Conda。用户确认第一轮比较 **普通DPO（K=1）与纯K=2（不加model/oracle扰动）**。两组都从同一个SD1.5基座重新初始化LoRA，使用相同Pick-a-Pic训练清单、全局batch256、2000次优化器更新、seed17和固定监控面板。后续SDXL/SD3与HPDv3训练不挤入第一轮。命令中的 `<你的目录>`、`<EIP地址>` 等占位符须先替换为自己的实际值。
 
 历史平台记录来自《回顾 SLAI 显卡申请流程》和《检查 SLAI 机器的服务器连接方式》：UU连接的是Windows；调试进入CCI，训练进入ACP；原有AFS挂载在 `/mnt/afs`。历史文档在另一台Mac，当前工作区只保留其已核实流程。团队入口、可用资源、镜像、挂载权限、EIP地址和SSH端口，以你当前控制台为准，本文不复制历史私人连接信息。
 
@@ -136,15 +136,17 @@ df -h "$SCD_STORAGE_ROOT" /tmp
 
 **5090属于Blackwell/sm_120；旧torch2.3 + CUDA12.4方案不适用。** PyTorch从2.7提供Blackwell支持及CUDA12.8 wheel。本文固定torch2.7.1 + torchvision0.22.1/cu128，以减少和已有Diffusers/PEFT代码的版本跨度，而不是安装“最新”所有包。[PyTorch发布说明](https://pytorch.org/blog/pytorch-2-7/)、[官方安装命令](https://pytorch.org/get-started/previous-versions/#v271)。
 
-控制台选择团队允许、支持5090的CUDA12.8或更高兼容镜像与驱动，Python优先3.10/3.11。不要仅因镜像名含“CUDA”就认定支持；进入实际GPU实例后必须执行CUDA计算检查。CUDA12.8 GA的开发驱动版本表为Linux570.26或以上，但具体5090平台驱动由SLAI管理，不能靠在venv安装包修复驱动问题。[NVIDIA说明](https://docs.nvidia.com/cuda/archive/12.8.0/cuda-toolkit-release-notes/index.html)。
+控制台选择团队允许、宿主驱动支持5090的资源，独立环境使用Python3.10。**镜像自带CUDA12.4也可以保留，在Conda环境内安装torch的cu128 wheel；无需先把镜像Toolkit升级为12.8。** 这不保证任意旧镜像均可运行，宿主驱动和实际CUDA计算必须通过第8节检查。CUDA12.8 GA的开发驱动版本表为Linux570.26或以上，具体5090平台驱动由SLAI管理，Conda安装包不会升级驱动。[NVIDIA说明](https://docs.nvidia.com/cuda/archive/12.8.0/cuda-toolkit-release-notes/index.html)、[Conda与镜像版本说明](SLAI.md#独立conda环境)。
 
 在CPU容器也可先把环境安装到AFS，切换GPU实例后再验证：
 
 ```bash
 source paths.sh
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
 python --version
-python -m venv "$SCD_5090_ENV"
-source "$SCD_5090_ENV/bin/activate"
+conda create --prefix "$SCD_5090_ENV" python=3.10 pip -y
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
 python -m pip install --upgrade pip
 python -m pip install torch==2.7.1 torchvision==0.22.1 \
   --index-url https://download.pytorch.org/whl/cu128
@@ -154,7 +156,7 @@ python -m pip check
 export SCD_PYTHON="$SCD_5090_ENV/bin/python"
 ```
 
-`requirements.txt`保留旧NGC/torch2.3方案；5090使用 `requirements-5090.txt`，不要再安装前者把torch降回2.3。两个profile复用 `requirements-common.txt`，不改原项目环境、不替换平台全局torch。此5090组合尚未在SLAI实机验证。
+先在自己的持久目录安装Miniconda，并把 `paths.sh` 中的 `SCD_CONDA_BASE` 改为它的实际根目录。上述环境prefix必须是新目录；已有venv使用新prefix重新创建Conda环境，不能把Conda激活命令用于旧venv。`requirements.txt`保留旧NGC/torch2.3方案；5090使用 `requirements-5090.txt`，不要再安装前者把torch降回2.3。各profile复用 `requirements-common.txt`。此5090组合尚未在SLAI实机验证。
 
 ## 6. 验证下载通路，下载与预处理
 
@@ -162,7 +164,9 @@ export SCD_PYTHON="$SCD_5090_ENV/bin/python"
 
 ```bash
 source paths.sh
-source "$SCD_5090_ENV/bin/activate"
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
 unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
 python scripts/download_assets.py plan pickapic-v2 hpdv3 sd15 pickscore clip-h14
 # 先下载小型测试metadata，验证实际文件下载通路。
@@ -206,7 +210,9 @@ CPU/主存是代码运行的建议起点，不是平台固定规格；全量清�
 
 ```bash
 source paths.sh
-source "$SCD_5090_ENV/bin/activate"
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
 export SCD_PYTHON="$SCD_5090_ENV/bin/python"
 nvidia-smi
 nvidia-smi topo -m
@@ -309,7 +315,9 @@ ACP任务中的启动命令示例（每个方法一个任务，依次运行，�
 bash -lc 'set -euo pipefail
 cd /mnt/afs/<你的目录>/code/DPO
 source paths.sh
-source "$SCD_5090_ENV/bin/activate"
+source "$SCD_CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$SCD_5090_ENV"
+export PYTHONNOUSERSITE=1
 export SCD_PYTHON="$SCD_5090_ENV/bin/python"
 exec bash launchers/train_ddp.sh configs/local-sd15-dpo-4gpu.json "$SCD_RUNS_ROOT/sd15-dpo-4gpu-v1"'
 ```

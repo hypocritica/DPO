@@ -15,7 +15,10 @@ export HF_HUB_CACHE="$HF_HOME/hub"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export TORCH_HOME="$SCD_STORAGE_ROOT/cache/torch"
 export PIP_CACHE_DIR="$SCD_STORAGE_ROOT/cache/pip"
+# Set this to YOUR persistent Miniconda installation before activating Conda.
+export SCD_CONDA_BASE="$SCD_STORAGE_ROOT/miniconda3"
 export SCD_5090_ENV="$SCD_STORAGE_ROOT/envs/sd15-5090"
+export SCD_CU124_ENV="$SCD_STORAGE_ROOT/envs/dpo-cu124"
 
 export SD15_MODEL="$SCD_MODELS_ROOT/sd15"
 export SDXL_MODEL="$SCD_MODELS_ROOT/sdxl-base"
