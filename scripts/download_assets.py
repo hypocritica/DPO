@@ -1,7 +1,8 @@
 """Explicit SLAI downloads. list is offline; plan/download query upstream metadata.
 
 No model imports, resource submissions, automatic extraction, or training.
-Pass --out for the destination. Large assets live outside the code checkout.
+Defaults use the SLAI workspace below; --out overrides any destination.
+HF_ENDPOINT can override the default https://hf-mirror.com mirror.
 """
 import argparse
 import fnmatch
@@ -14,6 +15,30 @@ import tarfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from self_correct_dpo.common import output_lock
+
+# Edit these paths if the workspace moves. No paths.sh is required.
+WORKSPACE = Path('/mnt/afs/L202500030/xietianyu/workspace')
+MODELS = WORKSPACE / 'models'
+DATASETS = WORKSPACE / 'datasets'
+os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+
+DEFAULT_PATHS = {
+    'SD15_MODEL': MODELS / 'stable_diffusion/sd15',
+    'SDXL_MODEL': MODELS / 'stable_diffusion/sdxl',
+    'SDXL_VAE': MODELS / 'stable_diffusion/sdxl-vae',
+    'SD35_MODEL': MODELS / 'stable_diffusion/sd35',
+    'PICKAPIC_RAW': DATASETS / 'pickapic-v2',
+    'HPDV2_RAW': DATASETS / 'hpdv2',
+    'HPDV3_RAW': DATASETS / 'hpdv3',
+    'PICKSCORE_MODEL': MODELS / 'pickscore',
+    'PICKSCORE_PROCESSOR': MODELS / 'clip-h14',
+    'AESTHETIC_CLIP_MODEL': MODELS / 'clip-l14',
+    'HPSV2_MODEL_DIR': MODELS / 'hpsv2',
+    'HPSV3_MODEL_DIR': MODELS / 'hpsv3',
+    'HPSV3_BASE_MODEL': MODELS / 'Qwen2-VL-7B-Instruct',
+    'IMAGE_REWARD_MODEL_DIR': MODELS / 'image-reward',
+    'IMAGE_REWARD_TOKENIZER': MODELS / 'bert-base-uncased',
+}
 
 # repo, repo type, destination variable, revision variable, file patterns
 ASSETS = {
@@ -39,9 +64,9 @@ ASSETS = {
 
 
 def env_path(name):
-    value = os.environ.get(name, '')
+    value = str(os.environ.get(name) or DEFAULT_PATHS.get(name, ''))
     if not value or 'CHANGE_ME' in value or '$' in value:
-        raise ValueError(f'Edit and source paths.sh first: {name}')
+        raise ValueError(f'Pass an explicit path or set {name}')
     return Path(value).expanduser().resolve()
 
 
@@ -127,12 +152,15 @@ def plan_asset(asset, *, revision=None, train_shards=None, api=None, out=None):
     requested = revision or (os.environ.get(revvar, 'main') if revvar else 'main')
     # A completed/partial directory remains pinned on rerun even if main moves.
     pinned = previous['revision'] if previous and revision is None else requested
-    info = (api or HfApi()).repo_info(repo, repo_type=kind, revision=pinned, files_metadata=True)
+    info = (api or HfApi(endpoint=os.environ['HF_ENDPOINT'])).repo_info(repo, repo_type=kind, revision=pinned, files_metadata=True)
     if previous and previous['revision'] != info.sha:
-        raise ValueError('Revision changed; choose a new destination in paths.sh')
+        raise ValueError('Revision changed; choose a new destination with --out')
     files = select_files(asset, info.siblings, train_shards)
     if target.exists() and not previous and any(target.iterdir()):
-        raise ValueError(f'Unmanaged nonempty destination: {target}; reuse explicitly via paths.sh or choose an empty download directory')
+        # huggingface-cli --local-dir uses the same cache as snapshot_download.
+        # Let the Hub validate/reuse those files and fetch anything still missing.
+        if not (target / '.cache/huggingface/download').is_dir():
+            raise ValueError(f'Nonempty destination has no Hugging Face download metadata: {target}; use a new --out directory')
     missing = sum(size for name, size in files.items()
                   if not (target / name).is_file() or (target / name).stat().st_size != size)
     ancestor = target
@@ -160,7 +188,8 @@ def download(plan):
         record = {**plan, 'files': all_files, 'complete': False}
         atomic_json(marker, record)
         snapshot_download(plan['repo_id'], repo_type=plan['repo_type'], revision=plan['revision'],
-                          allow_patterns=list(plan['files']), local_dir=str(target), max_workers=4)
+                          allow_patterns=list(plan['files']), local_dir=str(target), max_workers=4,
+                          endpoint=os.environ['HF_ENDPOINT'])
         for name, size in all_files.items():
             if not (target / name).is_file() or (target / name).stat().st_size != size:
                 raise ValueError(f'Incomplete downloaded file: {name}')
@@ -269,7 +298,7 @@ def main():
     if a.out and len(a.assets)>1:p.error('--out accepts one asset at a time')
     if a.action == 'list':
         for name, spec in ASSETS.items():
-            print(name, spec[0], spec[2])
+            print(name, spec[0], destination(name))
         return
     if a.action == 'extract-hpdv2':
         extract_hpdv2(a.out)
