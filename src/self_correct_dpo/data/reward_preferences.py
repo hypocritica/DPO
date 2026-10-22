@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from self_correct_dpo.common import digest, read_json, read_jsonl, sha256, verify_images
-from self_correct_dpo.data import semantic_scene_key
+from self_correct_dpo.data.pairs import semantic_scene_key
 
 SCHEMA = "canonical-scalar-preference-v1"
 

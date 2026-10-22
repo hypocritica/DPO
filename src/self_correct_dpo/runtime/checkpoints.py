@@ -54,6 +54,15 @@ def resolve_checkpoint(path):
     return path
 
 
+def recover_run(out):
+    """Finish an owned checkpoint transaction before resolving latest.json."""
+    out = Path(out)
+    recorded = read_json(out / 'training.json')
+    training = recorded['config']['training']
+    if training.get('checkpoint_policy') == 'bounded':
+        ManagedCheckpoints(out, recorded['run_id'], training).recover()
+
+
 def validate_extension(path, config, rows):
     from self_correct_dpo.training import checkpoint_manifest
     path = Path(path)
@@ -123,6 +132,9 @@ class ManagedCheckpoints:
                     staging.rmdir()  # Only an empty directory can predate its owner marker.
             self.data['pending'] = None
             atomic_json(self.index, self.data)
+        # Commit the new pointer before deleting the old slot, including crash recovery.
+        if self.data['rolling']:
+            self._pointer(self.data['rolling'])
         # Only paths already registered by this run may be removed. Never glob-delete.
         for name in list(self.data['garbage']):
             path = self.root / name
@@ -134,8 +146,6 @@ class ManagedCheckpoints:
                 shutil.rmtree(path)
             self.data['garbage'].remove(name)
         atomic_json(self.index, self.data)
-        if self.data['rolling']:
-            self._pointer(self.data['rolling'])
 
     def _begin(self, name, full_state):
         staging = self.root / ('.pending-' + name)

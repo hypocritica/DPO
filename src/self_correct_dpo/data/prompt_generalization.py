@@ -4,7 +4,7 @@ import math
 import random
 import statistics
 from self_correct_dpo.common import digest
-from self_correct_dpo.pickapic import prompt_key
+from self_correct_dpo.data.pickapic import prompt_key
 
 
 def freeze_suite(scenes, pairs):

@@ -1,6 +1,7 @@
 """Single-node LoRA B/C training with independent detached views on every rank."""
 from __future__ import annotations
 
+from self_correct_dpo.common import source_file
 from contextlib import nullcontext
 from functools import lru_cache
 import importlib.metadata
@@ -91,7 +92,7 @@ def validate_config(config, *, files=True):
         if training.get("consistency_weight", 0) != 0:
             raise ValueError("No orbit consistency term in the human baseline")
     if training.get("checkpoint_policy") == "bounded":
-        from self_correct_dpo.checkpoints import progress_steps
+        from self_correct_dpo.runtime.checkpoints import progress_steps
         progress_steps(training)
     diagnostic = training.get("diagnostic", {})
     if diagnostic and any(type(diagnostic.get(k)) is not int or diagnostic[k] < 1 for k in ("pairs", "every", "seed")):
@@ -102,12 +103,19 @@ def validate_config(config, *, files=True):
         raise ValueError("This research release supports SD1.5/SDXL DPO only")
     if arm not in {"B", "C"}:
         raise ValueError("SD1.5/SDXL support only B/C; C is the default. Legacy A/D configs are archives.")
-    if type(k) is not int or k not in (1, 2):
-        raise ValueError("B/C require integer noise_views=1/2")
+    if type(k) is not int or k < 1:
+        raise ValueError("B/C require a positive integer noise_views (K)")
     if type(training.get("world_size", 1)) is not int or training.get("world_size", 1) < 1:
         raise ValueError("world_size must be a positive integer")
+    if training.get('logging', 'tensorboard') not in ('tensorboard', 'wandb', 'all', 'none', 'jsonl'):
+        raise ValueError('logging must be tensorboard, wandb, all, none or jsonl')
+    if "paired_drift" in training:
+        from self_correct_dpo.algorithms.paired_drift import validate_paired_drift
+        validate_paired_drift(model, training)
+        if files and read_json(Path(model["path"]) / "scheduler/scheduler_config.json").get("prediction_type", "epsilon") != "epsilon":
+            raise ValueError("paired_drift supports epsilon prediction only")
     if "independent_rollout" in training:
-        from self_correct_dpo.independent import RolloutConfig
+        from self_correct_dpo.algorithms.independent import RolloutConfig
         total=read_json(Path(model['path'])/'scheduler/scheduler_config.json')['num_train_timesteps'] if files and model['family']=='sdxl' else 1000
         RolloutConfig(**training["independent_rollout"]).validate(total)
     return config
@@ -131,7 +139,7 @@ def check_rows(rows, config):
         raise ValueError("Empty training split")
     t = config["training"]
     if config["data"].get("diagnostic_suite"):
-        from self_correct_dpo.prompt_generalization import freeze_suite
+        from self_correct_dpo.data.prompt_generalization import freeze_suite
         from self_correct_dpo.common import load_suite
         suite_path = Path(config["data"]["diagnostic_suite"])
         frozen = read_json(suite_path.parent / "suite.json")
@@ -145,10 +153,10 @@ def check_rows(rows, config):
         if config["data"].get("require_reviewed", True) and row.get("reviewed") is not True:
             raise ValueError(f"Pair {row['pair_id']} has no recorded semantic/preference review")
         if config["data"].get("require_human_preference", False):
-            from self_correct_dpo.pickapic import validate_human_pair
+            from self_correct_dpo.data.pickapic import validate_human_pair
             validate_human_pair(row)
         if config["data"].get("require_auto_verified", False):
-            from self_correct_dpo.auto_preferences import validate_auto_pair
+            from self_correct_dpo.data.auto_preferences import validate_auto_pair
             validate_auto_pair(row)
         prompts = eligible_prompts(row, config["data"])
         if any(not p["prompt"].strip() for p in prompts):
@@ -217,7 +225,7 @@ def image_batch(rows, resolution, device, workers=0):
     import numpy as np
     import torch
     from PIL import Image, ImageOps
-    from self_correct_dpo.arrow_images import image_source
+    from self_correct_dpo.data.arrow_images import image_source
     def load_pair(row):
         images=[]
         for field in ("winner", "loser"):
@@ -262,7 +270,7 @@ def save_checkpoint(path, backend, optimizer, scheduler, generator, step, run_id
         write_json(temporary / "owner.json", {"run_id": run_id})
     backend.save_adapter(temporary / "adapter")
     if full_state:
-        from self_correct_dpo.distributed import capture_rng
+        from self_correct_dpo.runtime.distributed import capture_rng
         torch.save({"optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
                 "step": step, **capture_rng(generator),
                 "rank_states": getattr(backend, "resume_rank_states", None), "cost": cost}, temporary / "state.pt")
@@ -272,6 +280,11 @@ def save_checkpoint(path, backend, optimizer, scheduler, generator, step, run_id
             "files": {str(p.relative_to(temporary)): sha256(p) for p in sorted(temporary.rglob("*")) if p.is_file()}}
     info["checkpoint_id"] = digest(info)
     write_json(temporary / "checkpoint.json", info)
+    # A committed directory must contain flushed state, not only a renamed path.
+    for file in temporary.rglob('*'):
+        if file.is_file():
+            with file.open('rb') as handle:
+                os.fsync(handle.fileno())
     temporary.rename(path)
     return info
 
@@ -279,10 +292,10 @@ def save_checkpoint(path, backend, optimizer, scheduler, generator, step, run_id
 def train(config, rows, out, *, resume=None, extend_from=None, execution=None, backend_factory=None, device="cuda", validation_rows=None, stop_after_step=None):
     import torch
     import numpy as np
-    from self_correct_dpo.losses import preference_loss
+    from self_correct_dpo.algorithms.losses import preference_loss
     from self_correct_dpo.models import PreferenceBackend
-    from self_correct_dpo.checkpoints import resolve_checkpoint, validate_extension, ManagedCheckpoints, progress_steps
-    from self_correct_dpo.distributed import initialize, average_metrics, gather_rng, restore_rng
+    from self_correct_dpo.runtime.checkpoints import resolve_checkpoint, validate_extension, ManagedCheckpoints, progress_steps
+    from self_correct_dpo.runtime.distributed import initialize, average_metrics, gather_rng, restore_rng
     import torch.distributed as dist
     world, rank, device = initialize(device)
     session_started = time.monotonic()
@@ -297,6 +310,11 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         parent = validate_extension(extend_from, config, rows)
     resume_requested = Path(resume).resolve() if resume else None
     if resume:
+        from self_correct_dpo.runtime.checkpoints import recover_run
+        if rank == 0:
+            recover_run(out)
+        if world > 1:
+            dist.barrier()
         resume = resolve_checkpoint(resume)
     check_rows(rows, config)
     out = Path(out).resolve()
@@ -304,17 +322,19 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         raise ValueError("Launched world size differs from the training configuration")
     model_identity = model_artifact_identity(config["model"])
     identity = {"config": config, "pairs_id": digest(rows), "base_identity": model_identity,
-                "code": {p.name: sha256(p) for p in [Path(__file__), Path(__file__).with_name("models.py"),
-                         Path(__file__).with_name("losses.py"), Path(__file__).with_name("formal.py"), Path(__file__).with_name("independent.py"), Path(__file__).with_name("joint.py"), Path(__file__).with_name("data.py"), Path(__file__).with_name("architecture.py"),
-                         Path(__file__).with_name("auto_preferences.py"), Path(__file__).with_name("reward_preferences.py"),
-                         Path(__file__).with_name("pickapic.py"), Path(__file__).with_name("checkpoints.py"),
-                         Path(__file__).with_name("diagnostics.py"), Path(__file__).with_name("prompt_generalization.py"),
-                         Path(__file__).with_name("distributed.py"), Path(__file__).with_name("arrow_images.py"),
-                         Path(__file__).with_name("common.py"), Path(__file__).with_name("config.py"), Path(__file__).with_name("train.py"),
-                         *[Path(__file__).with_name(name) for name in ("pipeline.py","evaluation.py","scorers.py","metrics.py","benchmarks.py","render.py")]]}}
+                "code": {p.name: sha256(p) for p in [Path(__file__), source_file("models.py"),
+                         source_file("losses.py"), source_file("formal.py"), source_file("independent.py"), source_file("joint.py"), source_file("data.py"), source_file("architecture.py"),
+                         source_file("auto_preferences.py"), source_file("reward_preferences.py"),
+                         source_file("pickapic.py"), source_file("checkpoints.py"),
+                         source_file("diagnostics.py"), source_file("prompt_generalization.py"),
+                         source_file("distributed.py"), source_file("arrow_images.py"),
+                         source_file("common.py"), source_file("config.py"), source_file("train.py"),
+                         *[source_file(name) for name in ("pipeline.py","evaluation.py","scorers.py","metrics.py","benchmarks.py","render.py","resources.py","tracking.py")]]}}
+    if "paired_drift" in t:
+        identity["code"]["paired_drift.py"] = sha256(source_file("paired_drift.py"))
     identity["validation_pairs_id"] = digest(validation_rows or [])
     if config.get('evaluation',{}).get('enabled'):
-        from self_correct_dpo.evaluation import validate_evaluation
+        from self_correct_dpo.evaluation.runner import validate_evaluation
         settings=config['evaluation']
         identity['monitor_inputs']=validate_evaluation(settings['prompts'],settings['scorers_config'],
             ['pickscore'],expected_prompts=settings.get('expected_prompts',128))
@@ -366,13 +386,16 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     torch.manual_seed(config["seed"])
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config["seed"])
-    from self_correct_dpo.formal import MultiViewBackend, sample_views, formal_loss
+    from self_correct_dpo.algorithms.formal import MultiViewBackend, sample_views, formal_loss
     arm = t.get("formal_arm", "C")
     if arm not in {"B", "C"}:
         raise ValueError("SD1.5 supports only B/C")
     sampler = sample_views
-    from self_correct_dpo.joint import JointRolloutBackend
+    from self_correct_dpo.algorithms.joint import JointRolloutBackend
     backend_class = JointRolloutBackend if 'independent_rollout' in t else MultiViewBackend
+    if "paired_drift" in t:
+        from self_correct_dpo.algorithms.paired_drift import PairedDriftBackend
+        backend_class = PairedDriftBackend
     backend = (backend_factory or backend_class)(config["model"], t, device)
     source_checkpoint = resume or extend_from
     if source_checkpoint:
@@ -447,9 +470,9 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     if world > 1:
         dist.barrier()
     writer = None
-    if rank == 0 and t.get("logging") == "tensorboard":
-        from torch.utils.tensorboard import SummaryWriter
-        writer = SummaryWriter(str(out / "tensorboard"))
+    if rank == 0 and t.get('logging', 'jsonl') not in ('none', 'jsonl'):
+        from self_correct_dpo.runtime.tracking import ExperimentTracker
+        writer = ExperimentTracker(config, out, run_id, start_step=step, resume=bool(source_checkpoint))
         writer.add_text("configuration", json.dumps(config, indent=2), 0)
     stopped = [False]
     previous = {}
@@ -467,7 +490,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     progress_points = progress_steps(t) if t.get("checkpoint_policy") == "bounded" else []
     diagnostic = t.get("diagnostic")
     def run_diagnostics():
-        from self_correct_dpo.diagnostics import dpo_diagnostic
+        from self_correct_dpo.runtime.diagnostics import dpo_diagnostic
         diagnostics = [dpo_diagnostic(backend, rows, config, out, step, device, attempt, split="train")]
         if validation_rows:
             diagnostics.append(dpo_diagnostic(backend, validation_rows, config, out, step, device, attempt, split="validation"))
@@ -495,7 +518,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                     synchronization = backend.distributed_model.no_sync() if world > 1 and inner < accumulation - 1 else nullcontext()
                     with synchronization:
                         values = backend.score_errors(images, prompts, generator)
-                        from self_correct_dpo.losses import preference_logits
+                        from self_correct_dpo.algorithms.losses import preference_logits
                         import torch.nn.functional as F
                         logits = preference_logits(values["policy_errors"], values["reference_errors"], t["beta"])
                         mean = logits.mean(1)
@@ -556,7 +579,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                 if rank == 0:
                     print(json.dumps({k: record[k] for k in ("step", "loss", "grad_norm", "learning_rate")}), flush=True)
                     if writer:
-                        for key,value in {**metrics_sum,"learning_rate":used_lr,"pairs_seen":cost["pairs_seen"],
+                        for key,value in {**metrics_sum,"grad_norm":float(norm),"learning_rate":used_lr,"pairs_seen":cost["pairs_seen"],
                                           "data_passes":cost["pairs_seen"]/len(rows),"seconds_per_update":time.monotonic()-started}.items():
                             writer.add_scalar("training/"+key,value,step)
                         if device.startswith("cuda"):writer.add_scalar("resources/peak_cuda_GiB",record["peak_cuda_bytes"]/1024**3,step)
@@ -582,7 +605,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
-    if writer: writer.close()
+        if writer:
+            writer.close()
     sessions = out / "sessions"
     if rank == 0: sessions.mkdir(exist_ok=True)
     if world > 1: dist.barrier()

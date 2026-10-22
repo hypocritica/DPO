@@ -12,11 +12,11 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 import numpy as np
 import torch
-from self_correct_dpo.checkpoints import atomic_json
+from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.common import read_json
-from self_correct_dpo.distributed import capture_rng, cleanup
-from self_correct_dpo.independent import RolloutConfig
-from self_correct_dpo.joint import JointRolloutBackend
+from self_correct_dpo.runtime.distributed import capture_rng, cleanup
+from self_correct_dpo.algorithms.independent import RolloutConfig
+from self_correct_dpo.algorithms.joint import JointRolloutBackend
 from self_correct_dpo.training import train
 
 

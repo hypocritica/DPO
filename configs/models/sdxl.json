@@ -1,0 +1,34 @@
+{
+  "model": {
+    "family": "sdxl",
+    "path": "${SDXL_MODEL}",
+    "revision": "FILL_VERIFIED_SDXL_BASE_REVISION"
+  },
+  "data": {
+    "pairs": "${PICKAPIC_SDXL_PREPARED}/pairs.jsonl"
+  },
+  "training": {
+    "resolution": 1024,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 128,
+    "beta": 500.0,
+    "warmup_steps": 0,
+    "vae_batch_size": 1
+  },
+  "evaluation": {
+    "prompts": "${MONITOR_PROMPTS_SDXL}",
+    "sampling": {
+      "scheduler": "EulerDiscreteScheduler",
+      "dtype": "bfloat16",
+      "height": 1024,
+      "width": 1024,
+      "num_inference_steps": 30,
+      "guidance_scale": 5.0,
+      "negative_prompt": "",
+      "seeds": [
+        17
+      ],
+      "prompt_truncation": "truncate"
+    }
+  }
+}

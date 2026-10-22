@@ -1,4 +1,5 @@
 """Pause training at fixed steps; evaluate after the trainer releases its GPU memory."""
+from self_correct_dpo.common import source_file
 import csv
 import json
 from pathlib import Path
@@ -8,10 +9,10 @@ import subprocess
 import sys
 import uuid
 
-from self_correct_dpo.benchmarks import prompt_key
-from self_correct_dpo.checkpoints import atomic_json, resolve_checkpoint
+from self_correct_dpo.data.benchmarks import prompt_key
+from self_correct_dpo.runtime.checkpoints import atomic_json, resolve_checkpoint
 from self_correct_dpo.common import digest, load_suite, read_json, read_jsonl, sha256, write_json
-from self_correct_dpo.evaluation import checkpoint_adapter, evaluate_checkpoint, run_command, validate_evaluation, verify_complete
+from self_correct_dpo.evaluation.runner import checkpoint_adapter, evaluate_checkpoint, run_command, validate_evaluation, verify_complete
 
 
 def evaluation_steps(max_steps, settings):
@@ -35,7 +36,7 @@ def monitor_preflight(config, train_rows):
     settings=config['evaluation']
     evaluation_steps(config['training']['max_steps'],settings)
     keep_images(0,config['training']['max_steps'],settings)
-    from self_correct_dpo.render import validate_config as validate_render
+    from self_correct_dpo.evaluation.render import validate_config as validate_render
     validate_render({'model':config['model'],'sampling':settings['sampling']},'base')
     suite=load_suite(settings['prompts'])
     train_keys={prompt_key(p['prompt']) for row in train_rows for p in row['prompts']}
@@ -46,7 +47,7 @@ def monitor_preflight(config, train_rows):
     expected=settings.get('expected_prompts',128)
     result=validate_evaluation(settings['prompts'],settings['scorers_config'],['pickscore'],expected_prompts=expected)
     return {'settings':settings,'inputs':result,'code_sha256':{
-        name:sha256(Path(__file__).with_name(name)) for name in
+        name:sha256(source_file(name)) for name in
         ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py')}}
 
 
@@ -54,8 +55,14 @@ def training_command(config,config_path,out,*,execution,stop_after_step=None,res
     world=config['training'].get('world_size',1)
     command=[sys.executable,'-m']
     if world>1:
-        command+=['torch.distributed.run','--standalone','--nnodes=1',f'--nproc-per-node={world}',
-                  '--max-restarts=0','--module']
+        if config['training'].get('launcher', 'torchrun') == 'accelerate':
+            precision = 'bf16' if config['training'].get('dtype') == 'bfloat16' else 'no'
+            command+=['accelerate.commands.launch','--multi_gpu','--num_machines=1', '--machine_rank=0', '--gpu_ids=all',
+                      f'--num_processes={world}', f'--mixed_precision={precision}',
+                      '--dynamo_backend=no', '--max_restarts=0', '--module']
+        else:
+            command+=['torch.distributed.run','--standalone','--nnodes=1',f'--nproc-per-node={world}',
+                      '--max-restarts=0','--module']
     command+=['self_correct_dpo.train','--config',str(Path(config_path).resolve()),
               '--out',str(Path(out).resolve()),'--internal-stage','--stage-id',uuid.uuid4().hex,'--execution',execution['mode']]
     if execution.get('run_label'):command+=['--run-label',execution['run_label']]
@@ -144,7 +151,7 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
     else: current=0
     frozen=monitor_identity or {'settings':settings,'inputs':validate_evaluation(settings['prompts'],
         settings['scorers_config'],['pickscore'],expected_prompts=settings.get('expected_prompts',128)),
-        'code_sha256':{name:sha256(Path(__file__).with_name(name)) for name in
+        'code_sha256':{name:sha256(source_file(name)) for name in
                       ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py')}}
     input_file=out/'monitor-inputs.json'
     if input_file.exists() and read_json(input_file)!=frozen:
@@ -163,6 +170,9 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
         evaluator(model,adapter,settings['prompts'],settings['scorers_config'],['pickscore'],
             settings['sampling'],path,step=step,keep_images=keep_images(step,budget,settings),
             execution=execution,expected_prompts=settings.get('expected_prompts',128))
+        if config['training'].get('logging', 'jsonl') not in ('none', 'jsonl'):
+            from self_correct_dpo.runtime.tracking import log_evaluation
+            log_evaluation(config, out, step, verify_complete(path))
     targets=sorted(set(s for s in planned if current<s<=end)|({end} if end>current else set()))
     if not targets and not out.exists(): raise ValueError('No training updates requested')
     command=None

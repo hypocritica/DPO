@@ -12,8 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from self_correct_dpo.common import sha256, write_json, write_jsonl
-from self_correct_dpo.data import load_pairs
-from self_correct_dpo.arrow_images import image_source
+from self_correct_dpo.data.pairs import load_pairs
+from self_correct_dpo.data.arrow_images import image_source
 
 
 def export_data(manifest, out):

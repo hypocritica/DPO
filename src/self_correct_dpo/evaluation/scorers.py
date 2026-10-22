@@ -3,6 +3,7 @@
 The defaults follow Linear-DPO revision 663179c7: raw paired cosine for
 PickScore, ViT-H/14 CLIP and HPS v2.0; improved LAION aesthetic MLP.
 """
+from self_correct_dpo.common import source_file
 import importlib.util
 import sys
 from pathlib import Path
@@ -22,7 +23,7 @@ def scorer_identity(metric, spec):
                 'hpsv3':('source','model','checkpoint','config'),
                 'image_reward':('source','checkpoint','config','tokenizer')}[metric]
     if metric in ('hpsv3','image_reward'):
-        from self_correct_dpo.optional_scorers import validate_spec
+        from self_correct_dpo.evaluation.optional_scorers import validate_spec
         validate_spec(metric,spec)
     if spec.get('python'):
         required=(*required,'python')
@@ -64,7 +65,7 @@ def scorer_identity(metric, spec):
                               'official HPSv3 multimodal processor' if metric=='hpsv3' else 'CLIP context length, benchmark convention',
             'source_sha256':sha256(__file__)}
     if metric in ('hpsv3','image_reward'):
-        result['adapter_sha256']=sha256(Path(__file__).with_name('optional_scorers.py'))
+        result['adapter_sha256']=sha256(source_file('optional_scorers.py'))
     return result
 
 
@@ -100,7 +101,7 @@ def _open_clip(source):
 
 def load_scorer(metric, spec, device='cuda'):
     if metric in ('hpsv3','image_reward'):
-        from self_correct_dpo.optional_scorers import load_optional_scorer
+        from self_correct_dpo.evaluation.optional_scorers import load_optional_scorer
         return load_optional_scorer(metric,spec,device=device)
     import torch
     import torch.nn.functional as F

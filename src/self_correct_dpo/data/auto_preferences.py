@@ -62,7 +62,7 @@ def judge_questions(metadata):
 def validate_auto_pair(row):
     ann = row.get("annotation", {})
     if ann.get("kind") == "canonical-scalar-preference-v1":
-        from self_correct_dpo.reward_preferences import validate_reward_pair
+        from self_correct_dpo.data.reward_preferences import validate_reward_pair
         return validate_reward_pair(row)
     if row.get("reviewed") is not False or ann.get("kind") != SCHEMA or ann.get("passed") is not True:
         raise ValueError("AI preferences require explicit passed provenance and reviewed=false")

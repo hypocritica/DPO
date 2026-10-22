@@ -1,7 +1,7 @@
 {
   "model": {
     "family": "sd15",
-    "path": "${MODEL_PATH}",
+    "path": "${SD15_MODEL}",
     "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
   },
   "sampling": {

@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from self_correct_dpo.benchmarks import prepare_panels
+from self_correct_dpo.data.benchmarks import prepare_panels
 
 
 def main():

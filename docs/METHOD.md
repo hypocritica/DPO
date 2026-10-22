@@ -1,5 +1,7 @@
 # 方法
 
+算法边界、历史证据与下一轮消融顺序见 [算法审查与逐轮改进计划](ALGORITHM_REVIEW_AND_PLAN.md)。
+
 每个偏好对按 winner、loser 排列。两张图共享扩散时间与高斯噪声，使用各自的干净 latent；不同视图独立采样。每张图的 VAE posterior 只采样一次，在同一图像对的所有视图间复用。
 
 ## DPO 与 B/C
@@ -12,7 +14,7 @@ B = mean_k softplus(-m_k)
 C = softplus(-mean_k m_k)
 ```
 
-K=1 时 B/C 相同。SD1.5 默认 beta=5000，SDXL 默认 beta=500。普通 DPO 使用 K=1 且移除 `independent_rollout`；仅将 K 改为1不会移除扰动。
+B/C 支持任意正整数 K，默认 K=2，可通过 `--views 3`、`--views 4` 等设置。K=1 时 B/C 相同。SD1.5 默认 beta=5000，SDXL 默认 beta=500。普通 DPO 使用 K=1 且移除 `independent_rollout`；仅将 K 改为1不会移除扰动。
 
 策略使用 UNet LoRA；基座、VAE、文本编码器冻结。参考通过禁用 LoRA 得到，策略和参考使用相同状态、条件与标签。当前训练保留所有视图的策略计算图，对联合 loss 反传一次；每个 microbatch 除以梯度累积次数，DDP 对 rank 梯度取平均。一个 step 是完成累积后的一次全局参数更新。
 

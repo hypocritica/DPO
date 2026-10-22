@@ -63,7 +63,7 @@ def validate_split_disjointness(rows):
             raise ValueError(f"Invalid split: {split!r}")
         keys = [("scene_id", str(row["scene_id"])), ("scene_semantics", semantic_scene_key(row))]
         if row.get("human_preference") or row.get("prompt_group_id"):
-            from self_correct_dpo.pickapic import prompt_key
+            from self_correct_dpo.data.pickapic import prompt_key
             keys.extend(("prompt", prompt_key(p["prompt"])) for p in row["prompts"])
             if row.get("prompt_group_id"):
                 keys.append(("prompt_group", row["prompt_group_id"]))
