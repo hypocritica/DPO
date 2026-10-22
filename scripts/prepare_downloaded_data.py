@@ -96,23 +96,54 @@ def tokenizer_predicate(model, family):
     return allowed
 
 
+def pickapic_source(raw, revision=None):
+    """Inspect Parquet inventory; a data/ subdirectory may use its parent's receipt."""
+    raw = Path(raw).resolve()
+    if not raw.is_dir():
+        raise FileNotFoundError(f'Pick-a-Pic raw directory does not exist: {raw}')
+    receipt = provenance = None
+    files = None
+    for root in (raw, raw.parent):
+        marker = root / '.scd-download.json'
+        if not marker.is_file():
+            continue
+        candidate = json.loads(marker.read_text())
+        selected = []
+        for name, size in candidate.get('files', {}).items():
+            if not name.endswith('.parquet'):
+                continue
+            file = (root / name).resolve()
+            if not file.is_relative_to(root):
+                raise ValueError(f'Download receipt path escapes dataset root: {name}')
+            if file.is_relative_to(raw):
+                selected.append((file, size))
+        if root != raw and not selected:
+            continue
+        if not candidate.get('complete'):
+            raise ValueError(f'Download is incomplete: {marker}')
+        for file, size in selected:
+            if not file.is_file() or file.stat().st_size != size:
+                raise ValueError(f'Download inventory changed: {file}')
+        receipt, provenance = candidate, marker
+        files = sorted(file for file, _ in selected)
+        break
+    if files is None:
+        files = sorted(raw.rglob('*.parquet'))
+    splits = {parquet_split(str(file.relative_to(raw))) for file in files}
+    if not {'train', 'test_unique'}.issubset(splits):
+        raise ValueError(f'Need train and official test_unique Parquet files under {raw}')
+    revision = revision or (receipt['repo_id'] + '@' + receipt['revision'] if receipt else None)
+    if not revision or any(word in revision.upper() for word in ('REPLACE_WITH', 'FILL_', 'TODO')):
+        raise ValueError('No verified dataset revision found. Check the original download record and '
+                         'supply --revision with its real repository and revision; do not use a placeholder.')
+    return files, revision, receipt, provenance
+
+
 def prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, hpdv3_test=None, revision=None, allowed=None):
     raw, out = Path(raw).resolve(), Path(out).resolve()
     if out.exists():
         raise FileExistsError(out)
-    provenance = raw / '.scd-download.json'
-    receipt = json.loads(provenance.read_text()) if provenance.exists() else None
-    if receipt and not receipt.get('complete'):
-        raise ValueError('Download is incomplete; resume it before preparation')
-    revision = revision or (receipt['repo_id'] + '@' + receipt['revision'] if receipt else None)
-    if not revision:
-        raise ValueError('Supply --revision for manually downloaded data, or use download_assets.py')
-    # Ignore unrelated leftover files: the download receipt is the exact sample inventory.
-    files = sorted(raw / name for name in receipt['files'] if name.endswith('.parquet')) if receipt else sorted(raw.rglob('*.parquet'))
-    if receipt:
-        for file in files:
-            if not file.is_file() or file.stat().st_size != receipt['files'][str(file.relative_to(raw))]:
-                raise ValueError(f'Download inventory changed: {file}')
+    files, revision, receipt, provenance = pickapic_source(raw, revision)
     training = [f for f in files if parquet_split(str(f.relative_to(raw))) == 'train']
     heldout = [f for f in files if parquet_split(str(f.relative_to(raw))) in ('test', 'test_unique', 'validation', 'validation_unique')]
     unique_test = [f for f in files if parquet_split(str(f.relative_to(raw))) == 'test_unique']
@@ -204,7 +235,8 @@ def prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, hp
     inventory = [{'file':str(f.relative_to(raw)), 'bytes':f.stat().st_size, 'mtime_ns':f.stat().st_mtime_ns} for f in files]
     write_json(out / 'audit.json', {**report, 'raw_train_rows':raw_count, 'family':family,
         'exclusions':dict(Counter(r['reason'] for r in exclusions)), 'source_inventory':inventory,
-        'download_receipt':receipt, 'external_test_sha256':{str(p):sha256(p) for p in external_tests},
+        'download_receipt':receipt, 'download_receipt_file':str(provenance) if provenance else None,
+        'external_test_sha256':{str(p):sha256(p) for p in external_tests},
         'model':str(model), 'images_written_bytes':pool.bytes_written,
         'preparation_code_sha256':sha256(__file__),
         'model_download_receipt':json.loads((Path(model)/'.scd-download.json').read_text()) if (Path(model)/'.scd-download.json').is_file() else None,

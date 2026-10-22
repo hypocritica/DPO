@@ -8,7 +8,7 @@
 
 训练监控只需要 `scorers.pickscore.model`（PickScore 模型）和 `processor`（CLIP-ViT-H/14 processor）。CLIP/HPSv2 的 `open_clip_source` 指向本地官方 HPSv2 checkout 中包含 `open_clip/` 的目录。HPSv2 默认 v2.0，对应 `HPS_v2_compressed.pt`；不能混用 v2.1 权重。
 
-`configs/resources.json` 已按迁移后的目录设置，模型根目录是 `/mnt/aoss/xietianyu/datasets/models`，分类子目录保持原结构：
+`configs/resources.json` 已按最终目录设置，模型根目录是 `/mnt/aoss/xietianyu/models`，分类子目录保持原结构：
 
 | 子目录 | 用途 |
 |---|---|

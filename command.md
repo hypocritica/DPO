@@ -1,13 +1,30 @@
-# Self Correct DPO 命令
+# 商汤大装置：从部署到 DPO 实验
 
-以下相对路径以本模块仓库根目录为工作目录。远程训练前先取得 2 / 4 / 8 张 5090 或 H100；本集群训练必须在 Slurm 分配内。本文件只提供命令，不提交作业。
+按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
+
+## 先更新代码
+
+截图中的远程代码目录为下面的位置。旧实验需要续训时，保留其冻结 checkout，新版本用于新实验。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+git switch main
+git pull --ff-only origin main
+git rev-parse HEAD
+```
 
 ## 环境和路径
 
+截图中已有 `dpo` 环境，优先复用。新容器如果没有该环境，先执行 `conda create -n dpo python=3.10 -y`。不要在有活跃训练的环境里安装或更换依赖。
+
 ```bash
 # 在项目独立环境中执行；不向 base 安装。
+conda activate dpo
+python --version
+which python
 python -m pip install -r requirements.txt
 python -m pip install --no-deps -e .
+python -m pip check
 
 # 可选 W&B：
 python -m pip install 'wandb>=0.17,<1'
@@ -16,9 +33,9 @@ python -m pip install 'wandb>=0.17,<1'
 cat configs/resources.json
 # 远程私有路径可以写进 configs/resources.local.json，只填写需覆盖的键。
 # 迁移后保留原有子目录结构：
-# 模型根目录：/mnt/aoss/xietianyu/datasets/models
-# 数据集根目录：/mnt/aoss/xietianyu/datasets/datasets
-# Pick-a-Pic原始数据：/mnt/aoss/xietianyu/datasets/datasets/pickapicv2/data
+# 模型根目录：/mnt/aoss/xietianyu/models
+# 数据集根目录：/mnt/aoss/xietianyu/datasets
+# Pick-a-Pic原始数据：/mnt/aoss/xietianyu/datasets/pickapicv2/data
 
 # 可选：将同一份资源表导出为下面命令中的shell变量。
 source paths.sh
@@ -26,13 +43,29 @@ source paths.sh
 
 `RUNS_ROOT` 必须是驱逐后仍存在的持久目录。SDXL、SD3、HPDv3 尚未下载，位置已经预留。SD3 当前仅提供路径和下载选项，训练入口仍为 SD1.5/SDXL。
 
+本项目固定使用 `requirements.txt` 中的 PyTorch 2.7.1 + cu128、torchvision 0.22.1 + cu128 和 Accelerate 0.34.2。PyTorch 2.7 开始提供 Blackwell / CUDA 12.8 支持，参见 [官方说明](https://pytorch.org/blog/pytorch-2-7/) 和 [2.7.1 安装版本表](https://pytorch.org/get-started/previous-versions/)。容器的 `nvcc` 版本不能替代实际 PyTorch CUDA kernel 检查；不要把本机 CPU 测试环境复制到5090容器。
+
 迁移后若旧终端执行过 `source paths.sh`，请在新终端激活环境后读取新配置；已导出的旧资源环境变量会优先于资源表。`configs/resources.local.json` 中若有旧路径，也需一起更新。迁移只改变资源前缀，SD1.5 仍在 `stable_diffusion/sd15`，PickScore 仍在 `preference/pickscore`，HPDv2/HPDv3 仍在各自的 `hpdv2` / `hpdv3` 子目录。
+
+## 检查资源和已分配 GPU
+
+```bash
+nvidia-smi
+python scripts/check_deployment.py --family sd15 --stage assets \
+  --gpu --world-size 2
+```
+
+全部为 `[OK]` 再继续。脚本显示当前生效路径、包版本、剩余空间，检查 SD1.5、PickScore、processor、训练及官方 test_unique Parquet，读取下载记录；`--gpu` 在每张请求的 GPU 上实际执行很小的 BF16 卷积及反传。不加 `--gpu` 只检查 CPU 元数据。它不检验 NCCL 通信，后面的双卡训练负责验证 DDP。
+
+如果已准备好 `pairs.jsonl` 和128条监控 prompt，这里改用 `--stage prepared --gpu --world-size 2`，跳过下一节原始数据处理。
+
+如果路径仍指向旧位置，先处理环境变量或 `resources.local.json` 覆盖。不要重新下载已经存在的模型。未使用的 SDXL/SD3/HPDv3/HPSv3 不阻挡这条 SD1.5 + PickScore 部署路径。
 
 ## 已下载 Pick-a-Pic 的一次性处理
 
 如果已有准备好的 `pairs.jsonl`，直接修改资源表中的 `PICKAPIC_SD15_PREPARED` / `PICKAPIC_SDXL_PREPARED`，跳过处理。原始 Parquet 不能直接作为 `--data_path`。
 
-在远程有足够 CPU、内存和存储的已分配资源上执行。`--revision` 填真实下载来源与版本；若数据根目录存在完整 `.scd-download.json` 则可省略。
+这一步在远程有足够 CPU、内存和存储的已分配资源上执行，不使用 GPU。脚本从原始目录或其上一级的完整 `.scd-download.json` 自动读取数据来源和版本，同时验证清单中的文件大小。第一次处理会提取原始图片，保留人类偏好标签并生成清单；后续实验复用。
 
 ```bash
 source paths.sh
@@ -41,51 +74,82 @@ df -h "$PICKAPIC_RAW" "$(dirname "$PICKAPIC_SD15_PREPARED")"
 
 python scripts/prepare_downloaded_data.py pickapic --family sd15 \
   --raw "$PICKAPIC_RAW" --model "$SD15_MODEL" \
-  --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED" \
-  --revision 'REPLACE_WITH_ACTUAL_DATASET_SOURCE_AND_REVISION'
+  --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED"
 
-python scripts/prepare_downloaded_data.py benchmarks --family sd15 \
+python scripts/prepare_benchmarks.py \
   --train-pairs "$PICKAPIC_SD15_PREPARED/pairs.jsonl" \
-  --pickapic-test "$PICKAPIC_SD15_PREPARED/official-test-unique.jsonl" \
+  --pickapic "$PICKAPIC_SD15_PREPARED/official-test-unique.jsonl" \
   --out "$BENCHMARKS_ROOT/sd15"
+
+python scripts/check_deployment.py --family sd15 --stage prepared
 ```
 
-SDXL 下载完成后，以 `--family sdxl`、`--model "$SDXL_MODEL"`、`--out "$PICKAPIC_SDXL_PREPARED"` 分别生成对应清单，再生成 `$BENCHMARKS_ROOT/sdxl` 面板；图像池可复用。目录已存在时工具会拒绝覆盖，重新整理数据使用新版本目录。
+如果资源检查报告没有可核实的下载版本，先查原下载记录。只有这种情况才在处理命令后加 `--revision`，传入实际的“数据仓库@下载 commit”；不要填占位符，也不要把现在的远端 main 当成当时的下载版本。
 
-按需下载缺少的资源；先确认磁盘容量及已有缓存，不重复下载已有模型：
+处理完成后应有 `pickapicv2/images/`、`pickapicv2/prepared-sd15/pairs.jsonl` 和 `benchmarks/sd15/pickapic-monitor.jsonl`。监控集默认128条；其余 Pick-a-Pic test prompt 另外保留。准备工具拒绝覆盖现有输出目录。`ready.json` 表示数据准备已完成；只有 `preparing.json` 时说明上次未完成，保留现场并为重新准备选择新输出目录。图像池可以复用。
+
+## 两步纯 DPO 验证，同时检查续训
 
 ```bash
-python scripts/download_assets.py list
-python scripts/download_assets.py download sdxl
-python scripts/download_assets.py download sd3
-python scripts/download_assets.py download hpdv3
-python scripts/download_assets.py extract-hpdv3
+# 纯 DPO：K1，无 rollout；两卡、每卡batch2，两步预算。
+python scripts/make_config.py --family sd15 --method dpo --world-size 2 \
+  --smoke --train_batch_size 2 --out configs/local-sd15-dpo-smoke-v1.json
+
+# 核对模型结构及数据文件；会读取/校验训练输入，不启动训练。
+python train.py --config configs/local-sd15-dpo-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-smoke-v1" --check-only
+
+# 第1步后计划暂停，写出完整恢复点。
+python train.py --config configs/local-sd15-dpo-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-smoke-v1" \
+  --execution standalone --run-label sd15-dpo-smoke-v1 --stop-after-step 1
+
+# 使用同一个两步配置，从第1步恢复到第2步。
+python train.py --config configs/local-sd15-dpo-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-smoke-v1" \
+  --execution standalone --run-label sd15-dpo-smoke-v1 \
+  --resume_from_checkpoint latest
 ```
 
-这些命令会写入 `configs/resources.json` 指定的位置。HPDv3 解包及数据处理也需在远程已分配资源上执行。后续 SD3 数据可以用 `prepare_downloaded_data.py hpdv3 --family unfiltered` 导出；这只是数据准备，不会启动 SD3 训练。
+看到优化步从1继续到2，且 `checkpoints/latest.json` 指向第2步的完整状态，再开始正式实验。这个 smoke 保持512分辨率，关闭生成评估和诊断；只验证实际训练和恢复机制。重试新实验使用 v2 等新配置/输出名，恢复则始终使用原配置和原输出。
 
-## 查看参数与快速验证
+## 第一组正式实验：纯 DPO，2张5090
+
+下面冻结一份2000步配置，使用 BF16、LoRA rank/alpha16、LR=1e-5、β=5000、seed17、全局batch256，每200步完整保存。每卡batch2是首次部署的起点，实际显存占用由 GPU smoke 确认；后续按单卡余量调整新实验配置。正式配置保留固定128条prompt的 PickScore 评估。
 
 ```bash
-# 仅解析配置，不加载模型或数据，不使用GPU。
-python train.py --family sd15 --world-size 4 --views 3 \
-  --learning_rate 1e-5 --output_dir /tmp/scd-preview --print-config
+python scripts/make_config.py --family sd15 --method dpo --world-size 2 \
+  --train_batch_size 2 --max_train_steps 2000 \
+  --learning_rate 1e-5 --beta 5000 --seed 17 \
+  --checkpointing_steps 200 --report_to tensorboard \
+  --out configs/local-sd15-dpo-2gpu-v1.json
 
-# 生成独立的两步配置；默认 K2-C，保持模型原分辨率。
-python scripts/make_config.py --family sd15 --world-size 2 --smoke \
-  --out configs/local-smoke.json
+python train.py --config configs/local-sd15-dpo-2gpu-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-2gpu-v1" --check-only
 
-# 先验证完整模型、偏好清单与配置，不启动GPU训练。
-python train.py --config configs/local-smoke.json --out "$RUNS_ROOT/smoke-v1" --check-only
-
-# 取得GPU后进行两步真实训练。
-python train.py --config configs/local-smoke.json \
-  --out "$RUNS_ROOT/smoke-v1" --execution standalone --run-label smoke-v1
+python train.py --config configs/local-sd15-dpo-2gpu-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-2gpu-v1" \
+  --execution standalone --run-label sd15-dpo-2gpu-v1
 ```
 
-不要反复覆盖 `local-smoke.json` 或旧运行目录；重试时使用新版本名。增大 K 前先用对应 K 做短跑，确认单卡显存。上述 smoke 配置关闭生成评估和诊断，只保留训练与保存机制。
+协调进程通过 Accelerate 启动 DDP；第0步先评估基座，之后在200步、每500步及最终步评估。第0步暂时没有训练 loss 是正常情况。训练进程退出、显存释放后再生成和评分，再从完整状态继续训练。
+
+保持每卡batch2、全局batch256时，2/4/8卡对应梯度累积64/32/16，配置生成器自动计算。换卡数要生成新配置、新输出目录；已开始的实验恢复时保持原卡数。确认单机实际分配的卡数与 `--world-size` 一致。
+
+被驱逐后重新取得相同资源，激活相同环境、进入同一代码版本、执行 `source paths.sh`，然后运行：
+
+```bash
+python train.py --config configs/local-sd15-dpo-2gpu-v1.json \
+  --out "$RUNS_ROOT/sd15-dpo-2gpu-v1" \
+  --execution standalone --run-label sd15-dpo-2gpu-v1 \
+  --resume_from_checkpoint latest
+```
+
+配置文件保存在持久代码目录，输出保存在持久 AOSS。不要在驱逐后重新生成配置、改变路径/依赖/卡数或拉取新算法再续训。硬驱逐恢复最近完整保存点，通常最多重算上次保存后的不足200步；首次保存之前仍可能从头开始。
 
 ## 默认多视图 C：协调入口，自动评估
+
+以下为完成纯 DPO 部署后的算法比较选项；不是继续上述纯 DPO run。先为选定的 K 做独立 smoke，再开新实验。
 
 ```bash
 source paths.sh
@@ -214,4 +278,20 @@ git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
-此轮已在本机建立 `dev/self-correct-workflow`；尚未提交或推送 GitHub。详细规矩见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+本机使用 `dev/self-correct-workflow` 开发分支，远程使用已合并的 main。详细规矩见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
+## 后续 SDXL / SD3 资源（首次 SD1.5 部署跳过）
+
+按需下载，先检查空间及已有缓存：
+
+```bash
+python scripts/download_assets.py list
+python scripts/download_assets.py download sdxl
+python scripts/download_assets.py download sd3
+python scripts/download_assets.py download hpdv3
+python scripts/download_assets.py extract-hpdv3
+```
+
+SDXL 下载后用 `--family sdxl`、`--model "$SDXL_MODEL"`、`--out "$PICKAPIC_SDXL_PREPARED"` 另行准备清单；复用同一图片池，再生成 `$BENCHMARKS_ROOT/sdxl` 面板。随后重复资源检查、同 K 小跑、配置冻结和正式训练。不要拿 SD1.5 的 batch/β 直接覆盖 SDXL 默认值。
+
+HPDv3 的 SD3 数据可用 `prepare_downloaded_data.py hpdv3 --family unfiltered` 导出。这只准备数据；当前 SD3 训练入口尚未实现。

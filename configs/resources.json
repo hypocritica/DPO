@@ -1,5 +1,5 @@
 {
-  "WORKSPACE": "/mnt/aoss/xietianyu/datasets",
+  "WORKSPACE": "/mnt/aoss/xietianyu",
   "MODELS_ROOT": "${WORKSPACE}/models",
   "DATASETS_ROOT": "${WORKSPACE}/datasets",
   "RUNS_ROOT": "/mnt/aoss/xietianyu/self_correct/runs",
