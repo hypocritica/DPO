@@ -7,8 +7,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import torch
-from self_correct_dpo.independent import RolloutConfig, sample_rollout_timesteps, vp_coefficients
-from self_correct_dpo.joint import JointRolloutBackend
+from self_correct_dpo.algorithms.independent import RolloutConfig, sample_rollout_timesteps, vp_coefficients
+from self_correct_dpo.algorithms.joint import JointRolloutBackend
 
 
 def make_backend(source='model', kind='epsilon'):

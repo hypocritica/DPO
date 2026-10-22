@@ -3,6 +3,7 @@
 Resume checks immutable run/config/model identities and every committed image.
 Sharding assigns whole scenes, never individual members of a prompt orbit.
 """
+from self_correct_dpo.common import source_file
 from self_correct_dpo.config import load_config
 import argparse
 from contextlib import contextmanager
@@ -383,7 +384,7 @@ def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_
     wanted = {"config": config, "arm": arm, "suite": suite, "suite_id": digest(suite),
               "full_suite_id": full_suite_id, "shard": shard, "suite_indices": suite_indices, "base_identity": base_identity,
               "model_identity": model_identity, "render_sha256": sha256(__file__),
-              "common_sha256": sha256(Path(__file__).with_name("common.py"))}
+              "common_sha256": sha256(source_file("common.py"))}
     for key, value in wanted.items():
         if run.get(key) != value:
             raise ValueError(f"Cannot resume: {key} changed")
@@ -465,7 +466,7 @@ def main():
                "scheduler_config": scheduler_config, "versions": versions, "execution": execution,
                "truncated_prompts":truncated, "gpu": torch.cuda.get_device_name(), "hostname": socket.gethostname(),
                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "expected_images": expected,
-               "render_sha256": sha256(__file__), "common_sha256": sha256(Path(__file__).with_name("common.py"))}
+               "render_sha256": sha256(__file__), "common_sha256": sha256(source_file("common.py"))}
         run["run_id"] = digest(run)
         out.mkdir(parents=True, exist_ok=False)
         write_json(out / "run.json", run)

@@ -1,36 +1,36 @@
 {
   "scorers": {
     "pickscore": {
-      "model": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/pickscore",
-      "processor": "/mnt/afs/L202500030/xietianyu/workspace/models/clip/clip-h14"
+      "model": "${PICKSCORE_MODEL}",
+      "processor": "${PICKSCORE_PROCESSOR}"
     },
     "clip": {
-      "open_clip_source": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv2/source/hpsv2/src",
-      "checkpoint": "/mnt/afs/L202500030/xietianyu/workspace/models/clip/clip-h14/open_clip_pytorch_model.bin"
+      "open_clip_source": "${HPSV2_MODEL_DIR}/source/hpsv2/src",
+      "checkpoint": "${PICKSCORE_PROCESSOR}/open_clip_pytorch_model.bin"
     },
     "hpsv2": {
-      "open_clip_source": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv2/source/hpsv2/src",
-      "checkpoint": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv2/HPS_v2_compressed.pt",
+      "open_clip_source": "${HPSV2_MODEL_DIR}/source/hpsv2/src",
+      "checkpoint": "${HPSV2_MODEL_DIR}/HPS_v2_compressed.pt",
       "version": "v2.0"
     },
     "aesthetic": {
-      "model": "/mnt/afs/L202500030/xietianyu/workspace/models/clip/clip-l14",
-      "processor": "/mnt/afs/L202500030/xietianyu/workspace/models/clip/clip-l14",
-      "checkpoint": "/mnt/afs/L202500030/xietianyu/workspace/models/aesthetic/improved-aesthetic-predictor/sac+logos+ava1-l14-linearMSE.pth"
+      "model": "${AESTHETIC_CLIP_MODEL}",
+      "processor": "${AESTHETIC_CLIP_MODEL}",
+      "checkpoint": "${AESTHETIC_CHECKPOINT}"
     },
     "hpsv3": {
-      "source": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv3/source",
-      "model": "/mnt/afs/L202500030/xietianyu/workspace/models/backbones/Qwen2-VL-7B-Instruct",
-      "checkpoint": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv3/HPSv3.safetensors",
-      "config": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv3/source/hpsv3/config/HPSv3_7B.yaml",
+      "source": "${HPSV3_MODEL_DIR}/source",
+      "model": "${HPSV3_BASE_MODEL}",
+      "checkpoint": "${HPSV3_MODEL_DIR}/HPSv3.safetensors",
+      "config": "${HPSV3_MODEL_DIR}/source/hpsv3/config/HPSv3_7B.yaml",
       "batch_size": 1,
       "disable_flash_attn2": true
     },
     "image_reward": {
-      "source": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/image-reward/source",
-      "checkpoint": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/image-reward/ImageReward.pt",
-      "config": "/mnt/afs/L202500030/xietianyu/workspace/models/preference/image-reward/med_config.json",
-      "tokenizer": "/mnt/afs/L202500030/xietianyu/workspace/models/backbones/bert-base-uncased",
+      "source": "${IMAGE_REWARD_MODEL_DIR}/source",
+      "checkpoint": "${IMAGE_REWARD_MODEL_DIR}/ImageReward.pt",
+      "config": "${IMAGE_REWARD_MODEL_DIR}/med_config.json",
+      "tokenizer": "${IMAGE_REWARD_TOKENIZER}",
       "batch_size": 1
     }
   }

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import torch
 from self_correct_dpo.common import read_json, sha256
 from self_correct_dpo.training import train
-from self_correct_dpo.checkpoints import resolve_checkpoint
+from self_correct_dpo.runtime.checkpoints import resolve_checkpoint
 
 
 class ToyBackend:
@@ -62,7 +62,7 @@ class StagePause(unittest.TestCase):
                     'beta':2.,'temperature':.1,'learning_rate':.01,'max_grad_norm':1.,
                     'checkpoint_policy':'bounded','lora_checkpoint_every':1000,'max_lora_checkpoints':None,
                     'prompt_mode':'canonical','sampling':'balanced'}}
-            from self_correct_dpo.checkpoints import ManagedCheckpoints
+            from self_correct_dpo.runtime.checkpoints import ManagedCheckpoints
             original_save=ManagedCheckpoints.save_resume
             committed=[]
             def save(manager,*args,**kwargs):

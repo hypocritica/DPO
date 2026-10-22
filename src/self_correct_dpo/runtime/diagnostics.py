@@ -8,7 +8,7 @@ from self_correct_dpo.common import digest
 def dpo_diagnostic(backend, rows, config, out, step, device, attempt, *, split="train"):
     import torch
     import numpy as np
-    from self_correct_dpo.losses import preference_loss
+    from self_correct_dpo.algorithms.losses import preference_loss
     from self_correct_dpo.training import image_batch
     settings = config['training']['diagnostic']
     chosen = sorted(rows, key=lambda r: digest([settings['seed'], r['pair_id']]))[:settings['pairs']]

@@ -2,7 +2,7 @@
 import torch
 import torch.nn.functional as F
 from self_correct_dpo.models import PreferenceBackend, shared_pair_noise
-from self_correct_dpo.losses import preference_logits
+from self_correct_dpo.algorithms.losses import preference_logits
 
 
 def sample_views(rows, config, microbatch, *, world=1, rank=0):
@@ -70,4 +70,4 @@ class MultiViewBackend(PreferenceBackend):
     def pair_errors(self, images, prompts, generator, reference=True):
         if len(prompts[0]) == 1:
             return super().pair_errors(images, prompts, generator, reference=reference)
-        raise ValueError('K=2 uses score_errors with a joint all-view backward')
+        raise ValueError('Multiple views use score_errors with a joint all-view backward')

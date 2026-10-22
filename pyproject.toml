@@ -16,14 +16,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tracking = ["wandb>=0.17,<1"]
 arrow = ["datasets>=3.3,<4", "pyarrow>=19"]
 evaluation = ["torchvision", "timm>=0.9", "ftfy", "regex", "einops", "webdataset", "matplotlib>=3.7,<4", "PyYAML>=6"]
 
 [project.scripts]
 self-correct-train = "self_correct_dpo.train:main"
-self-correct-render = "self_correct_dpo.render:main"
-self-correct-score = "self_correct_dpo.quality_metrics:main"
-self-correct-evaluate = "self_correct_dpo.evaluation:main"
+self-correct-render = "self_correct_dpo.evaluation.render:main"
+self-correct-score = "self_correct_dpo.evaluation.quality_metrics:main"
+self-correct-evaluate = "self_correct_dpo.evaluation.runner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

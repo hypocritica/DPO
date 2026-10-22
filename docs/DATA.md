@@ -1,5 +1,7 @@
 # 模型与数据迁移
 
+资源路径统一在 `configs/resources.json`；远程 Pick-a-Pic 原始文件为 `/mnt/aoss/xietianyu/datasets/pickapicv2/data`。原始文件需先生成 `pairs.jsonl` 和固定评估面板，准备命令见根目录 [command.md](../command.md)。
+
 读取本地完整Diffusers SD1.5目录：至少包括model_index、UNet、VAE、scheduler、tokenizer和text_encoder。优先复用已验证模型，记录revision；单个`.ckpt`文件不是本包的输入。
 
 训练清单每行显式标明胜负，不从奖励分数推断原人类偏好。图片路径相对清单所在目录，或是绝对路径。原Arrow清单记录本机shard路径与mtime，不能直接复制后修改一个路径就假装身份校验仍然有效。

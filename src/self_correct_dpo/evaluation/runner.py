@@ -1,4 +1,5 @@
 """Checkpoint evaluation using separate generation and scorer processes."""
+from self_correct_dpo.common import source_file
 import argparse
 import json
 import os
@@ -8,17 +9,17 @@ import subprocess
 import sys
 
 from self_correct_dpo.common import artifact_identity, model_artifact_identity, digest, load_suite, output_lock, read_json, require_gpu_allocation, sha256, write_json
-from self_correct_dpo.checkpoints import atomic_json
+from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.config import load_config
-from self_correct_dpo.benchmarks import BENCHMARKS
-from self_correct_dpo.scorers import DEFAULT_METRICS, METRICS, scorer_identity
+from self_correct_dpo.data.benchmarks import BENCHMARKS
+from self_correct_dpo.evaluation.scorers import DEFAULT_METRICS, METRICS, scorer_identity
 
 
 def run_command(command):
     """Forward TERM/INT and leave complete checkpoints and journals for a rerun."""
-    from self_correct_dpo.distributed import subprocess_environment
+    from self_correct_dpo.runtime.distributed import subprocess_environment
     environment = subprocess_environment(os.environ)
-    src = str(Path(__file__).resolve().parents[1])
+    src = str(Path(__file__).resolve().parents[2])
     environment['PYTHONPATH'] = src + (os.pathsep+environment['PYTHONPATH'] if environment.get('PYTHONPATH') else '')
     environment.update(HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',PYTHONUNBUFFERED='1')
     previous, stopped = {}, [False]
@@ -46,7 +47,7 @@ def checkpoint_adapter(run_dir, step):
         return info['config']['model'],None
     checkpoint=run_dir/'checkpoints'/f'step-{step:07d}'
     if not checkpoint.is_dir():
-        from self_correct_dpo.checkpoints import resolve_checkpoint
+        from self_correct_dpo.runtime.checkpoints import resolve_checkpoint
         current=resolve_checkpoint(run_dir/'checkpoints/latest.json')
         if checkpoint_manifest(current)['step'] != step:
             raise ValueError(f'Step {step} was not retained. Retained adapters are saved every 1000 steps and at the final step.')
@@ -108,7 +109,7 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
         arm='aligned'
         config['aligned']={'kind':'peft','path':str(adapter),'revision':digest(artifact_identity(adapter))}
     identity={'inputs':inputs,'config':config,'base_identity':model_id,'step':step,
-              'keep_images':keep_images,'code_sha256':{name:sha256(Path(__file__).with_name(name))
+              'keep_images':keep_images,'code_sha256':{name:sha256(source_file(name))
               for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py')}}
     meta={'identity':identity,'evaluation_id':digest(identity)}
     out=Path(out).resolve()
@@ -131,7 +132,7 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
     extra=['--execution',execution['mode']]
     if execution.get('run_label'): extra+=['--run-label',execution['run_label']]
     render=out/'render'
-    command=[sys.executable,'-m','self_correct_dpo.render','--config',str(out/'render-config.json'),
+    command=[sys.executable,'-m','self_correct_dpo.evaluation.render','--config',str(out/'render-config.json'),
              '--prompts',str(Path(prompts).resolve()),'--arm',arm,'--out',str(render),*extra]
     if render.exists(): command+=['--resume']
     command_runner(command)
@@ -139,7 +140,7 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
     for metric in metrics:
         target=out/'scores'/metric
         spec=inputs.get('scorers',{}).get(metric,{}).get('spec',{})
-        command_runner([spec.get('python') or sys.executable,'-m','self_correct_dpo.metrics','--run',str(render),
+        command_runner([spec.get('python') or sys.executable,'-m','self_correct_dpo.evaluation.metrics','--run',str(render),
             '--out',str(target),'--scorers-config',str(Path(scorers_config).resolve()),'--metric',metric,*extra])
         scores[metric]=read_json(target/'summary.json')
     summary={'evaluation_id':meta['evaluation_id'],'step':step,'prompts':inputs['prompts'],

@@ -16,29 +16,10 @@ import tarfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from self_correct_dpo.common import output_lock
 
-# Edit these paths if the workspace moves. No paths.sh is required.
-WORKSPACE = Path('/mnt/afs/L202500030/xietianyu/workspace')
-MODELS = WORKSPACE / 'models'
-DATASETS = WORKSPACE / 'datasets'
+# Downloads and preparation share the training resource registry.
+from self_correct_dpo.resources import load_resources
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
-
-DEFAULT_PATHS = {
-    'SD15_MODEL': MODELS / 'stable_diffusion/sd15',
-    'SDXL_MODEL': MODELS / 'stable_diffusion/sdxl',
-    'SDXL_VAE': MODELS / 'stable_diffusion/sdxl-vae',
-    'SD35_MODEL': MODELS / 'stable_diffusion/sd35',
-    'PICKAPIC_RAW': DATASETS / 'pickapic-v2',
-    'HPDV2_RAW': DATASETS / 'hpdv2',
-    'HPDV3_RAW': DATASETS / 'hpdv3',
-    'PICKSCORE_MODEL': MODELS / 'preference/pickscore',
-    'PICKSCORE_PROCESSOR': MODELS / 'clip/clip-h14',
-    'AESTHETIC_CLIP_MODEL': MODELS / 'clip/clip-l14',
-    'HPSV2_MODEL_DIR': MODELS / 'preference/hpsv2',
-    'HPSV3_MODEL_DIR': MODELS / 'preference/hpsv3',
-    'HPSV3_BASE_MODEL': MODELS / 'backbones/Qwen2-VL-7B-Instruct',
-    'IMAGE_REWARD_MODEL_DIR': MODELS / 'preference/image-reward',
-    'IMAGE_REWARD_TOKENIZER': MODELS / 'backbones/bert-base-uncased',
-}
+DEFAULT_PATHS = load_resources()
 
 # repo, repo type, destination variable, revision variable, file patterns
 ASSETS = {
@@ -49,6 +30,7 @@ ASSETS = {
     'sd15': ('stable-diffusion-v1-5/stable-diffusion-v1-5', 'model', 'SD15_MODEL', 'SD15_REVISION', None),
     'sdxl': ('stabilityai/stable-diffusion-xl-base-1.0', 'model', 'SDXL_MODEL', 'SDXL_REVISION', None),
     'sdxl-vae': ('madebyollin/sdxl-vae-fp16-fix', 'model', 'SDXL_VAE', None, ['config.json', 'diffusion_pytorch_model.safetensors']),
+    'sd3': ('stabilityai/stable-diffusion-3-medium-diffusers', 'model', 'SD3_MODEL', 'SD3_REVISION', None),
     'sd35': ('stabilityai/stable-diffusion-3.5-medium', 'model', 'SD35_MODEL', 'SD35_REVISION', None),
     'pickscore': ('yuvalkirstain/PickScore_v1', 'model', 'PICKSCORE_MODEL', None, ['config.json', 'model.safetensors', 'pytorch_model.bin']),
     'pickscore-processor': ('laion/CLIP-ViT-H-14-laion2B-s32B-b79K', 'model', 'PICKSCORE_PROCESSOR', None,

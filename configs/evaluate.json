@@ -1,10 +1,10 @@
 {
   "benchmarks": {
-    "hpdv2": "/path/to/hpdv2-test.jsonl",
-    "pickapic": "/path/to/pickapic-test.jsonl",
-    "partiprompts": "/path/to/partiprompts.jsonl",
-    "hpdv3": "/path/to/hpdv3-test.jsonl",
-    "imagereward": "/path/to/imagereward-test.jsonl"
+    "hpdv2": "${HPDV2_TEST_SD15}",
+    "pickapic": "${PICKAPIC_TEST_SD15}",
+    "partiprompts": "${PARTIPROMPTS_TEST_SD15}",
+    "hpdv3": "${HPDV3_TEST_SD15}",
+    "imagereward": "${IMAGEREWARD_TEST_SD15}"
   },
   "scorers_config": "scorers.json",
   "sampling": {

@@ -1,0 +1,35 @@
+{
+  "model": {
+    "family": "sd15",
+    "path": "${SD15_MODEL}",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+  },
+  "data": {
+    "pairs": "${PICKAPIC_SD15_PREPARED}/pairs.jsonl"
+  },
+  "training": {
+    "resolution": 512,
+    "batch_size": 8,
+    "gradient_accumulation_steps": 32,
+    "beta": 5000.0,
+    "warmup_steps": 200,
+    "vae_batch_size": 4
+  },
+  "evaluation": {
+    "prompts": "${MONITOR_PROMPTS_SD15}",
+    "sampling": {
+      "scheduler": "DDIMScheduler",
+      "dtype": "bfloat16",
+      "height": 512,
+      "width": 512,
+      "num_inference_steps": 30,
+      "guidance_scale": 7.5,
+      "negative_prompt": "",
+      "seeds": [
+        17
+      ],
+      "prompt_truncation": "truncate",
+      "safety_checker": "disabled"
+    }
+  }
+}

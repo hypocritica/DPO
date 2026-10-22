@@ -6,10 +6,10 @@ from types import SimpleNamespace
 import unittest
 import torch
 import torch.nn.functional as F
-from self_correct_dpo.joint import JointRolloutBackend
-from self_correct_dpo.independent import RolloutConfig, SingleRolloutBackend, vp_coefficients
-from self_correct_dpo.losses import preference_logits, preference_loss
-from self_correct_dpo.formal import formal_loss, MultiViewBackend
+from self_correct_dpo.algorithms.joint import JointRolloutBackend
+from self_correct_dpo.algorithms.independent import RolloutConfig, SingleRolloutBackend, vp_coefficients
+from self_correct_dpo.algorithms.losses import preference_logits, preference_loss
+from self_correct_dpo.algorithms.formal import formal_loss, MultiViewBackend
 
 
 def backend(k=2, source='model', kind='epsilon', rollout=True):
@@ -81,7 +81,7 @@ class JointTests(unittest.TestCase):
         torch.testing.assert_close(a,c)
 
     def test_streamed_all_view_parameter_gradient_equals_direct_autograd(self):
-        for k in (1,2):
+        for k in (1,2,3,4):
             for arm in ('B','C'):
                 b = backend(k=k)
                 p = b.prepare_views(self.images,[['p']*k]*2,torch.Generator().manual_seed(4))
@@ -99,7 +99,7 @@ class JointTests(unittest.TestCase):
 
     def test_joint_backward_matches_recomputation_with_fewer_policy_forwards(self):
         for rollout, source in ((False, 'model'), (True, 'model'), (True, 'oracle')):
-            for k in (1, 2):
+            for k in (1, 2, 3, 4):
                 for arm in ('B', 'C'):
                     with self.subTest(rollout=rollout, source=source, k=k, arm=arm):
                         direct = backend(k=k, source=source, rollout=rollout)

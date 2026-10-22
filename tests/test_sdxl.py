@@ -14,13 +14,13 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 from self_correct_dpo.architecture import validate_sdxl_base, same_vae_revision
 from self_correct_dpo.common import model_artifact_identity, read_json, write_json
-from self_correct_dpo.config import load_config
-from self_correct_dpo.formal import formal_loss, MultiViewBackend
-from self_correct_dpo.independent import SingleRolloutBackend
-from self_correct_dpo.joint import JointRolloutBackend
-from self_correct_dpo.losses import preference_logits
+from self_correct_dpo.config import load_config, merge_config
+from self_correct_dpo.algorithms.formal import formal_loss, MultiViewBackend
+from self_correct_dpo.algorithms.independent import SingleRolloutBackend
+from self_correct_dpo.algorithms.joint import JointRolloutBackend
+from self_correct_dpo.algorithms.losses import preference_logits
 from self_correct_dpo.models import PreferenceBackend, detach_condition
-from self_correct_dpo.render import validate_config as validate_render, validate_adapter_backend, model_spec, load_pipeline
+from self_correct_dpo.evaluation.render import validate_config as validate_render, validate_adapter_backend, model_spec, load_pipeline
 from self_correct_dpo.training import validate_config
 from self_correct_dpo.common import sha256, write_jsonl
 
@@ -68,7 +68,7 @@ def pipeline_metadata(root):
 class SdxlConfigTests(unittest.TestCase):
     def test_family_presets_and_existing_sd15_defaults(self):
         for arm in ('B','C'):
-            c=read_json(ROOT/f'configs/sdxl/model-K2-{arm}.json')
+            c=merge_config(load_config(ROOT/f'configs/multiview-{arm}.json'),load_config(ROOT/'configs/models/sdxl.json'))
             validate_config(c,files=False)
             self.assertEqual(c['model']['family'],'sdxl')
             self.assertEqual(c['training']['formal_arm'],arm)
@@ -82,14 +82,14 @@ class SdxlConfigTests(unittest.TestCase):
             self.assertEqual(c['training']['lora_checkpoint_every'],1000)
             c['training']['formal_arm']='D'
             with self.assertRaisesRegex(ValueError,'only B/C'):validate_config(c,files=False)
-        c=read_json(ROOT/'configs/model-K2-C.json')
+        c=load_config(ROOT/'configs/multiview-C.json')
         self.assertEqual((c['model']['family'],c['training']['resolution'],c['training']['beta']),('sd15',512,5000))
         self.assertEqual(c['training']['batch_size']*c['training']['gradient_accumulation_steps'],256)
 
     def test_complete_sdxl_base_preflight_and_wrong_architectures_fail(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'base';pipeline_metadata(root)
-            c=read_json(ROOT/'configs/sdxl/model-K2-C.json')
+            c=merge_config(load_config(ROOT/'configs/multiview-C.json'),load_config(ROOT/'configs/models/sdxl.json'))
             c['model'].update(path=str(root),revision='fixture-sdxl-base')
             validate_config(c)
             render={'model':c['model'],'sampling':read_json(ROOT/'configs/evaluate-sdxl.json')['sampling']}
@@ -164,7 +164,7 @@ def tiny_sdxl(root):
     from diffusers import StableDiffusionXLPipeline, UNet2DConditionModel, AutoencoderKL, DDPMScheduler
     from transformers import CLIPTextConfig, CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
     from peft import LoraConfig, get_peft_model
-    from self_correct_dpo.independent import RolloutConfig
+    from self_correct_dpo.algorithms.independent import RolloutConfig
     torch.manual_seed(82)
     write_json(root/'vocab.json',{'<|startoftext|>':0,'<|endoftext|>':1,'a</w>':2,'b</w>':3})
     (root/'merges.txt').write_text('#version: 0.2\n')

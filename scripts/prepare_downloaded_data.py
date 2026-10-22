@@ -18,9 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 from download_assets import env_path, parquet_split
-from self_correct_dpo.benchmarks import prepare_panels, prompt_key
+from self_correct_dpo.data.benchmarks import prepare_panels, prompt_key
 from self_correct_dpo.common import digest, sha256, write_json, write_jsonl
-from self_correct_dpo.pickapic import adapt_rows
+from self_correct_dpo.data.pickapic import adapt_rows
 
 
 def parquet_records(files, *, metadata_only=False):
@@ -323,9 +323,13 @@ def main():
     if a.min_confidence is not None and (a.action!='hpdv3' or not 0<=a.min_confidence<=1):p.error('--min-confidence must be in [0,1] and used with hpdv3')
     dataset='hpdv3' if a.action=='hpdv3' else a.dataset
     variable=('HPDV3' if dataset=='hpdv3' else 'PICKAPIC')+'_'+a.family.upper()+'_PREPARED'
-    hpdv3_raw=Path(a.hpdv3 or os.environ['HPDV3_RAW']) if a.hpdv3 or os.environ.get('HPDV3_RAW') else None
-    hpd_test=hpdv3_raw/'test.json' if hpdv3_raw else None
-    if hpd_test is not None and not hpd_test.is_file():raise FileNotFoundError(hpd_test)
+    hpdv3_raw=Path(a.hpdv3) if a.hpdv3 else env_path('HPDV3_RAW')
+    hpd_test=hpdv3_raw/'test.json'
+    if not hpd_test.is_file():
+        if a.hpdv3 or a.action=='hpdv3':
+            raise FileNotFoundError(hpd_test)
+        # A planned resource path is not evidence that this optional dataset exists.
+        hpdv3_raw=hpd_test=None
     if a.action == 'pickapic':
         prepare_pickapic(a.raw or env_path('PICKAPIC_RAW'), a.out or env_path(variable),
                         a.images or env_path('PICKAPIC_IMAGES'), family=a.family,

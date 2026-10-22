@@ -10,7 +10,7 @@ import random
 import unicodedata
 
 from self_correct_dpo.common import digest, sha256
-from self_correct_dpo.data import validate_pair_rows
+from self_correct_dpo.data.pairs import validate_pair_rows
 
 
 def prompt_key(text):

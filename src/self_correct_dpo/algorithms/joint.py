@@ -1,14 +1,15 @@
 """Independent detached rollout per view, then DPO on the mean margin."""
 import torch
 from self_correct_dpo.models import PreferenceBackend, detach_condition
-from self_correct_dpo.independent import SingleRolloutBackend, RolloutConfig, _require_finite
-from self_correct_dpo.formal import MultiViewBackend
+from self_correct_dpo.algorithms.independent import SingleRolloutBackend, RolloutConfig, _require_finite
+from self_correct_dpo.algorithms.formal import MultiViewBackend
 
 
 class JointRolloutBackend(SingleRolloutBackend, MultiViewBackend):
     def __init__(self, model_config, training_config, device):
-        if model_config['family'] not in ('sd15','sdxl') or training_config.get('noise_views') not in (1, 2):
-            raise ValueError('Joint rollout requires SD1.5/SDXL and K=1/2')
+        k = training_config.get('noise_views')
+        if model_config['family'] not in ('sd15','sdxl') or type(k) is not int or k < 1:
+            raise ValueError('Joint rollout requires SD1.5/SDXL and a positive integer K')
         PreferenceBackend.__init__(self, model_config, training_config, device)
         self.noise_views = training_config['noise_views']
         self.rollout_config = RolloutConfig(**training_config['independent_rollout'])

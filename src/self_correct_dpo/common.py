@@ -3,11 +3,22 @@ import hashlib
 import json
 import os
 import socket
+from functools import lru_cache
 from pathlib import Path
 from contextlib import contextmanager
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+@lru_cache(maxsize=None)
+def source_file(name):
+    """Locate source files after grouping modules by function."""
+    aliases = {"data.py": "pairs.py", "evaluation.py": "runner.py"}
+    matches = list(ROOT.rglob(aliases.get(name, name)))
+    if len(matches) != 1:
+        raise ValueError(f"Expected one source file for {name}, found {matches}")
+    return matches[0]
 
 
 @contextmanager

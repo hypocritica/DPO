@@ -4,11 +4,11 @@
 
 ## 本地路径
 
-直接编辑 `configs/evaluate.json`（SDXL 用 `configs/evaluate-sdxl.json`）的 `benchmarks`，以及 `configs/scorers.json` 中所选指标的模型/权重路径。仅解析被选中的数据集和指标，没有使用的项可以不配置。相对路径按 JSON 所在目录解析。
+资源地址统一修改 `configs/resources.json`，机器私有覆盖放在 `configs/resources.local.json`。`configs/evaluate.json`（SDXL 用 `configs/evaluate-sdxl.json`）和 `configs/scorers.json` 使用资源变量引用。仅解析被选中的数据集和指标，没有使用的项可以不配置。相对路径按 JSON 所在目录解析。
 
 训练监控只需要 `scorers.pickscore.model`（PickScore 模型）和 `processor`（CLIP-ViT-H/14 processor）。CLIP/HPSv2 的 `open_clip_source` 指向本地官方 HPSv2 checkout 中包含 `open_clip/` 的目录。HPSv2 默认 v2.0，对应 `HPS_v2_compressed.pt`；不能混用 v2.1 权重。
 
-`configs/scorers.json` 已填写 SLAI 的分类路径，模型根目录是 `/mnt/afs/L202500030/xietianyu/workspace/models`：
+`configs/resources.json` 已填写原远程规划的分类路径，模型根目录是 `/mnt/afs/L202500030/xietianyu/workspace/models`：
 
 | 子目录 | 用途 |
 |---|---|

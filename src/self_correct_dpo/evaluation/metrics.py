@@ -9,9 +9,9 @@ import statistics
 import sys
 
 from self_correct_dpo.common import digest, output_lock, read_json, read_jsonl, require_gpu_allocation, sha256, verify_images, write_json
-from self_correct_dpo.checkpoints import atomic_json
+from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.config import load_config
-from self_correct_dpo.scorers import METRICS, load_scorer, scorer_identity
+from self_correct_dpo.evaluation.scorers import METRICS, load_scorer, scorer_identity
 
 
 def aggregate(rows):

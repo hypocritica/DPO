@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from self_correct_dpo.common import read_json, read_jsonl, write_json, write_jsonl
-from self_correct_dpo.pickapic import adapt_rows
+from self_correct_dpo.data.pickapic import adapt_rows
 
 
 def main():

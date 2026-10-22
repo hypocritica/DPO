@@ -11,12 +11,12 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 import torch
-from self_correct_dpo.checkpoints import resolve_checkpoint
+from self_correct_dpo.runtime.checkpoints import resolve_checkpoint
 from self_correct_dpo.common import read_json, sha256, write_json, write_jsonl
-from self_correct_dpo.distributed import subprocess_environment
-from self_correct_dpo.formal import formal_loss
-from self_correct_dpo.pipeline import run_pipeline, training_command
-from self_correct_dpo.evaluation import validate_evaluation
+from self_correct_dpo.runtime.distributed import subprocess_environment
+from self_correct_dpo.algorithms.formal import formal_loss
+from self_correct_dpo.runtime.pipeline import run_pipeline, training_command
+from self_correct_dpo.evaluation.runner import validate_evaluation
 
 
 def fixture(root,world,arm='C',*,monitor=False):
@@ -27,7 +27,7 @@ def fixture(root,world,arm='C',*,monitor=False):
     if not scorer.exists():write_json(scorer,{'scorers':{'pickscore':{'model':str(model),'processor':str(model)}}})
     prompts=root/'prompts.jsonl'
     if not prompts.exists():
-        from self_correct_dpo.benchmarks import normalize_panel
+        from self_correct_dpo.data.benchmarks import normalize_panel
         write_jsonl(prompts,normalize_panel([{'prompt':'held out 1'},{'prompt':'held out 2'}],'test'))
     c={'seed':17,'model':{'family':'sdxl','path':str(base),'revision':'test-fixture'},'data':{},
        'training':{'formal_arm':arm,'noise_views':2,'objective':'dpo','world_size':world,
