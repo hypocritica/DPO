@@ -1,6 +1,6 @@
 # Self Correct DPO 开发与实验约定
 
-这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-22。
+这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-23。
 
 ## 两台服务器的职责
 
@@ -28,14 +28,16 @@
 | SDXL / 可选 VAE | `SDXL_MODEL` / `SDXL_VAE` | 预留原规划路径；用户尚未下载 SDXL |
 | SD3 | `SD3_MODEL` | 预留 `${MODELS_ROOT}/stable_diffusion/sd3`；用户尚未下载 |
 | SD3.5 | `SD35_MODEL` | 保留现有下载工具的资源项，独立于 SD3 |
-| Pick-a-Pic 原始文件 | `PICKAPIC_RAW` | `/mnt/aoss/xietianyu/datasets/pickapicv2/data` |
+| Pick-a-Pic 原始文件 | `PICKAPIC_RAW` | `${DATASETS_ROOT}/pickapicv2/data` |
 | Pick-a-Pic 图片和清单 | `PICKAPIC_IMAGES` / `PICKAPIC_SD15_PREPARED` / `PICKAPIC_SDXL_PREPARED` | 放在同一数据集目录下；这些是规划的处理输出位置，不代表已生成 |
 | HPDv3 数据集 | `HPDV3_RAW` / `HPDV3_SD3_PREPARED` | 为后续 SD3 训练预留；用户尚未下载 HPDv3 |
 | 评分模型 | `PICKSCORE_*` / `HPSV2_*` / `HPSV3_*` / `IMAGE_REWARD_*` 等 | 沿用先前下载脚本的分类目录 |
 | 固定评估面板 | `BENCHMARKS_ROOT` / `MONITOR_PROMPTS_SD15` / `MONITOR_PROMPTS_SDXL` 等 | 按模型系列保存处理后的 JSONL |
 | 训练输出 | `RUNS_ROOT` | `/mnt/aoss/xietianyu/self_correct/runs`，须确认属于远程持久存储 |
 
-`MODELS_ROOT` 默认 `/mnt/afs/L202500030/xietianyu/workspace/models`。本次未连接远程服务器核验文件。训练不会自动下载模型。
+按用户 2026-10-23 的迁移安排，资源父目录 `WORKSPACE` 为 `/mnt/aoss/xietianyu/datasets`，`MODELS_ROOT` 为其下的 `models`，`DATASETS_ROOT` 为其下的 `datasets`。模型和数据集各自保留原子目录结构，下载、数据准备、训练和评估均使用同一份资源表；代码仓库可以放在其他位置。`RUNS_ROOT` 继续使用表中的独立输出地址。本次只更新配置，没有连接远程搬移或核验文件；训练不会自动下载模型。
+
+环境变量和 `resources.local.json` 的优先级高于资源表。迁移后同步清理或更新旧覆盖项；之前在 shell 中导出过资源变量时，使用新终端加载迁移后的配置。
 
 HPDv3 是偏好数据集，HPSv3 是评分模型，分别记录。当前训练入口支持 **SD1.5/SDXL**；预留 SD3 路径及下载选项不等于已实现 SD3 训练。SDXL 下载后从 `.scd-download.json` 自动读取 revision；手动下载时用 `--model-revision` 指明可追溯的版本。
 

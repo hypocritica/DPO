@@ -15,14 +15,18 @@ python -m pip install 'wandb>=0.17,<1'
 # 所有资源地址从这一份配置读取。
 cat configs/resources.json
 # 远程私有路径可以写进 configs/resources.local.json，只填写需覆盖的键。
-# 已下载模型路径沿用原规划；Pick-a-Pic原始数据固定为：
-# /mnt/aoss/xietianyu/datasets/pickapicv2/data
+# 迁移后保留原有子目录结构：
+# 模型根目录：/mnt/aoss/xietianyu/datasets/models
+# 数据集根目录：/mnt/aoss/xietianyu/datasets/datasets
+# Pick-a-Pic原始数据：/mnt/aoss/xietianyu/datasets/datasets/pickapicv2/data
 
 # 可选：将同一份资源表导出为下面命令中的shell变量。
 source paths.sh
 ```
 
 `RUNS_ROOT` 必须是驱逐后仍存在的持久目录。SDXL、SD3、HPDv3 尚未下载，位置已经预留。SD3 当前仅提供路径和下载选项，训练入口仍为 SD1.5/SDXL。
+
+迁移后若旧终端执行过 `source paths.sh`，请在新终端激活环境后读取新配置；已导出的旧资源环境变量会优先于资源表。`configs/resources.local.json` 中若有旧路径，也需一起更新。迁移只改变资源前缀，SD1.5 仍在 `stable_diffusion/sd15`，PickScore 仍在 `preference/pickscore`，HPDv2/HPDv3 仍在各自的 `hpdv2` / `hpdv3` 子目录。
 
 ## 已下载 Pick-a-Pic 的一次性处理
 

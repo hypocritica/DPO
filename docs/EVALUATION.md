@@ -8,7 +8,7 @@
 
 训练监控只需要 `scorers.pickscore.model`（PickScore 模型）和 `processor`（CLIP-ViT-H/14 processor）。CLIP/HPSv2 的 `open_clip_source` 指向本地官方 HPSv2 checkout 中包含 `open_clip/` 的目录。HPSv2 默认 v2.0，对应 `HPS_v2_compressed.pt`；不能混用 v2.1 权重。
 
-`configs/resources.json` 已填写原远程规划的分类路径，模型根目录是 `/mnt/afs/L202500030/xietianyu/workspace/models`：
+`configs/resources.json` 已按迁移后的目录设置，模型根目录是 `/mnt/aoss/xietianyu/datasets/models`，分类子目录保持原结构：
 
 | 子目录 | 用途 |
 |---|---|
@@ -23,8 +23,9 @@
 
 ```bash
 python scripts/download_assets.py download pickscore clip-h14 hpsv2 clip-l14
-bash scripts/download_sources.sh hpsv2 /mnt/afs/L202500030/xietianyu/workspace/models/preference/hpsv2/source
-bash scripts/download_sources.sh aesthetic /mnt/afs/L202500030/xietianyu/workspace/models/aesthetic/improved-aesthetic-predictor
+source paths.sh
+bash scripts/download_sources.sh hpsv2 "$HPSV2_MODEL_DIR/source"
+bash scripts/download_sources.sh aesthetic "$(dirname "$AESTHETIC_CHECKPOINT")"
 ```
 
 美学评分头是官方仓库内的 `sac+logos+ava1-l14-linearMSE.pth`，没有它仅下载 CLIP-L 还不能算美学分。若暂时仅运行训练监控，可只下载 `pickscore pickscore-processor`；后者只含预处理/tokenizer 小文件，完整 CLIP 指标仍需 `clip-h14`。HPSv3 和 ImageReward 放在 `preference/`，它们的 Qwen/BERT 底座放在 `backbones/`，均保持可选。
