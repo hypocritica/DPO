@@ -9,7 +9,7 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；也提供多视
 - [数据说明](docs/DATA.md)、[方法公式](docs/METHOD.md)、[评估说明](docs/EVALUATION.md)
 - [算法审查与逐轮改进计划](docs/ALGORITHM_REVIEW_AND_PLAN.md)
 
-资源路径在 `configs/resources.json` 中统一修改；私有覆盖用 `configs/resources.local.json`，无需 `source paths.sh`。训练需要已处理的 `pairs.jsonl`。原始 Pick-a-Pic 地址已设置为 `/mnt/aoss/xietianyu/datasets/pickapicv2/data`。SDXL、SD3、HPDv3 的位置已预留，SD3 训练后续实现。
+资源路径在 `configs/resources.json` 中统一修改；私有覆盖用 `configs/resources.local.json`，无需 `source paths.sh`。迁移后模型根目录为 `/mnt/aoss/xietianyu/datasets/models`，数据集根目录为 `/mnt/aoss/xietianyu/datasets/datasets`，各资源保留原子目录结构。训练需要已处理的 `pairs.jsonl`；原始 Pick-a-Pic 地址为 `/mnt/aoss/xietianyu/datasets/datasets/pickapicv2/data`。SDXL、SD3、HPDv3 的位置已预留，SD3 训练后续实现。
 
 ```bash
 # 在远程已分配GPU上运行；本集群登录节点不可运行训练。
