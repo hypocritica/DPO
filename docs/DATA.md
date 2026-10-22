@@ -1,6 +1,6 @@
 # 模型与数据迁移
 
-资源路径统一在 `configs/resources.json`；迁移后的数据集根目录为 `/mnt/aoss/xietianyu/datasets/datasets`，Pick-a-Pic 原始文件为其下的 `pickapicv2/data`。原始文件需先生成 `pairs.jsonl` 和固定评估面板，准备命令见根目录 [command.md](../command.md)。
+资源路径统一在 `configs/resources.json`；数据集根目录为 `/mnt/aoss/xietianyu/datasets`，Pick-a-Pic 原始文件为其下的 `pickapicv2/data`。原始文件需先生成 `pairs.jsonl` 和固定评估面板，准备命令见根目录 [command.md](../command.md)。处理脚本可识别原始目录或其上一级的 `.scd-download.json`；从父目录读取时仍仅使用所选原始目录内、且在下载清单中的 Parquet 文件。
 
 读取本地完整Diffusers SD1.5目录：至少包括model_index、UNet、VAE、scheduler、tokenizer和text_encoder。优先复用已验证模型，记录revision；单个`.ckpt`文件不是本包的输入。
 
