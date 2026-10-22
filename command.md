@@ -2,6 +2,41 @@
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
 
+## ACP：8张5090、10000步纯 DPO
+
+环境依赖、Pick-a-Pic 清单和128条固定监控 prompt 已按下文准备完成后，在 ACP 启动命令中填写：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_dpo_8gpu.sh
+```
+
+启动器依次执行 `source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate`、`conda activate dpo`、进入本仓库，检查资源及8张已分配GPU，然后通过 Accelerate 启动10000步纯 DPO。每卡batch2、梯度累积16、全局batch256；BF16、LoRA rank/alpha16、LR1e-5、β5000、seed17，每200步完整保存，保留现有 TensorBoard 和固定 PickScore 监控。完整数据校验由训练入口执行。
+
+固定文件位置：
+
+| 内容 | 位置 |
+|---|---|
+| 控制台日志，包括 stderr | `/mnt/afs/L202500030/xietianyu/workspace/DPO/logs/sd15-dpo-8gpu-10000-v1.txt` |
+| 冻结配置 | `configs/local-sd15-dpo-8gpu-10000-v1.json` |
+| 实验、TensorBoard、完整 checkpoint | `/mnt/aoss/xietianyu/self_correct/runs/sd15-dpo-8gpu-10000-v1` |
+
+第一次启动生成配置；重启同一命令复用配置，检测到实验目录后自动尝试 `--resume_from_checkpoint latest`，日志追加到同一 txt。缺少有效完整 checkpoint 时会停止报错，不覆盖旧实验。保持同一代码、依赖、挂载和8张GPU；启动器不自动拉取代码或安装依赖。
+
+新实验改一个实验名，配置、日志和输出随之独立：
+
+```bash
+export SCD_RUN_NAME=sd15-dpo-8gpu-10000-v2
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_dpo_8gpu.sh
+```
+
+查看控制台日志：
+
+```bash
+tail -f /mnt/afs/L202500030/xietianyu/workspace/DPO/logs/sd15-dpo-8gpu-10000-v1.txt
+```
+
+原始 Parquet 转换不在 ACP 训练启动器中自动执行；缺少清单或监控 prompt 时先按下面的数据准备步骤完成。本启动器只使用本项目环境、资源和训练入口。
+
 ## 先更新代码
 
 截图中的远程代码目录为下面的位置。旧实验需要续训时，保留其冻结 checkout，新版本用于新实验。
@@ -19,6 +54,7 @@ git rev-parse HEAD
 
 ```bash
 # 在项目独立环境中执行；不向 base 安装。
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate dpo
 python --version
 which python

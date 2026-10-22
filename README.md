@@ -13,6 +13,8 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；也提供多视
 
 商汤大装置首次部署按 [command.md](command.md) 从上到下执行：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
 
+已完成准备后，ACP 的8张5090、10000步纯 DPO 可直接使用 [launchers/acp_sd15_dpo_8gpu.sh](launchers/acp_sd15_dpo_8gpu.sh)。脚本激活远程 `dpo` 环境，检查资源，冻结配置并支持重启恢复；控制台日志追加到仓库 `logs/sd15-dpo-8gpu-10000-v1.txt`。具体 ACP 启动命令见 [command.md](command.md)。
+
 ```bash
 # 在远程已分配GPU上运行；本集群登录节点不可运行训练。
 python train.py --family sd15 --world-size 4 \
