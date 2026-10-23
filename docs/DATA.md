@@ -59,11 +59,13 @@ python scripts/download_assets.py extract-hpdv3 --out /data/hpdv3
 ```bash
 python scripts/prepare_downloaded_data.py pickapic --family sd15 \
   --raw /data/pickapic-raw --model /models/sd15 \
-  --images /data/pickapic-images --out /data/pickapic-prepared
+  --images /data/pickapic-images --out /data/pickapic-prepared --workers 8
 python scripts/prepare_downloaded_data.py hpdv3 --family sd15 \
   --raw /data/hpdv3 --model /models/sd15 --out /data/hpdv3-prepared
 ```
 
 如果跨 Pick-a-Pic / HPDv3 做比较，处理 Pick-a-Pic 时传 `--hpdv3 /data/hpdv3`，处理 HPDv3 时传 `--pickapic /data/pickapic-raw`，排除另一数据集官方 held-out 的重合。未提供另一数据集时仅执行本数据集的隔离规则。自己下载且没有下载记录的数据须用 `--revision` 写明来源版本。
+
+Pick-a-Pic 支持 `--workers` 并行图片 I/O、`--batch-size` 控制原子断点粒度以及 `--resume` 直接恢复已提交批次。中断的旧串行任务须先停止，再用 `--adopt-legacy` 接管原输出和图片池：旧版本没有游标，需要一次并行校验和元数据重建，已有图片不重写。具体切换和恢复命令统一见 [command.md](../command.md)。这些参数不适用于 HPDv3。
 
 处理输出包含 `pairs.jsonl`、`ready.json` 和审计清单。保留原人类胜负，过滤平局和冲突，不用奖励模型重标标签。大规模下载和预处理在已分配资源上执行。

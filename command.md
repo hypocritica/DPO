@@ -110,7 +110,8 @@ df -h "$PICKAPIC_RAW" "$(dirname "$PICKAPIC_SD15_PREPARED")"
 
 python scripts/prepare_downloaded_data.py pickapic --family sd15 \
   --raw "$PICKAPIC_RAW" --model "$SD15_MODEL" \
-  --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED"
+  --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED" \
+  --workers 8 --batch-size 256
 
 python scripts/prepare_benchmarks.py \
   --train-pairs "$PICKAPIC_SD15_PREPARED/pairs.jsonl" \
@@ -122,7 +123,74 @@ python scripts/check_deployment.py --family sd15 --stage prepared
 
 如果资源检查报告没有可核实的下载版本，先查原下载记录。只有这种情况才在处理命令后加 `--revision`，传入实际的“数据仓库@下载 commit”；不要填占位符，也不要把现在的远端 main 当成当时的下载版本。
 
-处理完成后应有 `pickapicv2/images/`、`pickapicv2/prepared-sd15/pairs.jsonl` 和 `benchmarks/sd15/pickapic-monitor.jsonl`。监控集默认128条；其余 Pick-a-Pic test prompt 另外保留。准备工具拒绝覆盖现有输出目录。`ready.json` 表示数据准备已完成；只有 `preparing.json` 时说明上次未完成，保留现场并为重新准备选择新输出目录。图像池可以复用。
+处理完成后应有 `pickapicv2/images/`、`pickapicv2/prepared-sd15/pairs.jsonl` 和 `benchmarks/sd15/pickapic-monitor.jsonl`。监控集默认128条；其余 Pick-a-Pic test prompt 另外保留。`ready.json` 表示数据准备已完成；只有 `preparing.json` 时不启动训练。
+
+### Pick-a-Pic 并行、恢复与旧任务切换
+
+默认使用8个图片 I/O 线程，每256条原始记录提交一个原子批次。图片保留原始字节、文件名和目录；已有图片按 SHA256 校验后复用，不重写。`--workers 16` 可在存储允许时提高并发；若延迟变大则降回4或8。batch 控制内存和重做范围，不是训练 batch。
+
+新版本中断后，在相同输出目录恢复（线程数和 batch 大小可以调整）：
+
+```bash
+python scripts/prepare_downloaded_data.py pickapic --family sd15 \
+  --raw "$PICKAPIC_RAW" --model "$SD15_MODEL" \
+  --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED" \
+  --workers 8 --batch-size 256 --resume
+```
+
+`.preparation/` 同时保存已处理行、排除原因、图片哈希和下一个 Parquet 游标；恢复跳过已提交文件和 row group，不重新验证这些图片。若游标在一个压缩 row group 中间，Arrow 仍需解码该组的前缀，但不会再过滤、导出或校验前缀样本。新写入图片先关闭临时文件再重命名；中断时未提交的批次会重做，已完成图片复用。底层挂载须支持原子重命名及文件锁，持久性依赖存储系统。保持原始数据、图片池、tokenizer、外部测试集及代码不变；输入/代码身份变化会拒绝恢复。最终划分和清单也支持中断后重建，`ready.json` 最后写入；最终阶段仍需要足够内存。
+
+**正在运行旧串行程序时，先停止它，再更新代码和使用 `--adopt-legacy`。旧版本不持锁，不能与新版本同时写同一个图片池。** 在容器的 Bash 终端执行以下块，输入旧 Python 进程的 PID；校验命令后发送 TERM，并等待它退出：
+
+```bash
+(
+  set -e
+  pgrep -af '[p]repare_downloaded_data.py.*pickapic'
+  read -r -p "输入旧预处理 Python PID: " PREP_PID
+  [[ "$PREP_PID" =~ ^[0-9]+$ && "$PREP_PID" -gt 1 ]]
+  [[ "$(ps -p "$PREP_PID" -o comm=)" == *python* ]]
+  [[ "$(ps -p "$PREP_PID" -o args=)" == *prepare_downloaded_data.py*pickapic* ]]
+  kill -TERM "$PREP_PID"
+  while :; do
+    PREP_STATE="$(ps -p "$PREP_PID" -o stat= || true)"
+    [[ -z "$PREP_STATE" || "$PREP_STATE" == *Z* ]] && break
+    sleep 1
+  done
+  echo "旧预处理进程已停止"
+)
+```
+
+只有看到“旧预处理进程已停止”后再执行下一块。若 Python 的 PID 为1，它是容器主进程，应在平台将启动命令改为下面的接管命令后停止/重建任务，并继续挂载原持久目录；不要删除数据或让平台再次自动启动旧命令。若同一 checkout 还有训练任务，先等它结束再更新。
+
+确认旧程序退出后，在相同持久目录更新 main，再接管原图片池和原准备目录。下面从旧 `preparing.json` 读取原下载 revision；旧命令的可选外部测试集参数也需继续保留。
+
+```bash
+(
+  set -e
+  source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+  conda activate dpo
+  cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+  git switch main
+  git pull --ff-only origin main
+  git rev-parse HEAD
+  source paths.sh
+  export PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false
+  PREP_REVISION="$(python - <<'PYTHON'
+import json, os
+from pathlib import Path
+print(json.loads((Path(os.environ['PICKAPIC_SD15_PREPARED'])/'preparing.json').read_text())['revision'])
+PYTHON
+)"
+  python -u scripts/prepare_downloaded_data.py pickapic --family sd15 \
+    --raw "$PICKAPIC_RAW" --model "$SD15_MODEL" \
+    --images "$PICKAPIC_IMAGES" --out "$PICKAPIC_SD15_PREPARED" \
+    --revision "$PREP_REVISION" --workers 8 --batch-size 256 --adopt-legacy
+)
+```
+
+旧版本没有保存行清单和游标，因此不能按日志中的370000直接跳过。首次接管必须从原始 Parquet 重建行元数据；图片校验/读取并行进行，原有约42万张图片均保留，校验通过的不会重写。不要伪造游标、删除图片池或移走准备目录。接管后再次中断使用 `--resume`，不再使用 `--adopt-legacy`。已完成输出拒绝覆盖；输出目录和图片池均持独占锁。
+
+日志每约30秒或10000条输出已提交行数、总数、图片复用数、吞吐和剩余扫描时间估计；`phase=finalize` 表示扫描完成，正在做全局去重、连通分量划分和清单生成。
 
 ## 两步纯 DPO 验证，同时检查续训
 

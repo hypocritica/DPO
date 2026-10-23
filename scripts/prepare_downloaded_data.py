@@ -5,22 +5,23 @@ No GPU, network, image resize/re-encoding, or reward-based relabeling is used.
 """
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256 as hash_bytes
-from io import BytesIO
 import json
 import math
 import os
 from pathlib import Path
-import shutil
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 from download_assets import env_path, parquet_split
 from self_correct_dpo.data.benchmarks import prepare_panels, prompt_key
-from self_correct_dpo.common import digest, sha256, write_json, write_jsonl
+from self_correct_dpo.common import digest, sha256, write_json, write_jsonl, output_lock
 from self_correct_dpo.data.pickapic import adapt_rows
+from self_correct_dpo.data.preparation import ImagePool, InvalidImageError, BatchJournal, parquet_batches, atomic_json, atomic_jsonl
 
 
 def parquet_records(files, *, metadata_only=False):
@@ -44,43 +45,6 @@ def image_bytes(value):
     if not isinstance(value, bytes) or not value:
         raise ValueError('Expected embedded jpg bytes, not remote image URLs')
     return value
-
-
-class ImagePool:
-    def __init__(self, root):
-        self.root = Path(root)
-        self.verified = set()
-        self.bytes_written = 0
-        self.budget = 0
-
-    def store(self, payload):
-        from PIL import Image
-        checksum = hash_bytes(payload).hexdigest()
-        target = self.root / checksum[:2] / (checksum + '.img')
-        if checksum in self.verified:
-            return str(target), checksum
-        if target.exists():
-            if sha256(target) != checksum:
-                raise ValueError(f'Existing image is corrupt: {target}')
-        else:
-            with Image.open(BytesIO(payload)) as image:
-                image.verify()
-            self.root.mkdir(parents=True, exist_ok=True)
-            if self.budget < len(payload):
-                free = shutil.disk_usage(self.root).free
-                if free < len(payload) + 1024**3:
-                    raise RuntimeError('Image export needs more disk space plus 1 GiB margin')
-                self.budget = min(free - 1024**3, 128 * 1024**2)
-            target.parent.mkdir(exist_ok=True)
-            # A crashed write leaves a .partial file, never a committed image identity.
-            partial = target.with_suffix('.partial')
-            with partial.open('wb') as f:
-                f.write(payload)
-            partial.replace(target)
-            self.budget -= len(payload)
-            self.bytes_written += len(payload)
-        self.verified.add(checksum)
-        return str(target), checksum
 
 
 def tokenizer_predicate(model, family):
@@ -139,83 +103,176 @@ def pickapic_source(raw, revision=None):
     return files, revision, receipt, provenance
 
 
-def prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, hpdv3_test=None, revision=None, allowed=None):
-    raw, out = Path(raw).resolve(), Path(out).resolve()
-    if out.exists():
-        raise FileExistsError(out)
+def prepare_pickapic(raw, out, image_root, **options):
+    # The legacy serial exporter has no locks: stop it before adopting its output.
+    with output_lock(out), output_lock(image_root):
+        return _prepare_pickapic(raw, out, image_root, **options)
+
+
+def _prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, hpdv3_test=None,
+                      revision=None, allowed=None, workers=8, batch_size=256,
+                      resume=False, adopt_legacy=False):
+    if workers < 1 or batch_size < 1:
+        raise ValueError('workers and batch_size must be positive')
+    raw, out, image_root = Path(raw).resolve(), Path(out).resolve(), Path(image_root).resolve()
     files, revision, receipt, provenance = pickapic_source(raw, revision)
+    inventory = [{'file':str(f.relative_to(raw)), 'bytes':f.stat().st_size, 'mtime_ns':f.stat().st_mtime_ns} for f in files]
+    external_tests = [Path(p) for p in (hpdv2_test, hpdv3_test) if p]
+    token_dirs = ['tokenizer'] if family == 'sd15' else ['tokenizer', 'tokenizer_2']
+    token_files = sorted(p for name in token_dirs for p in (Path(model)/name).rglob('*') if p.is_file())
+    code_files = [Path(__file__)] + [ROOT/'src/self_correct_dpo/data'/name
+                                    for name in ('preparation.py', 'pickapic.py', 'pairs.py')]
+    identity = {'format':2, 'source':str(raw), 'revision':revision, 'family':family,
+                'images':str(image_root), 'inventory':inventory, 'model':str(Path(model).resolve()),
+                'tokenizers':{str(p.relative_to(model)):sha256(p) for p in token_files},
+                'external_tests':{name: {'path':str(Path(p).resolve()), 'sha256':sha256(p)}
+                                  for name, p in (('hpdv2', hpdv2_test), ('hpdv3', hpdv3_test)) if p},
+                'code':{p.name:sha256(p) for p in code_files}}
+    marker = out/'preparing.json'
+    if out.exists():
+        if (out/'ready.json').exists():
+            raise FileExistsError(f'{out} is already ready; reuse it for training')
+        if not marker.is_file():
+            raise ValueError('Existing output has no preparing.json; use a new --out')
+        previous = json.loads(marker.read_text())
+        if any(previous.get(k) != identity[k] for k in ('source', 'revision', 'family')):
+            raise ValueError('Existing preparation source/revision/family differs')
+        if (out/'.preparation/identity.json').exists() or previous.get('format') == 2:
+            if not resume:
+                raise ValueError('Interrupted preparation exists; pass --resume')
+        elif not adopt_legacy:
+            raise ValueError('Legacy preparation has no cursor; stop its process and pass --adopt-legacy')
+        else:
+            if any((out/name).exists() for name in ('pairs.jsonl', 'audit.json')):
+                raise ValueError('Legacy output already reached finalization; retain it and use a new --out')
+            print('Adopting legacy images: reconstructing row metadata in parallel; no images are overwritten.', flush=True)
+    else:
+        if resume or adopt_legacy:
+            raise FileNotFoundError(f'No interrupted preparation at {out}')
+        out.mkdir(parents=True)
+        atomic_json(marker, {'source':str(raw), 'revision':revision, 'family':family, 'format':2})
+    journal = BatchJournal(out/'.preparation', identity)
     training = [f for f in files if parquet_split(str(f.relative_to(raw))) == 'train']
     heldout = [f for f in files if parquet_split(str(f.relative_to(raw))) in ('test', 'test_unique', 'validation', 'validation_unique')]
     unique_test = [f for f in files if parquet_split(str(f.relative_to(raw))) == 'test_unique']
-    if not training or not unique_test:
-        raise ValueError('Need downloaded train and official test_unique Parquet files')
-    # Protect all official held-out captions, image UIDs and byte hashes before splitting train.
-    blocked_prompts, blocked_images = set(), set()
-    for record in parquet_records(heldout):
-        if record.get('caption'):
-            blocked_prompts.add(prompt_key(record['caption']))
-        for side in (0, 1):
-            if record.get(f'image_{side}_uid'):
-                blocked_images.add(('uid', str(record[f'image_{side}_uid'])))
-            blocked_images.add(('sha', hash_bytes(image_bytes(record[f'jpg_{side}'])).hexdigest()))
-    external_tests = [Path(p) for p in (hpdv2_test,hpdv3_test) if p]
-    for test in external_tests:
-        hpd_rows = json.loads(test.read_text())
-        if not isinstance(hpd_rows, list) or not all(isinstance(r.get('prompt'), str) for r in hpd_rows):
-            raise ValueError('Expected official HPD test.json prompt records')
-        blocked_prompts.update(prompt_key(r['prompt']) for r in hpd_rows)
-        if hpdv3_test and test==Path(hpdv3_test):
-            for record in hpd_rows:
-                for side in ('path1','path2'):
-                    image=(test.resolve().parent/record[side]).resolve()
-                    if not image.is_relative_to(test.resolve().parent):raise ValueError('HPDv3 test image escapes dataset root')
-                    if not image.is_file():raise FileNotFoundError('Extract HPDv3 images before preparing Pick-a-Pic')
-                    blocked_images.add(('sha',sha256(image)))
+    blocked_cache = journal.root/'heldout.json'
+    if blocked_cache.exists():
+        blocked = json.loads(blocked_cache.read_text())
+        blocked_prompts = set(blocked['prompts'])
+        blocked_images = set(map(tuple, blocked['images']))
+    else:
+        # Protect all official held-out captions, image UIDs and byte hashes before splitting train.
+        blocked_prompts, blocked_images = set(), set()
+        for record in parquet_records(heldout):
+            if record.get('caption'):
+                blocked_prompts.add(prompt_key(record['caption']))
+            for side in (0, 1):
+                if record.get(f'image_{side}_uid'):
+                    blocked_images.add(('uid', str(record[f'image_{side}_uid'])))
+                blocked_images.add(('sha', hash_bytes(image_bytes(record[f'jpg_{side}'])).hexdigest()))
+        external_tests = [Path(p) for p in (hpdv2_test,hpdv3_test) if p]
+        for test in external_tests:
+            hpd_rows = json.loads(test.read_text())
+            if not isinstance(hpd_rows, list) or not all(isinstance(r.get('prompt'), str) for r in hpd_rows):
+                raise ValueError('Expected official HPD test.json prompt records')
+            blocked_prompts.update(prompt_key(r['prompt']) for r in hpd_rows)
+            if hpdv3_test and test==Path(hpdv3_test):
+                for record in hpd_rows:
+                    for side in ('path1','path2'):
+                        image=(test.resolve().parent/record[side]).resolve()
+                        if not image.is_relative_to(test.resolve().parent):raise ValueError('HPDv3 test image escapes dataset root')
+                        if not image.is_file():raise FileNotFoundError('Extract HPDv3 images before preparing Pick-a-Pic')
+                        blocked_images.add(('sha',sha256(image)))
+        atomic_json(blocked_cache, {'prompts':sorted(blocked_prompts), 'images':sorted(blocked_images)})
     allowed = allowed or tokenizer_predicate(Path(model), family)
-    pool = ImagePool(Path(image_root).resolve())
-    original, groups, exclusions = [], {}, []
-    seen_ids = set()
-    raw_count = 0
-    # Out is created early so interrupted preparation remains visibly incomplete.
-    out.mkdir(parents=True)
-    write_json(out / 'preparing.json', {'source':str(raw), 'revision':revision, 'family':family})
-    for record in parquet_records(training):
-        raw_count += 1
-        pair_id = str(record.get('ranking_id', ''))
-        if not pair_id or pair_id in seen_ids:
-            raise ValueError(f'Missing or duplicate source ranking_id: {pair_id}')
-        seen_ids.add(pair_id)
-        caption = record.get('caption')
-        labels = [record.get('label_0'), record.get('label_1')]
-        reason = None
-        if not isinstance(caption, str) or not caption.strip(): reason = 'empty_caption'
-        elif not record.get('has_label', True): reason = 'unlabelled'
-        elif labels not in ([1, 0], [0, 1], [.5, .5]): reason = 'invalid_labels'
-        elif prompt_key(caption) in blocked_prompts: reason = 'official_heldout_caption'
-        elif not allowed(caption): reason = 'model_token_length'
-        if reason:
-            exclusions.append({'pair_id':pair_id, 'reason':reason})
-            continue
+    pool = ImagePool(image_root)
+    original, groups, exclusions, seen_ids = [], {}, [], set()
+    raw_count = written_bytes = reused_images = 0
+
+    def restore(batch):
+        nonlocal raw_count, written_bytes, reused_images
+        for pair_id in batch['ids']:
+            if not pair_id or pair_id in seen_ids:
+                raise ValueError(f'Missing or duplicate source ranking_id: {pair_id}')
+            seen_ids.add(pair_id)
+        original.extend(batch['rows'])
+        exclusions.extend(batch['excluded'])
+        for row in batch['rows']:
+            groups[row['caption']] = 'caption:' + digest(prompt_key(row['caption']))[:24]
+            pool.verified.update(row['hashes'])
+        raw_count += len(batch['ids'])
+        written_bytes += batch['written_bytes']
+        reused_images += batch['reused_images']
+
+    for batch in journal.replay():
+        restore(batch)
+    pool.bytes_written = written_bytes
+    pool.reused = reused_images
+    import pyarrow.parquet as pq
+    total = sum(pq.ParquetFile(file).metadata.num_rows for file in training)
+    print(json.dumps({'phase':'scan', 'resumed_scanned':raw_count, 'total':total,
+                      'workers':workers, 'batch_size':batch_size, 'cursor':journal.cursor}), flush=True)
+
+    def export(record):
+        pair_id = str(record['ranking_id'])
         payloads = [image_bytes(record[f'jpg_{side}']) for side in (0, 1)]
         hashes = [hash_bytes(payload).hexdigest() for payload in payloads]
         uids = [str(record.get(f'image_{side}_uid') or hashes[side]) for side in (0, 1)]
         if any(('uid', uid) in blocked_images for uid in uids) or any(('sha', h) in blocked_images for h in hashes):
-            exclusions.append({'pair_id':pair_id, 'reason':'official_heldout_image'})
-            continue
+            return None, {'pair_id':pair_id, 'reason':'official_heldout_image'}
         try:
             paths = [pool.store(payload)[0] for payload in payloads]
-        except (OSError, ValueError) as exc:
-            # A corrupt preexisting content-addressed image is an integrity failure.
-            if isinstance(exc, ValueError): raise
-            exclusions.append({'pair_id':pair_id, 'reason':'invalid_image'})
-            continue
-        group = 'caption:' + digest(prompt_key(caption))[:24]
-        groups[caption] = group
-        original.append({'pair_id':pair_id, 'caption':caption, 'label_0':labels[0], 'label_1':labels[1],
-                         'image_0':paths[0], 'image_1':paths[1], 'image_0_uid':uids[0], 'image_1_uid':uids[1],
-                         'split':'train', 'hashes':hashes})
-        if raw_count % 10000 == 0:
-            print(json.dumps({'scanned':raw_count, 'eligible':len(original), 'unique_images':len(pool.verified)}), flush=True)
+        except InvalidImageError:
+            return None, {'pair_id':pair_id, 'reason':'invalid_image'}
+        # ValueError (including a corrupt preexisting image) is fatal, never skipped.
+        return {'pair_id':pair_id, 'caption':record['caption'],
+                'label_0':record['label_0'], 'label_1':record['label_1'],
+                'image_0':paths[0], 'image_1':paths[1], 'image_0_uid':uids[0], 'image_1_uid':uids[1],
+                'split':'train', 'hashes':hashes}, None
+
+    started = last_log = time.monotonic()
+    initial_count = last_count = raw_count
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for records, cursor in parquet_batches(training, batch_size=batch_size, start=journal.cursor):
+            ids, eligible, rejected = [], [], []
+            current_ids = set()
+            for record in records:
+                pair_id = str(record.get('ranking_id', ''))
+                if not pair_id or pair_id in seen_ids or pair_id in current_ids:
+                    raise ValueError(f'Missing or duplicate source ranking_id: {pair_id}')
+                ids.append(pair_id)
+                current_ids.add(pair_id)
+                caption = record.get('caption')
+                labels = [record.get('label_0'), record.get('label_1')]
+                reason = None
+                if not isinstance(caption, str) or not caption.strip(): reason = 'empty_caption'
+                elif not record.get('has_label', True): reason = 'unlabelled'
+                elif labels not in ([1, 0], [0, 1], [.5, .5]): reason = 'invalid_labels'
+                elif prompt_key(caption) in blocked_prompts: reason = 'official_heldout_caption'
+                elif not allowed(caption): reason = 'model_token_length'
+                if reason:
+                    rejected.append({'pair_id':pair_id, 'reason':reason})
+                else:
+                    eligible.append(record)
+            rows = []
+            for row, exclusion in executor.map(export, eligible):
+                if row is not None: rows.append(row)
+                else: rejected.append(exclusion)
+            positions = {pair_id:index for index, pair_id in enumerate(ids)}
+            rejected.sort(key=lambda item: positions[item['pair_id']])
+            batch = {'ids':ids, 'rows':rows, 'excluded':rejected, 'next':cursor,
+                     'written_bytes':pool.bytes_written-written_bytes, 'reused_images':pool.reused-reused_images}
+            journal.commit(batch)
+            restore(batch)
+            now = time.monotonic()
+            if raw_count-last_count >= 10000 or now-last_log >= 30 or raw_count == total:
+                rate = (raw_count-initial_count)/max(now-started, .001)
+                print(json.dumps({'phase':'scan', 'scanned':raw_count, 'total':total,
+                                  'eligible':len(original), 'unique_images':len(pool.verified),
+                                  'reused_images':reused_images, 'rows_per_second':round(rate, 2),
+                                  'remaining_scan_hours':round((total-raw_count)/max(rate, .001)/3600, 2)}), flush=True)
+                last_count, last_log = raw_count, now
+    print(json.dumps({'phase':'finalize', 'scanned':raw_count, 'eligible':len(original)}), flush=True)
     def resolve_images(row):
         return ([row['image_0'],row['image_1']], row['hashes'], [row['image_0_uid'],row['image_1_uid']])
     pairs, rejected, report = adapt_rows(original, out, groups, source_revision=revision,
@@ -227,23 +284,23 @@ def prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, hp
     for row in pairs:
         for side in ('winner', 'loser'):
             row[side] = os.path.relpath(row[side], out)
-    write_jsonl(out / 'pairs.jsonl', pairs)
-    write_jsonl(out / 'excluded.jsonl', exclusions)
+    atomic_jsonl(out / 'pairs.jsonl', pairs)
+    atomic_jsonl(out / 'excluded.jsonl', exclusions)
     # Captions only: official test_unique is distinct from the local test rows above.
-    write_jsonl(out / 'official-test-unique.jsonl',
+    atomic_jsonl(out / 'official-test-unique.jsonl',
                 ({'caption':r['caption']} for r in parquet_records(unique_test, metadata_only=True) if r.get('caption')))
-    inventory = [{'file':str(f.relative_to(raw)), 'bytes':f.stat().st_size, 'mtime_ns':f.stat().st_mtime_ns} for f in files]
-    write_json(out / 'audit.json', {**report, 'raw_train_rows':raw_count, 'family':family,
+    atomic_json(out / 'audit.json', {**report, 'raw_train_rows':raw_count, 'family':family,
         'exclusions':dict(Counter(r['reason'] for r in exclusions)), 'source_inventory':inventory,
         'download_receipt':receipt, 'download_receipt_file':str(provenance) if provenance else None,
         'external_test_sha256':{str(p):sha256(p) for p in external_tests},
         'model':str(model), 'images_written_bytes':pool.bytes_written,
-        'preparation_code_sha256':sha256(__file__),
+        'preparation_code_sha256':sha256(__file__), 'preparation_identity':identity,
+        'reused_images':reused_images, 'workers':workers,
         'model_download_receipt':json.loads((Path(model)/'.scd-download.json').read_text()) if (Path(model)/'.scd-download.json').is_file() else None,
         'split_policy':'Official validation/test excluded by normalized caption, image UID and SHA256; remaining train components split 90/5/5 with seed17. Local test is NOT official test_unique.',
         'semantic_isolation_limitation':'Exact normalized captions and shared images are isolated; unknown paraphrases are not manually audited.',
         'image_policy':'Original bytes, content-addressed shared files; RGB square resize happens only in the trainer.'})
-    write_json(out / 'ready.json', {'pairs_sha256':sha256(out / 'pairs.jsonl'), 'splits':dict(counts), 'source_revision':revision})
+    atomic_json(out / 'ready.json', {'pairs_sha256':sha256(out / 'pairs.jsonl'), 'splits':dict(counts), 'source_revision':revision})
     print(json.dumps({'out':str(out), 'splits':dict(counts)}), flush=True)
 
 
@@ -350,7 +407,14 @@ def main():
     p.add_argument('--pickapic-test', help='Exported official-test-unique.jsonl for benchmarks')
     p.add_argument('--hpdv2', help='Optional official HPDv2 test.json for benchmarks')
     p.add_argument('--revision', help='Required provenance for manually downloaded Parquet files')
+    p.add_argument('--workers', type=int, default=8, help='Pick-a-Pic image I/O threads (default: 8)')
+    p.add_argument('--batch-size', type=int, default=256, help='Pick-a-Pic rows per atomic checkpoint (default: 256)')
+    p.add_argument('--resume', action='store_true', help='Resume Pick-a-Pic from committed batches')
+    p.add_argument('--adopt-legacy', action='store_true', help='After stopping the old exporter, rebuild metadata using its existing images')
     a = p.parse_args()
+    if a.workers < 1 or a.batch_size < 1:p.error('--workers and --batch-size must be positive')
+    if a.action != 'pickapic' and (a.resume or a.adopt_legacy or a.workers != 8 or a.batch_size != 256):
+        p.error('--workers/--batch-size/--resume/--adopt-legacy apply only to pickapic')
     if a.family=='unfiltered' and a.action!='hpdv3':p.error('unfiltered is a data-only HPDv3 export for a separate SD3 trainer')
     if a.min_confidence is not None and (a.action!='hpdv3' or not 0<=a.min_confidence<=1):p.error('--min-confidence must be in [0,1] and used with hpdv3')
     dataset='hpdv3' if a.action=='hpdv3' else a.dataset
@@ -366,7 +430,8 @@ def main():
         prepare_pickapic(a.raw or env_path('PICKAPIC_RAW'), a.out or env_path(variable),
                         a.images or env_path('PICKAPIC_IMAGES'), family=a.family,
                         model=a.model or env_path('SD15_MODEL' if a.family == 'sd15' else 'SDXL_MODEL'),
-                        hpdv3_test=hpd_test, revision=a.revision)
+                        hpdv3_test=hpd_test, revision=a.revision, workers=a.workers,
+                        batch_size=a.batch_size, resume=a.resume, adopt_legacy=a.adopt_legacy)
     elif a.action=='hpdv3':
         pickapic_raw=a.pickapic or os.environ.get('PICKAPIC_RAW')
         prepare_hpdv3(a.raw or hpdv3_raw or env_path('HPDV3_RAW'),a.out or env_path(variable),family=a.family,
