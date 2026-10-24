@@ -25,6 +25,23 @@ def compose(*arguments, template='multiview-C.json'):
 
 
 class GaussianConfigTests(unittest.TestCase):
+    def test_two_gpu_dpo_matches_gaussian_baseline_budget(self):
+        config = compose('--family', 'sd15', '--method', 'dpo', '--views', '1',
+                         '--world-size', '2', '--train_batch_size', '2',
+                         '--max_train_steps', '10000', '--mixed_precision', 'bf16',
+                         '--checkpointing_steps', '200', '--report_to', 'tensorboard',
+                         '--launcher', 'accelerate')
+        validate_config(config, files=False)
+        t = config['training']
+        self.assertEqual((t['noise_views'], t['batch_size'], t['gradient_accumulation_steps']), (1, 2, 64))
+        self.assertEqual((t['max_steps'], t['checkpoint_every'], t['learning_rate'], t['beta']),
+                         (10000, 200, 1e-5, 5000))
+        self.assertEqual((config['seed'], t['lora_rank'], t['lora_alpha']), (17, 16, 16))
+        self.assertEqual(t['logging'], 'tensorboard')
+        self.assertTrue(config['evaluation']['enabled'])
+        self.assertNotIn('independent_rollout', t)
+        self.assertNotIn('batch_views', t)
+
     def test_data_validation_overrides_and_invalid_settings(self):
         config = compose('--method', 'multiview-C-gaussian', '--data-validation', 'full',
                          '--validation-workers', '4', '--validation-samples', '16')
