@@ -14,9 +14,13 @@ B = mean_k softplus(-m_k)
 C = softplus(-mean_k m_k)
 ```
 
-B/C 支持任意正整数 K，默认 K=2，可通过 `--views 3`、`--views 4` 等设置。K=1 时 B/C 相同。SD1.5 默认 beta=5000，SDXL 默认 beta=500。普通 DPO 使用 K=1 且移除 `independent_rollout`；仅将 K 改为1不会移除扰动。
+B/C 支持任意正整数 K，默认 K=2，可通过 `--views 3`、`--views 4` 等设置。K=1 时 B/C 相同。SD1.5 默认 beta=5000，SDXL 默认 beta=500。普通 DPO 使用 K=1 且移除 `independent_rollout`；在 rollout 入口中仅将 K 改为1不会移除扰动，普通高斯入口则始终没有 rollout。
 
 策略使用 UNet LoRA；基座、VAE、文本编码器冻结。参考通过禁用 LoRA 得到，策略和参考使用相同状态、条件与标签。当前训练保留所有视图的策略计算图，对联合 loss 反传一次；每个 microbatch 除以梯度累积次数，DDP 对 rank 梯度取平均。一个 step 是完成累积后的一次全局参数更新。
+
+普通高斯多视图入口为 `multiview-B-gaussian` / `multiview-C-gaussian`，不含 `independent_rollout`。每个视图独立采样普通均匀时间与高斯噪声，pair 内仍共享时间/噪声。`batch_views=true` 将 K 个 `[B*2,C,H,W]` 输入合成 `[K*B*2,C,H,W]`，复用并复制匹配的文本条件，分别执行一次参考和策略前向，再还原 `[B,K,2]` 的误差；B/C 公式不变。算法支持任意正整数 K，双卡启动器提供 K=2/4/6/8，默认 rollout 入口仍保留原实现。
+
+合批减少调用开销，UNet 的图片计算量仍随 K 增长。降低每卡图片对数 B、增加梯度累积可控制单次显存并保持全局 pair batch；不能把视图数 K 乘进图片对曝光计数。同一全局 pair batch 下，K=4 仍比 K=2 处理更多带噪图片，不能视为同算力预算。
 
 ## 停止梯度的 DDIM 扰动
 

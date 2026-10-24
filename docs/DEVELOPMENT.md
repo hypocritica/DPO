@@ -1,10 +1,10 @@
 # Self Correct DPO 开发与实验约定
 
-这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-23。
+这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-25。
 
 ## 两台服务器的职责
 
-- 本服务器维护单独开发分支。本次分支为 `dev/self-correct-workflow`，主要编辑代码、整理配置和做轻量 CPU 检查；当前目录不作为正式实验运行目录。
+- 本机维护单独开发分支，当前为 `dev/local-development`，主要编辑代码、整理配置和做轻量 CPU 检查；当前目录不作为正式实验运行目录。
 - 远程服务器使用 GitHub `main`，主要在已分配的 2 / 4 / 8 张 RTX 5090 上快速验证 SD1.5、SDXL 算法；按需要使用 H100。
 - 新算法先做最小实现和小规模验证。确认可运行或有收益后，再将对应代码提交合入 GitHub `main`，远程拉取指定 commit。
 - 正在运行或准备续训的实验固定代码、依赖、资源路径和超参数。先结束当前实验再更新该 checkout；并行比较不同版本可使用独立 checkout/worktree。
@@ -45,17 +45,25 @@ HPDv3 是偏好数据集，HPSv3 是评分模型，分别记录。当前训练�
 
 原始 Parquet 目录不能直接用作 `--data_path`：训练需要处理后的 `pairs.jsonl`。大规模处理放在远程已分配资源上，命令见根目录 `command.md`。
 
+训练输入默认快速校验：完整核对清单及 split/来源，复用匹配的 `ready.json` 或并行审计缓存，仅抽查少量图片；实际训练读取图片时校验即将解码字节的 SHA256。无准备/审计记录时使用有界线程池完整审计；可通过 `scripts/check_training_data.py --mode full --pairs ...` 独立强制审计。快速路径不代表所有未抽中图片都已经重新验证，数据目录保持只读；不要删除标记来绕过身份不匹配。预处理阶段的 `validate_pair_rows` 默认严格行为保留，训练专用入口使用无远程逐图元数据查询的路径归一化。具体日志与参数见 `command.md`。
+
 ## 配置和超参数
 
-配置按四层合成：`configs/defaults.json` → `configs/models/sd15.json` 或 `sdxl.json` → 三种方法入口 → 命令覆盖。实际加载时方法入口的 `extends` 先读公共和 SD1.5 默认值，`--family sdxl` 再应用 SDXL 默认值。
+配置按四层合成：`configs/defaults.json` → `configs/models/sd15.json` 或 `sdxl.json` → 方法入口 → 命令覆盖。实际加载时方法入口的 `extends` 先读公共和 SD1.5 默认值，`--family sdxl` 再应用 SDXL 默认值。
 
 | 方法入口 | 含义 |
 |---|---|
 | `configs/dpo.json` | 纯 DPO，K=1，无 rollout |
 | `configs/multiview-B.json` | 各个独立 rollout 视图计算 DPO loss 后平均 |
 | `configs/multiview-C.json` | 独立 rollout 视图的 margin 平均后计算 DPO loss；默认入口 |
+| `configs/multiview-B-gaussian.json` | 无 rollout，普通高斯视图的 DPO loss 平均；K 个视图合批 |
+| `configs/multiview-C-gaussian.json` | 无 rollout，普通高斯视图的 margin 平均后计算 loss；K 个视图合批 |
 
-B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K 会增加显存和计算量，不自动改变学习率或 batch。将多视图 K 改为 1 仍保留 rollout，纯 DPO 需选择 `dpo`。
+B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K 会增加显存和计算量，不自动改变学习率或 batch。在 rollout 入口中仅将 K 改为1仍保留 rollout；普通高斯入口 K=1 则退化为单视图目标。明确选择纯 DPO 使用 `dpo`。
+
+普通高斯入口使用 `training.batch_views=true`，复用同一批 VAE latent 和文本条件；按视图顺序拼接 noisy/timestep/target 以及 SDXL 的嵌套条件，一次参考前向、一次策略前向，再还原 `[B,K,2]` 计算联合 loss。其余已有入口沿用原逐视图路径。`batch_views` 不与 rollout/paired_drift 组合。普通高斯可用 `--set training.batch_views=false` 做逐视图实现对照；两种计算顺序可能产生浮点舍入差异。
+
+显存按每卡 `2×B×K` 张带噪图片衡量，B 是图片对数。双卡普通高斯启动器支持 K=2/4/6/8：SD1.5 K=2 保留 B=2、累积64，K=4/6/8 默认 B=1、累积128，均保持全局256对；SDXL 均从 B=1、累积64、全局128对起步。显存足够可用 `SCD_TRAIN_BATCH_SIZE=2` 在新实验中改 B，启动器自动调整累积并核对冻结配置的全局 batch。默认 balanced 下，每次更新的图片对集合不随 B 的这种拆分改变，但随机数分配和浮点累加可能变化。BF16 和梯度检查点沿用默认设置；参考复用禁用 LoRA 的基座，无第二份 UNet。DDP 不合并各卡显存，大 K 是否可容纳需要远程实测。B 已为1后，增加梯度累积不能继续缩小一次合批前向。启动器只读取准备完成的数据，避免并行任务重复预处理；命令及显存监控方式见 `command.md`。
 
 默认 seed=17、learning_rate=1e-5、LoRA rank/alpha=16、BF16、2000 优化步、每 200 步完整保存、每 1000 步保留 LoRA。SD1.5 默认 beta=5000、分辨率512、全局256对；SDXL 默认 beta=500、分辨率1024、全局128对。
 
@@ -91,3 +99,11 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 已使用项目现有 CPU 环境检查 B/C 的 K=1/2/3/4 梯度、SDXL 配置和小模型往返、200步保存及续训；额外短时检查了 Accelerate 两进程 CPU 启动、指针提交/清理中断后的恢复、TensorBoard 事件读写，以及各方法的命令覆盖。不新增复杂测试框架。
 
 这些检查不代表 5090/H100 的实际训练、显存或性能已经验证。本机未安装 W&B 可选依赖，尚未测试其真实在线上报。远程首次使用新配置时，先按 `command.md` 进行两步 GPU smoke，再启动正式实验。
+
+2026-10-24 新增普通高斯配置、视图合批和双卡 K=2/4/6/8 启动器。本次本地仅使用标准库验证配置生成、方法切换、全局 batch、冻结配置保护及 Python/Bash 语法；没有安装依赖。`tests/test_joint.py` 已补充普通高斯合批与逐视图的误差、梯度、RNG 和 SDXL 嵌套条件对照，但因本机没有 PyTorch 尚未执行。远程 `de9eed3` 的并行预处理代码及四项 real-Parquet 测试原样保留，本次没有重跑其依赖 PyArrow/Pillow 的测试。
+
+2026-10-25 训练前校验优化：本地10项真实小文件校验测试、6项配置测试通过，覆盖并行审计、准备记录/缓存复用、未完成准备拒绝、清单和来源变更、重复 ID / split 泄漏、缺失或损坏图片、训练读取时 SHA256 验证。没有安装 PyTorch/PyArrow/Pillow；实际 GPU 启动耗时和模型训练仍须在 SLAI 验证。改动涉及 `pairs.py`，未完成的旧预处理应保留原 checkout 完成或恢复；已完成的 `ready.json` 数据无需重新准备。
+
+2026-10-25 统一 ACP 入口：`acp_prepare_data.sh <pickapic|hpdv3> <sd15|sdxl|unfiltered>` 独立完成数据准备，已完成输出复用；只有 HPDv3 支持数据导出的 unfiltered。训练入口只读已准备数据，纯 DPO 双卡和普通高斯 K=2/4/6/8 共用 `acp_common.sh`，正式预算统一10000步；SD1.5 纯 DPO 和 K=2 保留每卡B=2、累积64，K=4/6/8 默认B=1、累积128，均为全局256。脚本从自身位置确定 checkout，环境和资源表一致。8卡旧入口保留。本地验证不安装环境，实际 GPU、显存和数据耗时仍须在远程验证。
+
+入口整理验证：7项配置测试、10项数据校验测试通过，Bash语法通过；临时 checkout 中实际生成9种 DPO/高斯双卡配置，并检查冻结配置冲突、缺失配置保护、续训参数、已完成数据复用及 HPDv3 自定义路径转发。此 shell 检查替代了 Conda 激活、部署检查、预处理和训练调用，不代表实际环境或 GPU 执行已经通过。

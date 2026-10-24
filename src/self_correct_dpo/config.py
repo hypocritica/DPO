@@ -64,7 +64,8 @@ def load_config(path, *, scorers=None, benchmarks=None, resources=None, _parents
 def add_training_arguments(parser):
     parser.add_argument('--family', choices=['sd15', 'sdxl'])
     parser.add_argument('--resources', help='Resource registry; default configs/resources.json')
-    parser.add_argument('--method', choices=['dpo', 'multiview-B', 'multiview-C'])
+    parser.add_argument('--method', choices=['dpo', 'multiview-B', 'multiview-C',
+                                           'multiview-B-gaussian', 'multiview-C-gaussian'])
     parser.add_argument('--pretrained_model_name_or_path', '--model', dest='model_path')
     parser.add_argument('--model-revision')
     parser.add_argument('--data_path', '--pairs', dest='pairs')
@@ -84,6 +85,9 @@ def add_training_arguments(parser):
         parser.add_argument(*flags, dest=key, type=kind)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--dataloader_num_workers', type=int)
+    parser.add_argument('--data-validation', choices=['auto', 'full'])
+    parser.add_argument('--validation-workers', type=int)
+    parser.add_argument('--validation-samples', type=int)
     parser.add_argument('--report_to', choices=['tensorboard', 'wandb', 'all', 'none', 'jsonl'])
     parser.add_argument('--wandb-project')
     parser.add_argument('--wandb-mode', choices=['offline', 'online', 'disabled'])
@@ -103,7 +107,7 @@ def training_config(args):
     if args.method:
         config['method'] = args.method
         settings = load_config(CONFIG_DIR / f'{args.method}.json', resources=args.resources)['training']
-        for key in ('formal_arm', 'noise_views', 'independent_rollout'):
+        for key in ('formal_arm', 'noise_views', 'independent_rollout', 'batch_views'):
             config['training'].pop(key, None)
             if key in settings:
                 config['training'][key] = settings[key]
@@ -143,6 +147,11 @@ def training_config(args):
         config['model']['revision'] = args.model_revision
     if args.dataloader_num_workers is not None:
         config['data']['num_workers'] = args.dataloader_num_workers
+    for option, key in (('data_validation', 'validation'), ('validation_workers', 'validation_workers'),
+                        ('validation_samples', 'validation_samples')):
+        value = getattr(args, option, None)
+        if value is not None:
+            config['data'][key] = value
     if args.report_to:
         t['logging'] = args.report_to
     if args.wandb_project:

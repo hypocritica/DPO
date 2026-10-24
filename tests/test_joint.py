@@ -19,7 +19,8 @@ def backend(k=2, source='model', kind='epsilon', rollout=True):
     b.rollout_config = RolloutConfig(state_source=source)
     b.scheduler = SimpleNamespace(config=SimpleNamespace(num_train_timesteps=1000, prediction_type=kind),
                                   alphas_cumprod=torch.linspace(.999, .001, 1000),
-                                  add_noise=lambda x, n, t: x+n)
+                                  add_noise=lambda x, n, t: x+n,
+                                  get_velocity=lambda x, n, t: .75*n-.25*x)
     b.weight = torch.tensor(.2, requires_grad=True)
     b.calls = []
     def encode(images, generator):
@@ -36,6 +37,52 @@ def backend(k=2, source='model', kind='epsilon', rollout=True):
 class JointTests(unittest.TestCase):
     def setUp(self):
         self.images = torch.linspace(-.8,.8,2*2*3*64*64).reshape(2,2,3,64,64)
+
+    def test_batched_gaussian_views_preserve_errors_gradients_rng_and_conditioning(self):
+        for family in ('sd15', 'sdxl'):
+            for kind in ('epsilon', 'v_prediction'):
+                for k in (1, 2, 4, 6, 8):
+                    for arm in ('B', 'C'):
+                        with self.subTest(family=family, kind=kind, k=k, arm=arm):
+                            results = []
+                            for batched in (False, True):
+                                b = backend(k=k, kind=kind, rollout=False)
+                                b.family = family
+                                b.training_config['batch_views'] = batched
+                                def condition(texts):
+                                    ids = torch.arange(len(texts), dtype=torch.float32).unsqueeze(1)
+                                    value = {'encoder_hidden_states': ids}
+                                    if family == 'sdxl':
+                                        value['added_cond_kwargs'] = {'text_embeds': ids + 2,
+                                                                     'time_ids': ids + 3}
+                                    return value
+                                b._condition = condition
+                                calls = []
+                                def predict(noisy, times, cond):
+                                    calls.append((torch.is_grad_enabled(), len(noisy)))
+                                    value = cond['encoder_hidden_states']
+                                    if family == 'sdxl':
+                                        value = value + cond['added_cond_kwargs']['text_embeds']
+                                        value = value + cond['added_cond_kwargs']['time_ids']
+                                    value = value.reshape(-1, 1, 1, 1)
+                                    return b.weight * (noisy + value + times[:, None, None, None] / 1000)
+                                b._predict = predict
+                                generator = torch.Generator().manual_seed(19)
+                                values = b.score_errors(self.images, [['a']*k, ['b']*k], generator)
+                                self.assertEqual(values['policy_errors'].shape, (2, k, 2))
+                                self.assertFalse(values['reference_errors'].requires_grad)
+                                loss, _ = formal_loss(values, arm, 2.)
+                                loss.backward()
+                                self.assertEqual(b.calls, ['vae'])
+                                self.assertEqual(calls.count((True, 4*k if batched else 4)), 1 if batched else k)
+                                self.assertEqual(calls.count((False, 4*k if batched else 4)), 1 if batched else k)
+                                results.append((values, loss.detach(), b.weight.grad, generator.get_state()))
+                            old, new = results
+                            for key in ('policy_errors', 'reference_errors'):
+                                torch.testing.assert_close(old[0][key], new[0][key])
+                            torch.testing.assert_close(old[1], new[1])
+                            torch.testing.assert_close(old[2], new[2], rtol=1e-5, atol=1e-6)
+                            self.assertTrue(torch.equal(old[3], new[3]))
 
     def test_pool_encoding_pair_sharing_stopgrad_and_replay(self):
         b = backend()

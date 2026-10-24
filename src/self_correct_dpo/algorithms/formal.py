@@ -5,6 +5,15 @@ from self_correct_dpo.models import PreferenceBackend, shared_pair_noise
 from self_correct_dpo.algorithms.losses import preference_logits
 
 
+def _repeat_condition(condition, views):
+    """Repeat SD1.5/SDXL conditioning in view-major order."""
+    if isinstance(condition, torch.Tensor):
+        return torch.cat([condition] * views, dim=0)
+    if isinstance(condition, dict):
+        return {key: _repeat_condition(value, views) for key, value in condition.items()}
+    return condition
+
+
 def sample_views(rows, config, microbatch, *, world=1, rank=0):
     from self_correct_dpo.training import sample_batch
     batch, prompts, ids = sample_batch(rows, config, microbatch, world=world, rank=rank)
@@ -61,8 +70,20 @@ class MultiViewBackend(PreferenceBackend):
         return (prediction.float() - v['target'].float()).square().flatten(1).mean(1).reshape(b, 1, 2)
 
     def score_errors(self, images, prompts, generator):
-        """One differentiable policy forward per view; reference stays frozen."""
+        """Score each view, optionally in one UNet batch; reference stays frozen."""
         prepared = self.prepare_views(images, prompts, generator)
+        if self.training_config.get('batch_views', False):
+            # Each view is [B*2,...], ordered winner/loser within each pair.
+            # Concatenation gives [K*B*2,...]; restore [B,K,2] before the loss.
+            b, k = prepared['batch_size'], len(prepared['views'])
+            packed = {**prepared, 'batch_size': b * k,
+                      'condition': _repeat_condition(prepared['condition'], k)}
+            view = {key: torch.cat([v[key] for v in prepared['views']], dim=0)
+                    for key in ('noisy', 'times', 'target')}
+            # Score the frozen reference before retaining policy activations.
+            refs = self.view_errors(packed, view, reference=True).reshape(k, b, 2).permute(1, 0, 2)
+            policy = self.view_errors(packed, view).reshape(k, b, 2).permute(1, 0, 2)
+            return {'policy_errors': policy, 'reference_errors': refs, 'prepared': prepared}
         policy = [self.view_errors(prepared, j) for j in range(len(prepared['views']))]
         refs = [self.view_errors(prepared, j, reference=True) for j in range(len(prepared['views']))]
         return {'policy_errors': torch.cat(policy, 1), 'reference_errors': torch.cat(refs, 1), 'prepared': prepared}

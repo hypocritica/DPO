@@ -9,7 +9,6 @@ from pathlib import Path
 from self_correct_dpo.config import add_training_arguments, training_config
 from self_correct_dpo.resources import CONFIG_DIR
 from self_correct_dpo.common import read_json, require_gpu_allocation
-from self_correct_dpo.data.pairs import load_pairs
 from self_correct_dpo.training import check_rows, train, validate_config
 
 
@@ -56,7 +55,11 @@ def main():
         args.resume = str(Path(args.out).resolve() / 'checkpoints/latest.json')
     if args.stop_after_step is not None and not 1 <= args.stop_after_step <= config["training"]["max_steps"]:
         parser.error('--stop-after-step must be between 1 and configured max_steps')
-    all_rows = load_pairs(config["data"]["pairs"], verify_files=True)
+    from self_correct_dpo.data.validation import load_training_pairs
+    all_rows = load_training_pairs(config['data']['pairs'],
+        mode=config['data'].get('validation', 'auto'),
+        workers=config['data'].get('validation_workers', 8),
+        samples=config['data'].get('validation_samples', 64))
     rows = [r for r in all_rows if r["split"] == "train"]
     validation_rows = [r for r in all_rows if r["split"] == "validation"]
     if config["data"].get("require_human_preference") and not validation_rows:

@@ -4,6 +4,7 @@ Each JSONL row explicitly labels winner/loser; this module never infers preferen
 Paths are relative to the manifest unless absolute. No torch dependency is needed.
 """
 import copy
+import os
 from pathlib import Path
 
 from self_correct_dpo.common import digest, read_jsonl, sha256
@@ -54,10 +55,10 @@ def semantic_scene_key(row):
     return "semantic:" + digest(graph)
 
 
-def validate_split_disjointness(rows):
+def validate_split_disjointness(rows, *, progress=None):
     """Reject scene aliases or any shared image across train/validation/test."""
     assignments = {}
-    for row in rows:
+    for index, row in enumerate(rows, 1):
         split = row.get("split")
         if split not in SPLITS:
             raise ValueError(f"Invalid split: {split!r}")
@@ -75,17 +76,20 @@ def validate_split_disjointness(rows):
             previous = assignments.setdefault(key, split)
             if previous != split:
                 raise ValueError(f"Cross-split leakage for {key[0]}: {previous} vs {split}")
+        if progress and index % 10000 == 0:
+            progress('splits', index, len(rows))
     return True
 
 
-def validate_pair_rows(rows, base_dir, *, verify_files=True):
+def validate_pair_rows(rows, base_dir, *, verify_files=True, resolve_paths=True,
+                       in_place=False, progress=None):
     """Validate complete rows and resolve paths; return independent dictionaries."""
     if not rows:
         raise ValueError("Empty preference manifest")
     base_dir = Path(base_dir).resolve()
     result, pair_ids, hashes = [], set(), {}
-    for original in rows:
-        row = copy.deepcopy(original)
+    for index, original in enumerate(rows, 1):
+        row = original if in_place else copy.deepcopy(original)
         for key in ("pair_id", "scene_id", "winner", "loser"):
             if not isinstance(row.get(key), str) or not row[key].strip():
                 raise ValueError(f"Pair requires nonempty {key}")
@@ -131,7 +135,8 @@ def validate_pair_rows(rows, base_dir, *, verify_files=True):
             if storage.get("kind") == "arrow":
                 continue
             path = Path(row[side]).expanduser()
-            path = (base_dir / path).resolve() if not path.is_absolute() else path.resolve()
+            path = base_dir / path if not path.is_absolute() else path
+            path = path.resolve() if resolve_paths else Path(os.path.abspath(path))
             row[side] = str(path)
             if verify_files:
                 if not path.is_file():
@@ -148,7 +153,9 @@ def validate_pair_rows(rows, base_dir, *, verify_files=True):
             raise ValueError("Winner and loser must be distinct images")
         row["semantic_scene_key"] = semantic_scene_key(row)
         result.append(row)
-    validate_split_disjointness(result)
+        if progress and index % 10000 == 0:
+            progress('schema', index, len(rows))
+    validate_split_disjointness(result, progress=progress)
     return result
 
 
