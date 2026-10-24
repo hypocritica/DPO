@@ -1,6 +1,6 @@
 # Self Correct DPO
 
-SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；也提供多视图 B 和纯 DPO。支持任意正整数 K、单机 2/4/8 卡、Accelerate 启动、TensorBoard/W&B，以及每 200 步完整续训保存。
+SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 rollout 的普通高斯 B/C、视图合批和纯 DPO。支持任意正整数 K、单机 2/4/8 卡、Accelerate 启动、TensorBoard/W&B，以及每 200 步完整续训保存。
 
 - [开发与双服务器实验约定](docs/DEVELOPMENT.md)
 - [安装、数据准备、启动与续训命令](command.md)
@@ -25,7 +25,9 @@ python train.py --family sd15 --world-size 4 \
 # --resume_from_checkpoint latest
 ```
 
-三种方法分别在 `configs/dpo.json`、`configs/multiview-B.json`、`configs/multiview-C.json`；省略 `--config` 默认 C，`--views 3` 改为 K=3。命令参数覆盖默认设置，`--print-config` 可只查看最终配置。
+纯 DPO 和 rollout B/C 分别在 `configs/dpo.json`、`configs/multiview-B.json`、`configs/multiview-C.json`；省略 `--config` 默认 rollout C。普通高斯多视图使用 `--method multiview-C-gaussian` 或 `multiview-B-gaussian`（对应同名配置），默认 K=2，`--views 4` 改为 K=4，并将 K 个视图合批计算。命令参数覆盖默认设置，`--print-config` 可只查看最终配置。
+
+数据准备完成后，双卡普通高斯 K=2/4/6/8 使用 [launchers/acp_multiview_gaussian_2gpu.sh](launchers/acp_multiview_gaussian_2gpu.sh)，例如 `SCD_VIEWS=8 bash launchers/acp_multiview_gaussian_2gpu.sh`。SD1.5 的 K=2 默认每卡2对、累积64，K=4/6/8 默认每卡1对、累积128，全局均为256对；显存允许时可用 `SCD_TRAIN_BATCH_SIZE=2` 配新实验名，累积自动调整。SDXL 加 `SCD_FAMILY=sdxl`，默认每卡1对、全局128对。完整命令和未实测的显存边界见 [command.md](command.md)。
 
 ```text
 src/self_correct_dpo/

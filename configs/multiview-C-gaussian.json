@@ -1,0 +1,12 @@
+{
+  "extends": [
+    "defaults.json",
+    "models/sd15.json"
+  ],
+  "training": {
+    "formal_arm": "C",
+    "noise_views": 2,
+    "batch_views": true
+  },
+  "method": "multiview-C-gaussian"
+}

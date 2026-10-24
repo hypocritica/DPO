@@ -105,6 +105,13 @@ def validate_config(config, *, files=True):
         raise ValueError("SD1.5/SDXL support only B/C; C is the default. Legacy A/D configs are archives.")
     if type(k) is not int or k < 1:
         raise ValueError("B/C require a positive integer noise_views (K)")
+    if type(training.get('batch_views', False)) is not bool:
+        raise ValueError('training.batch_views must be a boolean')
+    if training.get('batch_views') and ('independent_rollout' in training or 'paired_drift' in training):
+        raise ValueError('batch_views supports ordinary Gaussian views only; disable rollout/paired_drift')
+    if config.get('method') in ('multiview-B-gaussian', 'multiview-C-gaussian') and (
+            'independent_rollout' in training or 'paired_drift' in training):
+        raise ValueError('Gaussian multiview methods require no rollout or paired_drift')
     if type(training.get("world_size", 1)) is not int or training.get("world_size", 1) < 1:
         raise ValueError("world_size must be a positive integer")
     if training.get('logging', 'tensorboard') not in ('tensorboard', 'wandb', 'all', 'none', 'jsonl'):
