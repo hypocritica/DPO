@@ -251,7 +251,106 @@ python train.py --config configs/local-sd15-dpo-2gpu-v1.json \
 
 配置文件保存在持久代码目录，输出保存在持久 AOSS。不要在驱逐后重新生成配置、改变路径/依赖/卡数或拉取新算法再续训。硬驱逐恢复最近完整保存点，通常最多重算上次保存后的不足200步；首次保存之前仍可能从头开始。
 
-## 默认多视图 C：协调入口，自动评估
+## 双卡普通高斯多视图：无 rollout，K=2/4/6/8 合批
+
+以下启动器只读取已经准备完成的 `ready.json`、`pairs.jsonl` 和固定128条监控 prompt，不自动预处理。先等当前数据任务结束，再把多个双卡训练任务指向同一套只读数据；每个任务使用独立配置和输出目录。
+
+在已分配的双卡 ACP 容器中填写：
+
+```bash
+# SD1.5：普通高斯 C，K=2，每卡2对，累积64，全局256对。
+SCD_FAMILY=sd15 SCD_VIEWS=2 SCD_ARM=C \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+
+# 另一个双卡任务：K=4，每卡1对，累积128，全局仍256对。
+SCD_FAMILY=sd15 SCD_VIEWS=4 SCD_ARM=C \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+
+# K=6/K=8 各自申请独立双卡任务，默认每卡1对、累积128、全局256对。
+SCD_FAMILY=sd15 SCD_VIEWS=6 SCD_ARM=C \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+
+SCD_FAMILY=sd15 SCD_VIEWS=8 SCD_ARM=C \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+```
+
+配置冻结后重启同一命令会尝试完整续训。默认实验名含模型、gaussian、B/C 和 K，避免写进旧 rollout 实验；日志追加到 `logs/<实验名>.txt`。改为 B 使用 `SCD_ARM=B`；重启时保持原环境变量、代码及依赖。修改 batch 等配置需要新的 `SCD_RUN_NAME`，启动器拒绝忽略与请求不同的冻结配置。
+
+这是10000步正式预算，首次可追加 `--stop-after-step 2` 在第2个优化步后计划暂停。它仍包含正式基座评估和完整梯度累积；要做更快、关闭评估的显存/训练验证，使用独立的两步 smoke：
+
+```bash
+source paths.sh
+python scripts/make_config.py --family sd15 --method multiview-C-gaussian \
+  --views 4 --world-size 2 --train_batch_size 1 --smoke \
+  --out configs/local-sd15-gaussian-C-k4-smoke-v1.json
+bash launchers/train.sh configs/local-sd15-gaussian-C-k4-smoke-v1.json \
+  "$RUNS_ROOT/sd15-gaussian-C-k4-smoke-v1"
+```
+
+K=2 的 smoke 改成 `--views 2 --train_batch_size 2`；K=6/K=8 改 `--views 6` / `--views 8`，每卡1对，并使用对应 K 的新配置和输出名。SDXL smoke 改 `--family sdxl`、每卡1对并使用独立名字；先准备对应模型、SDXL数据清单和监控面板，不自动下载。
+
+SDXL 的双卡正式启动同样使用该脚本：
+
+```bash
+SCD_FAMILY=sdxl SCD_VIEWS=2 SCD_ARM=C \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+
+# K=4先做上面的独立smoke，确认显存后再以SCD_VIEWS=4开新任务。
+```
+
+起步设置（均为 BF16、LoRA rank16、gradient checkpointing；不是已验证显存结论）：
+
+| 模型/分辨率 | K | 每卡图片对 B | 单次 UNet 图片数 2×B×K | 双卡梯度累积 | 全局图片对 |
+|---|---:|---:|---:|---:|---:|
+| SD1.5 / 512 | 2 | 2 | 8 | 64 | 256 |
+| SD1.5 / 512 | 4 | 1 | 8 | 128 | 256 |
+| SD1.5 / 512 | 6 | 1 | 12 | 128 | 256 |
+| SD1.5 / 512 | 8 | 1 | 16 | 128 | 256 |
+| SDXL / 1024 | 2 | 1 | 4 | 64 | 128 |
+| SDXL / 1024 | 4 | 1 | 8 | 64 | 128 |
+| SDXL / 1024 | 6 | 1 | 12 | 64 | 128 |
+| SDXL / 1024 | 8 | 1 | 16 | 64 | 128 |
+
+本次 SD1.5 K=2 保留 B=2、累积64；K=4/6/8 默认 B=1、累积128。SDXL 继续保持模型系列自己的全局128对，不随这次 SD1.5 实验改变。更大的 K 是否可用必须实测，表格只说明启动配置。
+
+标准 RTX 5090 为32GB，远程实际型号/显存以 `nvidia-smi` 为准（[NVIDIA规格](https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/)）。双卡 DDP 各自驻留完整模型，显存不相加。本项目 LoRA reference 复用基座，但 SDXL 还含两个文本编码器和 FP32 VAE，不能只按 LoRA 权重估显存。K 增大时优先减少 B 并增加累积，保持全局图片对数；B 已为1时，增加累积不会缩小一次 K 视图前向。SDXL K=4 若仍 OOM，当前全视图合批路径需要更大单卡显存或另行实现分块/重算，不能保证32GB可运行。
+
+例如 SD1.5 K=2 若 B=2 仍超显存，可开新实验：
+
+```bash
+SCD_FAMILY=sd15 SCD_VIEWS=2 SCD_TRAIN_BATCH_SIZE=1 \
+  SCD_RUN_NAME=sd15-gaussian-C-k2-2gpu-b1-10000-v1 \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+```
+
+如果显存充足，K=4/6/8 也可另开 B=2 的实验；以 K=8 为例，累积会自动降为64，全局仍为256对，单次 UNet 则处理32张带噪图片：
+
+```bash
+SCD_FAMILY=sd15 SCD_VIEWS=8 SCD_TRAIN_BATCH_SIZE=2 \
+  SCD_RUN_NAME=sd15-gaussian-C-k8-2gpu-b2-10000-v1 \
+  bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_multiview_gaussian_2gpu.sh
+```
+
+测显存时在同一容器的另一终端运行，记录每张卡的实际型号、总显存及占用；退出监控用 Ctrl-C，不影响训练：
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total,memory.used,utilization.gpu \
+  --format=csv -l 2
+```
+
+启动器会以 `--effective-batch` 自动调整累积，并在日志中打印 B、K、单次 UNet 图片数、累积及全局图片对数，复用冻结配置时也核对全局 batch。SD1.5沿用β5000、512、全局256，SDXL沿用β500、1024、全局128，均不因 K 改变学习率。训练 JSONL 的 `peak_cuda_bytes` / TensorBoard 的 `resources/peak_cuda_GiB` 可查看记录进程的峰值分配，另用上面的 `nvidia-smi` 查看各卡实际占用。
+
+相同数据清单、seed、默认 balanced 采样和全局 batch 下，B=1/2 每次优化更新使用相同一组图片对，跨卡和 microbatch 分配不同；噪声、时间步、VAE posterior 的随机数分配及浮点累加仍可能不同。因此不能承诺 B 只影响计算时间，后续补做相同 K 的 B=1/2 对照应使用新实验名。合批减少调用次数，不保证等比例提速；比较 K 时另记录 GPU 时间，不能把同图片对曝光当作同算力预算。
+
+不使用启动脚本时，等价配置生成示例：
+
+```bash
+python scripts/make_config.py --family sd15 --method multiview-C-gaussian \
+  --views 4 --world-size 2 --train_batch_size 1 --effective-batch 256 \
+  --max_train_steps 10000 --out configs/local-sd15-gaussian-C-k4-v1.json
+```
+
+## 默认 rollout 多视图 C：协调入口，自动评估
 
 以下为完成纯 DPO 部署后的算法比较选项；不是继续上述纯 DPO run。先为选定的 K 做独立 smoke，再开新实验。
 
@@ -382,7 +481,7 @@ git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
-本机使用 `dev/self-correct-workflow` 开发分支，远程使用已合并的 main。详细规矩见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+本机当前使用 `dev/local-development` 开发分支，远程正式实验使用已合并的 main。详细规矩见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 后续 SDXL / SD3 资源（首次 SD1.5 部署跳过）
 
