@@ -11,6 +11,8 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 ro
 
 资源路径在 `configs/resources.json` 中统一修改；私有覆盖用 `configs/resources.local.json`，无需 `source paths.sh`。模型根目录为 `/mnt/aoss/xietianyu/models`，数据集根目录为 `/mnt/aoss/xietianyu/datasets`，各资源保留原子目录结构。训练需要已处理的 `pairs.jsonl`；原始 Pick-a-Pic 地址为 `/mnt/aoss/xietianyu/datasets/pickapicv2/data`。SDXL、SD3、HPDv3 的位置已预留，SD3 训练后续实现。
 
+训练前默认复用匹配的准备/校验记录，完整检查清单并并行抽查少量图片；训练实际读取时再核对图片 SHA256。无记录时并行完整审计，并显示分阶段进度。强制完整审计使用 `python scripts/check_training_data.py --pairs /实际路径/pairs.jsonl --mode full`；快速路径的保证范围及恢复约定见 [command.md](command.md)。
+
 商汤大装置首次部署按 [command.md](command.md) 从上到下执行：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
 
 已完成准备后，ACP 的8张5090、10000步纯 DPO 可直接使用 [launchers/acp_sd15_dpo_8gpu.sh](launchers/acp_sd15_dpo_8gpu.sh)。脚本激活远程 `dpo` 环境，检查资源，冻结配置并支持重启恢复；控制台日志追加到仓库 `logs/sd15-dpo-8gpu-10000-v1.txt`。具体 ACP 启动命令见 [command.md](command.md)。

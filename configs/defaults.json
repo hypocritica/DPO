@@ -5,7 +5,10 @@
     "split": "train",
     "require_reviewed": false,
     "require_human_preference": true,
-    "num_workers": 4
+    "num_workers": 4,
+    "validation": "auto",
+    "validation_workers": 8,
+    "validation_samples": 64
   },
   "training": {
     "objective": "dpo",

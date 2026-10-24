@@ -11,9 +11,16 @@ def arrow_dataset(path):
     return Dataset.from_file(str(path)).select_columns(['jpg_0','jpg_1'])
 
 
-def image_source(row, side):
+def image_source(row, side, *, verify_files=False):
     storage=row.get('storage',{})
-    if storage.get('kind') != 'arrow': return row[side]
+    if storage.get('kind') != 'arrow':
+        if not verify_files:
+            return row[side]
+        data = Path(row[side]).read_bytes()
+        expected = row.get(side + '_sha256')
+        if not expected or sha256(data).hexdigest() != expected:
+            raise ValueError(f'{side} image checksum mismatch: {row[side]}')
+        return BytesIO(data)
     path=Path(storage['shard'])
     stat=path.stat()
     if stat.st_size != storage['shard_size'] or stat.st_mtime_ns != storage['shard_mtime_ns']:

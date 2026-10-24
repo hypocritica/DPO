@@ -25,6 +25,19 @@ def compose(*arguments, template='multiview-C.json'):
 
 
 class GaussianConfigTests(unittest.TestCase):
+    def test_data_validation_overrides_and_invalid_settings(self):
+        config = compose('--method', 'multiview-C-gaussian', '--data-validation', 'full',
+                         '--validation-workers', '4', '--validation-samples', '16')
+        self.assertEqual(config['data']['validation'], 'full')
+        self.assertEqual(config['data']['validation_workers'], 4)
+        self.assertEqual(config['data']['validation_samples'], 16)
+        validate_config(config, files=False)
+        for key, value in (('validation', 'none'), ('validation_workers', 0), ('validation_samples', False)):
+            invalid = copy.deepcopy(config)
+            invalid['data'][key] = value
+            with self.assertRaises(ValueError):
+                validate_config(invalid, files=False)
+
     def test_gaussian_methods_remove_rollout_and_preserve_family_batch(self):
         for family, global_batch, beta in (('sd15', 256, 5000), ('sdxl', 128, 500)):
             for k in (2, 4, 6, 8):

@@ -85,6 +85,9 @@ def add_training_arguments(parser):
         parser.add_argument(*flags, dest=key, type=kind)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--dataloader_num_workers', type=int)
+    parser.add_argument('--data-validation', choices=['auto', 'full'])
+    parser.add_argument('--validation-workers', type=int)
+    parser.add_argument('--validation-samples', type=int)
     parser.add_argument('--report_to', choices=['tensorboard', 'wandb', 'all', 'none', 'jsonl'])
     parser.add_argument('--wandb-project')
     parser.add_argument('--wandb-mode', choices=['offline', 'online', 'disabled'])
@@ -144,6 +147,11 @@ def training_config(args):
         config['model']['revision'] = args.model_revision
     if args.dataloader_num_workers is not None:
         config['data']['num_workers'] = args.dataloader_num_workers
+    for option, key in (('data_validation', 'validation'), ('validation_workers', 'validation_workers'),
+                        ('validation_samples', 'validation_samples')):
+        value = getattr(args, option, None)
+        if value is not None:
+            config['data'][key] = value
     if args.report_to:
         t['logging'] = args.report_to
     if args.wandb_project:

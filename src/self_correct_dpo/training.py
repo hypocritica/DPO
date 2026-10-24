@@ -50,6 +50,11 @@ def validate_config(config, *, files=True):
     if files and model['family']=='sdxl':validate_sdxl_base(model['path'])
     if not data.get("pairs") or data.get("split", "train") != "train":
         raise ValueError("Training requires a pair manifest and split=train")
+    if data.get('validation', 'auto') not in ('auto', 'full'):
+        raise ValueError('data.validation must be auto or full')
+    for key, default in (('validation_workers', 8), ('validation_samples', 64)):
+        if type(data.get(key, default)) is not int or data.get(key, default) < 1:
+            raise ValueError(f'data.{key} must be a positive integer')
     if (not data.get("require_reviewed", True) and not data.get("require_auto_verified", False)
             and not data.get("require_human_preference", False)
             and "TECHNICAL_SYNTHETIC_NOT_RESEARCH" not in config.get("experiment_note", "")):
@@ -236,7 +241,7 @@ def image_batch(rows, resolution, device, workers=0):
     def load_pair(row):
         images=[]
         for field in ("winner", "loser"):
-            with Image.open(image_source(row, field)) as image:
+            with Image.open(image_source(row, field, verify_files=True)) as image:
                 image=ImageOps.exif_transpose(image).convert("RGB")
                 image=image.resize((resolution,resolution),Image.Resampling.LANCZOS)
                 pixels=np.array(image,dtype=np.float32,copy=True)/127.5-1
@@ -335,7 +340,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                          source_file("pickapic.py"), source_file("checkpoints.py"),
                          source_file("diagnostics.py"), source_file("prompt_generalization.py"),
                          source_file("distributed.py"), source_file("arrow_images.py"),
-                         source_file("common.py"), source_file("config.py"), source_file("train.py"),
+                         source_file("common.py"), source_file("config.py"), source_file("train.py"), source_file("validation.py"),
                          *[source_file(name) for name in ("pipeline.py","evaluation.py","scorers.py","metrics.py","benchmarks.py","render.py","resources.py","tracking.py")]]}}
     if "paired_drift" in t:
         identity["code"]["paired_drift.py"] = sha256(source_file("paired_drift.py"))
