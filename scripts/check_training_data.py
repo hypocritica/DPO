@@ -1,4 +1,4 @@
-"""Audit/cache a pair manifest without models, GPUs or training outputs."""
+"""Sample images or explicitly audit all images without models or GPUs."""
 import argparse
 from pathlib import Path
 import sys
@@ -13,7 +13,7 @@ def main():
     parser.add_argument('--pairs', required=True)
     parser.add_argument('--mode', choices=['auto', 'full'], default='auto')
     parser.add_argument('--workers', type=int, default=8)
-    parser.add_argument('--samples', type=int, default=64)
+    parser.add_argument('--samples', type=int, default=8)
     args = parser.parse_args()
     load_training_pairs(args.pairs, mode=args.mode, workers=args.workers, samples=args.samples)
 

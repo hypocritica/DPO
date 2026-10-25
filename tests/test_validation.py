@@ -1,4 +1,4 @@
-"""Real-file preflight/cache/integrity contracts; standard library only."""
+"""Real-file sampled preflight and explicit full-integrity contracts; standard library only."""
 from collections import Counter
 from contextlib import redirect_stdout
 import copy
@@ -68,28 +68,27 @@ class ValidationTests(unittest.TestCase):
         self.assertLessEqual(len(calls), 8)  # two random files plus two per split
         self.assertTrue(any(x.get('mode') == 'sampled' for x in logs))
         self.assertEqual(logs[-1]['phase'], 'data_ready')
-        self.assertEqual(json.loads(self.cache.read_text())['audit'], 'sampled')
+        self.assertFalse(self.cache.exists())
 
-    def test_parallel_full_audit_then_cache_reuse_and_force_full(self):
+    def test_explicit_full_audit_reads_every_image_on_two_threads(self):
         barrier = threading.Barrier(2)
         lock = threading.Lock()
-        threads = set()
+        threads, checked = set(), []
         def concurrent_hash(path):
             with lock:
                 first = threading.get_ident() not in threads
                 threads.add(threading.get_ident())
+                checked.append(str(path))
             if first:
                 barrier.wait(timeout=5)
             return sha256(path)
         with patch('self_correct_dpo.data.validation.sha256', side_effect=concurrent_hash):
-            expected, logs = self.run_validation(workers=2)
+            actual, logs = self.run_validation(mode='full', workers=2)
+        self.assertEqual(actual, load_pairs(self.manifest))
         self.assertEqual(len(threads), 2)
+        self.assertEqual(len(checked), 48)
         self.assertTrue(any(x.get('mode') == 'full' for x in logs))
-        actual, logs = self.run_validation(samples=1)
-        self.assertEqual(actual, expected)
-        self.assertTrue(any(x.get('evidence') == 'full-audit-cache' for x in logs))
-        _, logs = self.run_validation(mode='full')
-        self.assertTrue(any(x.get('mode') == 'full' for x in logs))
+        self.assertFalse(self.cache.exists())
 
     def test_unsampled_corruption_is_rejected_when_image_is_consumed(self):
         self.ready()
@@ -121,7 +120,7 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ready.json'):
             self.run_validation()
 
-    def test_cache_does_not_hide_leakage_duplicate_ids_or_missing_images(self):
+    def test_manifest_checks_reject_leakage_duplicate_ids_or_sampled_missing_image(self):
         self.run_validation()
         original = copy.deepcopy(self.rows)
         for failure in ('leakage', 'duplicate'):
@@ -140,17 +139,28 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.run_validation(samples=1)
 
-    def test_invalid_receipts_and_changed_manifest_fall_back_to_full(self):
-        self.cache.write_text('{interrupted')
-        self.cache.with_suffix('.partial').write_text('{not a committed receipt')
-        _, logs = self.run_validation()
-        self.assertTrue(any(x.get('mode') == 'full' for x in logs))
-        self.rows[0]['prompts'][0]['prompt'] = 'new caption'
-        self.save_manifest()
-        _, logs = self.run_validation()
-        self.assertTrue(any(x.get('mode') == 'full' for x in logs))
+    def test_auto_without_ready_or_with_stale_cache_stays_sampled(self):
+        for legacy_cache in (None, '{interrupted', '{"complete": true, "audit": "full"}'):
+            with self.subTest(legacy_cache=legacy_cache):
+                if legacy_cache is not None:
+                    self.cache.write_text(legacy_cache)
+                checked = []
+                with patch('self_correct_dpo.data.validation.sha256',
+                           side_effect=lambda p: checked.append(str(p)) or sha256(p)):
+                    _, logs = self.run_validation()
+                self.assertLessEqual(len(checked), 14)  # default 8 images plus each split's first pair
+                self.assertGreaterEqual(len(checked), 6)
+                self.assertTrue(any(x.get('mode') == 'sampled' for x in logs))
+                self.assertFalse(any(x.get('mode') == 'full' for x in logs))
+                if legacy_cache is None:
+                    self.assertFalse(self.cache.exists())
+                else:
+                    self.assertEqual(self.cache.read_text(), legacy_cache)
+                # A changed manifest without ready.json still receives only a bounded sample.
+                self.rows[0]['prompts'][0]['prompt'] += ' changed'
+                self.save_manifest()
 
-    def test_incomplete_preparation_cannot_be_accepted_as_a_cached_dataset(self):
+    def test_incomplete_preparation_is_rejected(self):
         (self.root / 'preparing.json').write_text('{}')
         with self.assertRaisesRegex(ValueError, 'incomplete'):
             self.run_validation()
@@ -162,13 +172,19 @@ class ValidationTests(unittest.TestCase):
             row.pop('loser_sha256')
         self.save_manifest()
         expected = load_pairs(self.manifest)
-        actual, _ = self.run_validation()
+        with patch('self_correct_dpo.data.validation.sha256', wraps=sha256) as hashed:
+            with self.assertRaisesRegex(ValueError, 'full|prepar'):
+                self.run_validation()
+            self.assertEqual(hashed.call_count, 0)
+            actual, logs = self.run_validation(mode='full')
+            self.assertEqual(hashed.call_count, 48)
         self.assertEqual(actual, expected)
+        self.assertTrue(any(x.get('mode') == 'full' for x in logs))
         self.assertFalse(self.cache.exists())
         # Distinct paths with identical bytes in different splits must still fail.
         (self.root / self.rows[1]['winner']).write_bytes((self.root / self.rows[0]['winner']).read_bytes())
         with self.assertRaisesRegex(ValueError, 'leakage'):
-            self.run_validation()
+            self.run_validation(mode='full')
 
     def test_source_revision_and_consumed_image_checks(self):
         for row in self.rows:
@@ -181,16 +197,17 @@ class ValidationTests(unittest.TestCase):
         source = image_source(row, 'winner', verify_files=True)
         self.assertEqual(hashlib.sha256(source.read()).hexdigest(), row['winner_sha256'])
 
-    def test_standalone_audit_cli_reuses_cache_and_reports_progress(self):
+    def test_standalone_cli_defaults_to_sampled_and_supports_explicit_full(self):
         script = Path(__file__).resolve().parents[1] / 'scripts/check_training_data.py'
-        for expected in ('full', 'sampled'):
+        for arguments, expected in (((), 'sampled'), (('--mode', 'full'), 'full')):
             result = subprocess.run([sys.executable, str(script), '--pairs', str(self.manifest),
-                                     '--workers', '2', '--samples', '1'],
+                                     '--workers', '2', *arguments],
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             logs = [json.loads(line) for line in result.stdout.splitlines()]
             self.assertTrue(any(x.get('mode') == expected for x in logs))
             self.assertEqual(logs[-1]['phase'], 'data_ready')
+            self.assertFalse(self.cache.exists())
 
 
 if __name__ == '__main__':

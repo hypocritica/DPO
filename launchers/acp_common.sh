@@ -16,7 +16,7 @@ scd_log() {
   exec > >(tee -a "$SCD_LOG") 2>&1
   date '+%F %T %z'
   if ! git -c safe.directory="$PWD" rev-parse HEAD; then
-    echo 'WARNING: Could not record Git revision; continuing to deployment checks.'
+    echo 'WARNING: Could not record Git revision; continuing to training startup.'
   fi
   echo "Console log: $SCD_LOG"
 }
@@ -90,7 +90,6 @@ scd_train() {
     echo "Run: bash launchers/acp_prepare_data.sh pickapic $SCD_FAMILY"
     exit 1
   fi
-  python -u scripts/check_deployment.py --family "$SCD_FAMILY" --stage prepared --gpu --world-size "$SCD_WORLD_SIZE"
 
   if [[ ! -f "$SCD_CONFIG" ]]; then
     if [[ -e "$SCD_OUT" ]]; then

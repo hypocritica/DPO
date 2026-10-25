@@ -52,7 +52,7 @@ def validate_config(config, *, files=True):
         raise ValueError("Training requires a pair manifest and split=train")
     if data.get('validation', 'auto') not in ('auto', 'full'):
         raise ValueError('data.validation must be auto or full')
-    for key, default in (('validation_workers', 8), ('validation_samples', 64)):
+    for key, default in (('validation_workers', 8), ('validation_samples', 8)):
         if type(data.get(key, default)) is not int or data.get(key, default) < 1:
             raise ValueError(f'data.{key} must be a positive integer')
     if (not data.get("require_reviewed", True) and not data.get("require_auto_verified", False)

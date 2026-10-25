@@ -161,7 +161,7 @@ python evaluate.py --config configs/evaluate-sdxl.json \
 
 K 是视图数，不是 GPU 数。每个训练任务独立申请两张卡，可以并行读取同一份已完成的数据；实验目录各自独立。训练脚本不会预处理或下载数据。
 
-双卡入口共同调用 `launchers/acp_common.sh`：自动激活远程 `dpo` 环境，进入脚本所属 checkout，加载同一资源表，检查准备标记和 GPU，冻结配置并启动训练。统一10000步、BF16、LoRA rank/alpha16、LR1e-5、β5000（SD1.5）、seed17、每200步完整保存、TensorBoard 和原固定 PickScore 评估；快速数据校验见下文。重启复用冻结配置并自动尝试从 latest 恢复，缺少有效 checkpoint 时停止，不覆盖旧输出。
+双卡入口共同调用 `launchers/acp_common.sh`：自动激活远程 `dpo` 环境，进入脚本所属 checkout，加载同一资源表，检查准备标记、冻结配置并启动训练。GPU 可用性由训练入口检查，启动器不再重复执行逐卡 CUDA 自测。统一10000步、BF16、LoRA rank/alpha16、LR1e-5、β5000（SD1.5）、seed17、每200步完整保存、TensorBoard 和原固定 PickScore 评估；快速数据校验见下文。重启复用冻结配置并自动尝试从 latest 恢复，缺少有效 checkpoint 时停止，不覆盖旧输出。
 
 完成下节更新后，在 ACP 已分配双卡容器的启动命令中选择一条：
 
@@ -430,13 +430,13 @@ PYTHON
 
 日志每约30秒或10000条输出已提交行数、总数、图片复用数、吞吐和剩余扫描时间估计；`phase=finalize` 表示扫描完成，正在做全局去重、连通分量划分和清单生成。
 
-## 训练前数据校验：快速启动与并行完整审计
+## 训练前检查：默认少量并行抽查，完整审计手动执行
 
-训练入口默认 `--data-validation auto --validation-workers 8 --validation-samples 64`。已有完整 `ready.json` 且其中清单 SHA256、split 数量、来源 revision 与当前清单匹配时，第一次启动即可走快速路径，不要求先重读全部图片。没有准备标记的数据先做一次有界并行完整审计；清单已含图片 SHA256 时，成功后将记录写到清单旁的 `.pairs.jsonl.validation.json`，后续启动、续训及 DDP 子进程复用匹配记录。没有图片哈希的旧清单仍需完整校验，不凭缓存补造来源身份。
+训练入口默认 `--data-validation auto --validation-workers 8 --validation-samples 8`。配置检查和数据加载并行执行；普通执行路径去掉重复的 `check_rows`，由实际训练保留一次语义检查。ACP 启动器已删除逐卡串行 CUDA 自测，首次部署或排错时才手动运行前文的 `check_deployment.py --gpu`。
 
-每次仍会顺序读取清单并计算 SHA256，校验全部行的结构、重复 pair ID、跨 split 的场景/规范化 caption/图片路径与哈希隔离、来源身份。路径按字符串归一化，不为每张图片重复发起远程 `resolve/stat`；同一清单不会再深拷贝一次。快速路径默认并行抽查64张唯一图片，另外覆盖每个 split 的首对图片，最多70张；它不保证启动前发现未抽中的文件损坏。训练读取每张图片时，会对即将解码的同一份字节核对清单 SHA256，不额外读取一遍；缺失、损坏或被替换的训练图片会报错停止。
+每个进程仍需读取训练清单，并核对清单 SHA256、行结构、重复 ID、跨 split 隔离和已有 `ready.json` 的来源/计数。路径只做字符串归一化；已删除全图/全 shard inventory、缓存匹配和缓存写入。默认按图片位置抽8张并加上各 split 首对，最多14张，8线程并行读取；不保证启动前发现未抽中图片损坏。实际训练会校验即将解码的原始字节 SHA256，缺失或损坏时停止。清单解析与模型加载仍需时间，不承诺零启动开销。
 
-日志会显示 `data_manifest`、`data_schema`、`data_splits`、`data_inventory`、`data_validation`、`data_images`、`data_ready`，附进度、累计秒数和 rank。`data_validation` 中 `mode=sampled` 表示快速抽查、`mode=full` 表示完整审计。图片审计默认8线程，最多保留16个待处理任务；不会为百万图片一次创建百万 future。长文件读取/远程请求本身阻塞时，其他阶段的进度不能保证每10秒出现一次。
+`auto` 始终抽样，不因缺 ready/旧缓存而自动完整读取图片；旧 `.pairs.jsonl.validation.json` 被忽略，不新建或改写。没有图片 SHA 的旧清单会明确报错，应重新准备含 SHA 的清单，或显式选择 full。已有准备标记与清单不符仍会拒绝。日志保留阶段、累计秒数、rank 和实际 `selected_images`；并行队列最多保留16个任务。
 
 数据准备已完成后，普通启动器无需额外参数。要单独查看快速校验或主动做一次完整审计，用已有 `dpo` 环境执行以下 CPU 命令，不启动模型/GPU，也不改训练配置或输出：
 
@@ -450,7 +450,7 @@ python -u scripts/check_training_data.py \
   --pairs "$PICKAPIC_SD15_PREPARED/pairs.jsonl" --mode full --workers 8
 ```
 
-新实验也可通过 `train.py` / `make_config.py` 的 `--data-validation full`、`--validation-workers 4`、`--validation-samples 128` 覆盖；这些参数会进入冻结配置。不要为已有实验修改配置后续训，单独的完整审计使用上面的 CPU 工具即可。缓存和 `ready.json` 不匹配清单时不能冒用：不完整缓存会被忽略；准备标记与清单不一致直接报错。应把准备完成的数据视为只读，不能据缓存宣称所有图片当前都未改变；定期/有疑问时用 full 模式审计。
+新实验也可通过 `train.py` / `make_config.py` 的 `--data-validation full`、`--validation-workers 4`、`--validation-samples 16` 显式覆盖并写入冻结配置。full 会读取所有唯一图片；Arrow 也实际检查行和图片字节，不只核对 shard 元数据。完整审计只返回校验结果，不生成缓存或重写原清单。已有实验不修改配置续训，独立排错使用上述 CPU 命令。
 
 此改动不会让已运行的旧进程自动加速。先结束旧任务，再更新到包含此功能的版本并重启。若已经产生旧版训练 checkpoint，保留其原 checkout 续训，本次修改会触发训练代码一致性保护；当前仅停在输入校验且还未创建训练输出的任务可以直接使用新代码重新启动。无需重新预处理原始 Parquet 或删除已完成图片。
 

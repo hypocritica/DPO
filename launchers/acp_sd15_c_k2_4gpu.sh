@@ -21,12 +21,11 @@ SCD_OUT="${RUNS_ROOT}/${SCD_RUN_NAME}"
 date '+%F %T %z'
 # ACP mounts may have a different owner from the container user.
 if ! git -c safe.directory="$PWD" rev-parse HEAD; then
-  echo "WARNING: Could not record Git revision; continuing to deployment checks."
+  echo "WARNING: Could not record Git revision; continuing to training startup."
 fi
 echo "Console log: $SCD_LOG"
 echo "Experiment: $SCD_OUT"
 
-python scripts/check_deployment.py --family sd15 --stage prepared --gpu --world-size 4
 
 if [[ ! -f "$SCD_CONFIG" ]]; then
   if [[ -e "$SCD_OUT" ]]; then
