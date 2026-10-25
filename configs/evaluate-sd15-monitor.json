@@ -1,0 +1,10 @@
+{
+  "extends": [
+    "evaluate.json"
+  ],
+  "model_family": "sd15",
+  "benchmarks": {
+    "pickapic": "${MONITOR_PROMPTS_SD15}"
+  }
+}
+

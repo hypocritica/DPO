@@ -2,6 +2,79 @@
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
 
+## SLAI 分组脚本：SD1.5 / SDXL
+
+`launchers/sd15/` 和 `launchers/sdxl/` 各自提供可直接填入容器启动命令的编号脚本。每个训练脚本固定2张GPU、seed17、10000个优化步，沿用每200步完整保存和自动续训；SD1.5 为512×512、基准384，SDXL 为1024×1024、基准192。脚本固定模型、K、每卡 batch 和预算，默认生成独立的 `*-slai-v1` 实验名。共享环境、资源路径、冻结配置和训练逻辑继续使用现有公共入口，启动时不新增逐卡自测或全图扫描。
+
+| 脚本（两个模型文件夹内同名） | 用途 | SD1.5 每步图片对 / 对视图 | SDXL 每步图片对 / 对视图 |
+|---|---|---:|---:|
+| `01_dpo.sh` | 两种预算共用的 DPO 基线 | 384 / 384 | 192 / 192 |
+| `02_c_k2_fixed_views.sh` | C，K=2，固定视图 | 192 / 384 | 96 / 192 |
+| `03_b_k2_fixed_views.sh` | B，K=2，固定视图 | 192 / 384 | 96 / 192 |
+| `04_c_k2_fixed_pairs.sh` | C，K=2，固定图片对 | 384 / 768 | 192 / 384 |
+| `05_evaluate.sh` | 两张卡各评估一个模型 | — | — |
+| `06_c_k4_fixed_views.sh` | C，K=4，固定视图 | 96 / 384 | 48 / 192 |
+| `07_c_k6_fixed_views.sh` | C，K=6，固定视图 | 64 / 384 | 32 / 192 |
+| `08_c_k4_fixed_pairs.sh` | C，K=4，固定图片对 | 384 / 1536 | 192 / 768 |
+| `09_c_k6_fixed_pairs.sh` | C，K=6，固定图片对 | 384 / 2304 | 192 / 1152 |
+
+第一批使用01–04训练和05评估，第六组资源运行06；07–09用于后续补齐K对照。当前先运行 SD1.5，SDXL入口按需使用。准备完成的对应模型、数据和监控面板由资源表提供，脚本不下载或预处理数据。
+
+先在远程准备独立 checkout，只执行一次；旧实验继续使用原目录：
+
+```bash
+set -e
+SCD_CODE=/mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1
+git clone --single-branch --branch dev/self-correct-workflow \
+  https://github.com/hypocritica/DPO.git "$SCD_CODE"
+SCD_LOCAL=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
+if [[ -f "$SCD_LOCAL" ]]; then
+  cp "$SCD_LOCAL" "$SCD_CODE/configs/resources.local.json"
+fi
+```
+
+SLAI 每个已分配双卡的容器选择一条独立启动命令。脚本根据自身位置进入 checkout，无需手动 `cd` 或设置环境变量。例如 SD1.5 的前四组和可选第六组分别为：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/01_dpo.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/02_c_k2_fixed_views.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/03_b_k2_fixed_views.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/04_c_k2_fixed_pairs.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/06_c_k4_fixed_views.sh
+```
+
+SDXL 使用相同文件名，将路径中的 `launchers/sd15/` 改成 `launchers/sdxl/` 即可。训练控制台日志在该 checkout 的 `logs/<实验名>.txt`，输出在 `$RUNS_ROOT/<实验名>`。默认名称示例：`sd15-dpo-fixed-pairs-p384-2gpu-10000-slai-v1`、`sd15-gaussian-C-k2-fixed-views-v384-2gpu-10000-slai-v1`。重启同一脚本自动恢复；首次可追加 `--stop-after-step 2` 在正式预算中暂停，后续去掉暂停参数恢复。新重复实验可以用 `SCD_RUN_NAME` 指定新名字，但改变名字不改变seed，不能算独立随机种子。
+
+第5组在01、02都已完整保存1000步快照后启动，默认同时评估这两个实验：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-slai-v1/launchers/sd15/05_evaluate.sh
+```
+
+评估读取监控面板而非剩余测试面板，使用50个采样步和PickScore，两个进程分别绑定容器可见的两张GPU。SD1.5 沿用独立评估的PNDM/CFG7.5，SDXL沿用Euler/CFG5；训练内监控仍为30步，分别报告。没有后台轮询或自动提交；默认1000步快照不存在时明确失败，待保存完成后重跑。评估脚本不改变训练任务原有的分段监控。
+
+可用位置参数选择已保存的步数和任意两个同模型实验名，或用 `SCD_EVAL_STEP`、`SCD_EVAL_A`、`SCD_EVAL_B` 指定。输出目录和单模型日志会区分实验与步数；相同命令支持继续未完成的评估：
+
+```bash
+bash launchers/sd15/05_evaluate.sh 2000 \
+  sd15-gaussian-B-k2-fixed-views-v384-2gpu-10000-slai-v1 \
+  sd15-gaussian-C-k2-fixed-views-v384-2gpu-10000-slai-v1
+```
+
+单模型日志为 `logs/eval-<实验名>-step<步数>.txt`，结果为 `$RUNS_ROOT/<实验名>/eval-monitor-50steps-step<步数>-v1/summary.json`。`bash launchers/sd15/05_evaluate.sh --help` 可直接查看参数，不加载模型或Conda。
+
 ## 两套 Gaussian C 对照：固定图片对 / 固定视图预算
 
 本节是2026-10-25新增的比较入口，支持 SD1.5 512×512 和 SDXL 1024×1024。两套实验都训练10000个优化步，保留相同 seed、学习率、β、LoRA、监控面板和保存周期；区别仅在每步图片对数如何随 K 调整。普通高斯 C 仍是同一图片对的 K 个独立时间/噪声视图先平均 margin，再计算 DPO loss。

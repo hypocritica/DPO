@@ -1,0 +1,10 @@
+{
+  "extends": [
+    "evaluate-sdxl.json"
+  ],
+  "model_family": "sdxl",
+  "benchmarks": {
+    "pickapic": "${MONITOR_PROMPTS_SDXL}"
+  }
+}
+

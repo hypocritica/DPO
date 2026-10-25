@@ -16,6 +16,8 @@ Gaussian B/C 新比较入口分别为 [固定图片对](launchers/acp_gaussian_f
 
 SDXL 的1024×1024入口为 [launchers/acp_sdxl.sh](launchers/acp_sdxl.sh)：纯 DPO、rollout B/C、普通高斯 B/C 共用同一启动器，支持单机2/4/8卡、全局128对、10000步和自动续训。完整数据准备、两步训练/恢复及评估命令见 [command.md](command.md#sdxl10241024-的完整入口)。
 
+SLAI 分组实验脚本分别放在 [launchers/sd15](launchers/sd15) 和 [launchers/sdxl](launchers/sdxl)：01–04为主训练、05为双卡并行评估、06–09补齐K=4/6。SD1.5基准384、SDXL基准192，每个训练脚本直接运行一个双卡实验；逐组启动命令见 [command.md](command.md#slai-分组脚本sd15--sdxl)。
+
 训练启动并行执行配置检查与清单加载，默认8线程抽查8张图片并覆盖各 split 首对，最多14张；实际训练读取时继续核对 SHA256。已移除自动逐卡 CUDA 自测、重复的训练行检查、全图 inventory 和校验缓存协议，默认不会自动完整读取所有图片。需要完整审计时显式运行 `python scripts/check_training_data.py --pairs /实际路径/pairs.jsonl --mode full`；具体说明见 [command.md](command.md)。
 
 商汤大装置首次部署按 [command.md](command.md) 从上到下执行：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
