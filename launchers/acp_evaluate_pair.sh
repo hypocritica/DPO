@@ -55,4 +55,3 @@ else
   echo "Evaluation did not complete; see the two logs above."
 fi
 exit "$SCD_EVAL_STATUS"
-
