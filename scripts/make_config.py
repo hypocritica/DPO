@@ -17,6 +17,9 @@ def main():
     parser.add_argument('--out', required=True)
     parser.add_argument('--arm', choices=['B', 'C'])
     parser.add_argument('--effective-batch', type=int)
+    parser.add_argument('--budget-unit', choices=['pairs', 'pair_views'],
+                        help='Freeze a Gaussian comparison budget per optimizer update')
+    parser.add_argument('--budget-per-update', type=int)
     parser.add_argument('--smoke', action='store_true', help='Two updates without evaluation; keeps model resolution')
     parser.add_argument('--benchmark', action='store_true', help='100 updates without evaluation')
     parser.add_argument('--dataset', choices=['pickapic', 'hpdv3'], default='pickapic')
@@ -24,6 +27,15 @@ def main():
     args = parser.parse_args()
     if args.smoke and args.benchmark:
         parser.error('Choose --smoke or --benchmark')
+    comparison = args.budget_unit is not None or args.budget_per_update is not None
+    if comparison:
+        if args.budget_unit is None or args.budget_per_update is None:
+            parser.error('--budget-unit and --budget-per-update must be provided together')
+        if args.effective_batch is not None or args.gradient_accumulation_steps is not None:
+            parser.error('Comparison budget cannot be combined with --effective-batch or --gradient_accumulation_steps')
+        # The explicit budget below determines accumulation, including when B
+        # does not divide the model preset's old global batch.
+        args.gradient_accumulation_steps = 1
     config = training_config(args)
     t = config['training']
     if args.arm:
@@ -46,12 +58,22 @@ def main():
         if unit < 1 or args.effective_batch < 1 or args.effective_batch % unit:
             parser.error('Effective batch must be positive and divisible by batch size * world size')
         t['gradient_accumulation_steps'] = args.effective_batch // unit
+    if comparison:
+        k = t['noise_views'] if args.budget_unit == 'pair_views' else 1
+        unit = t['batch_size'] * t.get('world_size', 1) * k
+        if unit < 1 or args.budget_per_update < 1 or args.budget_per_update % unit:
+            parser.error(f'Comparison budget must be positive and divisible by {unit} '
+                         '(batch size * world size, also * K for pair_views); no rounding is allowed')
+        t['gradient_accumulation_steps'] = args.budget_per_update // unit
+        t['comparison_budget'] = {'unit': args.budget_unit, 'per_update': args.budget_per_update}
     validate_config(config, files=False)
     with open(args.out, 'x') as handle:
         json.dump(config, handle, indent=2)
         handle.write('\n')
     print(json.dumps({'config': args.out, 'world_size': t.get('world_size', 1),
         'effective_batch': t['batch_size'] * t['gradient_accumulation_steps'] * t.get('world_size', 1),
+        'effective_batch_pair_views': t['batch_size'] * t['gradient_accumulation_steps'] * t.get('world_size', 1) * t['noise_views'],
+        'comparison_budget': t.get('comparison_budget'),
         'steps': t['max_steps']}))
 
 

@@ -2,6 +2,150 @@
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
 
+## 两套 Gaussian C 对照：固定图片对 / 固定视图预算
+
+本节是2026-10-25新增的比较入口，支持 SD1.5 512×512 和 SDXL 1024×1024。两套实验都训练10000个优化步，保留相同 seed、学习率、β、LoRA、监控面板和保存周期；区别仅在每步图片对数如何随 K 调整。普通高斯 C 仍是同一图片对的 K 个独立时间/噪声视图先平均 margin，再计算 DPO loss。
+
+- `acp_gaussian_fixed_pairs.sh`：固定每步图片对组数，K 增大时视图计算量增加。
+- `acp_gaussian_fixed_views.sh`：固定每步图片对视图数，图片对组数按 K 缩小，优化更新次数保持一致。
+
+新实验统一基准为 **SD1.5=384、SDXL=192**，使 K=2/4/6 在2/4/8卡和默认每卡 batch 下都能精确整除。旧入口仍为256/128，不作为本组新预算的匹配基线。每个模型先运行一个新的 DPO 基线即可供两组共用；两个入口的 DPO 实际训练配置相同，仅预算标签和输出名不同，无需各跑一遍。
+
+| 实验 | K | SD1.5 每步图片对 / 图片对视图 | SDXL 每步图片对 / 图片对视图 | 相对 DPO 的主要 UNet 样本量 |
+|---|---:|---:|---:|---:|
+| DPO，共用基线 | 1 | 384 / 384 | 192 / 192 | 1× |
+| fixed-pairs | 2 | 384 / 768 | 192 / 384 | 2× |
+| fixed-pairs | 4 | 384 / 1536 | 192 / 768 | 4× |
+| fixed-pairs | 6 | 384 / 2304 | 192 / 1152 | 6× |
+| fixed-views | 2 | 192 / 384 | 96 / 192 | 1× |
+| fixed-views | 4 | 96 / 384 | 48 / 192 | 1× |
+| fixed-views | 6 | 64 / 384 | 32 / 192 | 1× |
+
+这里一“对视图”含 winner 和 loser；策略和参考分别计算。同视图预算对齐主要 UNet 样本量，不保证总 FLOPs 或墙钟时间完全相同，VAE/文本编码的复用和合批效率会影响速度。比较生成指标，同时报告训练时间和峰值显存；C 与 DPO 的训练 loss 聚合方式不同，不能直接据其高低判定质量。
+
+在远程完成模型、数据准备及小规模 GPU 检查后，分别在已分配的容器运行以下命令。每行是独立实验，不自动申请或并行提交资源：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+# SD1.5：两组共用的新 DPO 基线，384 对/步。
+SCD_FAMILY=sd15 bash launchers/acp_gaussian_fixed_pairs.sh dpo
+# 固定384对；分别将 SCD_VIEWS 设为2、4、6。
+SCD_FAMILY=sd15 SCD_VIEWS=2 bash launchers/acp_gaussian_fixed_pairs.sh
+# 固定384对视图；分别将 SCD_VIEWS 设为2、4、6。
+SCD_FAMILY=sd15 SCD_VIEWS=2 bash launchers/acp_gaussian_fixed_views.sh
+
+# SDXL：独立的新 DPO 基线，192 对/步。
+SCD_FAMILY=sdxl bash launchers/acp_gaussian_fixed_pairs.sh dpo
+# 分别将 SCD_VIEWS 设为2、4、6。
+SCD_FAMILY=sdxl SCD_VIEWS=2 bash launchers/acp_gaussian_fixed_pairs.sh
+SCD_FAMILY=sdxl SCD_VIEWS=2 bash launchers/acp_gaussian_fixed_views.sh
+```
+
+默认2卡；4/8卡通过 `SCD_WORLD_SIZE=4` 或 `8` 选择并新建实验，不能改变已有运行的卡数续训。SD1.5 的 K≤2 默认每卡2对，其余每卡1对；SDXL 默认每卡1对。梯度累积自动由预算推导，显存容许时可用 `SCD_TRAIN_BATCH_SIZE` 改每卡 batch，但必须精确整除预算。完整梯度累积后只更新一次参数，固定视图模式不会增加优化更新次数。
+
+默认实验名明确区分，例如：
+
+```text
+sd15-dpo-fixed-pairs-p384-2gpu-10000-v1
+sd15-gaussian-C-k2-fixed-pairs-p384-2gpu-10000-v1
+sd15-gaussian-C-k2-fixed-views-v384-2gpu-10000-v1
+sdxl-gaussian-C-k6-fixed-views-v192-2gpu-10000-v1
+```
+
+配置位于 `configs/local-<实验名>.json`，控制台日志在 `logs/<实验名>.txt`，实验输出位于 `$RUNS_ROOT/<实验名>`。可设置 `SCD_RUN_NAME` 创建独立重复实验；不要复用旧名字。重启同一命令会自动恢复 latest；首次可追加 `--stop-after-step 2` 在正式预算内暂停，然后去掉该选项继续。这仍会执行正式梯度累积与基座监控；快速 smoke 使用下节独立小跑方式。
+
+预算保存为 `training.comparison_budget`；`training.json` 同时记录 `effective_batch_size_pairs`、`effective_batch_size_pair_views`、`planned_pair_exposures`、`planned_pair_view_exposures`。每步 JSONL/TensorBoard 记录 `pair_views_seen`，直接使用已有 `cost.prompt_pair_evaluations`，不把唯一图片数、图片对访问次数与视图次数混为一谈。完整保存和恢复沿用每200步；两模式和不同 K 使用各自恢复点。
+
+新入口只允许追加 `--stop-after-step N`、`--resume_from_checkpoint PATH`（或 `--resume PATH`）等已列出的运行控制；训练 CLI 覆盖会被拒绝。默认是 C，可显式传 `multiview-B-gaussian` 做相同预算的 B 对照。rollout 不属于这组等视图计算比较。
+
+需要自定义预算时，两组及 DPO 都显式设置同一个 `SCD_BUDGET_PER_UPDATE` 并使用新实验名。固定视图预算必须整除 `每卡B × GPU数 × K`，不静默取整。标准库配置预览示例（不会训练）：
+
+```bash
+python scripts/make_config.py --family sd15 --method multiview-C-gaussian \
+  --views 6 --world-size 2 --train_batch_size 1 --max_train_steps 10000 \
+  --budget-unit pair_views --budget-per-update 384 \
+  --out configs/local-sd15-C-k6-fixed-views-preview-v1.json
+```
+
+`--budget-unit pairs` 切换到固定图片对；预算参数与 `--effective-batch` / 显式梯度累积互斥。两种模式在 `validate_config` 中复核实际预算，防止配置数值与标签不一致。
+
+## SDXL：1024×1024 的完整入口
+
+SDXL 通用入口为 `launchers/acp_sdxl.sh [方法]`，保留原全局128对，支持纯 DPO、rollout B/C、普通高斯 B/C。本节用于部署和已有配置；新的两套 Gaussian C 预算对照使用上一节的192基准入口。省略方法默认纯 DPO，先建立 SDXL 自己的基线。训练和评估均为1024×1024；论文依据和与原版全参 DPO 的区别见 [docs/SDXL.md](docs/SDXL.md)。模型路径、数据和监控面板来自同一份资源表，使用 SDXL 独立清单；图片池可与 SD1.5 共享。
+
+先在远程激活项目环境并确认模型已完整下载。下载工具及 `plan` 命令见本文末尾的资源下载说明；这一步只准备命令，不自动下载。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate dpo
+source paths.sh
+python scripts/check_deployment.py --family sdxl --stage assets
+# 在已分配 CPU 资源上准备，完成后再启动 GPU 实验。
+bash launchers/acp_prepare_data.sh pickapic sdxl
+```
+
+预处理使用 SDXL 的两个 tokenizer 过滤过长 caption，保留原始图片字节；训练读取时才缩放到1024。模型下载记录自动提供 revision；手动取得的模型用配置生成命令的 `--model-revision` 指定真实版本，不能用占位值。启动检查会拒绝 refiner、不完整双 CLIP、错误 VAE scaling 和未完成的数据准备。
+
+第一次先在已分配的双卡容器验证真实模型、保存和恢复。下面的 smoke 保持1024、每卡1对，每次只累积1个 microbatch，关闭生成评估与诊断；单独实验目录只做两次更新：
+
+```bash
+python scripts/make_config.py --family sdxl --method dpo --world-size 2 \
+  --smoke --out configs/local-sdxl-dpo-smoke-v1.json
+bash launchers/train.sh configs/local-sdxl-dpo-smoke-v1.json \
+  "$RUNS_ROOT/sdxl-dpo-smoke-v1" --stop-after-step 1
+bash launchers/train.sh configs/local-sdxl-dpo-smoke-v1.json \
+  "$RUNS_ROOT/sdxl-dpo-smoke-v1" --resume_from_checkpoint latest
+```
+
+多视图在正式运行前也用上面的方式测试，将方法改为下表对应名字并加 `--views 2`，配置和输出使用独立名字。增大 K 时在相同 K 下重新测显存。
+
+正式启动示例，以下是不同实验的独立命令，按分配资源选择执行：
+
+```bash
+# 纯 DPO；默认2卡，10000步。
+bash launchers/acp_sdxl.sh dpo
+# 普通高斯 K2-C（K 个视图合批）；比较 B 时改成 multiview-B-gaussian。
+SCD_VIEWS=2 bash launchers/acp_sdxl.sh multiview-C-gaussian
+# 独立 model rollout K2-C；比较 B 时改成 multiview-B。
+SCD_VIEWS=2 bash launchers/acp_sdxl.sh multiview-C
+# 已分配4卡或8卡时，显式改变卡数；新建实验，不能续接双卡恢复点。
+SCD_WORLD_SIZE=4 bash launchers/acp_sdxl.sh dpo
+SCD_WORLD_SIZE=8 bash launchers/acp_sdxl.sh dpo
+```
+
+| 方法 | 参数 | K | rollout | 高斯视图合批 |
+|---|---|---:|---|---|
+| 纯 DPO | `dpo` | 1 | 无 | 无 |
+| 普通高斯 B/C | `multiview-B-gaussian` / `multiview-C-gaussian` | 2/4/6/8 | 无 | 有 |
+| 独立 rollout B/C | `multiview-B` / `multiview-C` | 任意正整数，默认2 | model，original 时间采样 | 无 |
+
+正式配置沿用 SDXL 研究默认值：LR1e-5、β500、LoRA rank/alpha16、BF16、seed17、10000优化步、每200步完整保存、每1000步保留 LoRA；TensorBoard 和 PickScore 分段监控开启。全局 batch 固定128对，每卡默认1对：
+
+| GPU 数 | 每卡图片对 | 梯度累积 | 全局图片对 |
+|---|---:|---:|---:|
+| 2 | 1 | 64 | 128 |
+| 4 | 1 | 32 | 128 |
+| 8 | 1 | 16 | 128 |
+
+K 不计入全局图片对 batch，但增加 UNet 计算和激活显存。普通高斯合批一次每卡处理 `2×B×K` 张带噪图片；rollout 保留各视图的策略图，还额外执行 detached rollout。32GB 5090 上的可用 K 和速度须实测，多卡 DDP 不合并显存。
+
+默认实验名含 `sdxl`、方法、K（多视图）和卡数，例如 `sdxl-dpo-2gpu-10000-v1`、`sdxl-gaussian-C-k2-2gpu-10000-v1`、`sdxl-rollout-C-k2-2gpu-10000-v1`。需要重复实验时设置新的 `SCD_RUN_NAME`。控制台日志在 `logs/<实验名>.txt`，冻结配置在 `configs/local-<实验名>.json`，输出在 `$RUNS_ROOT/<实验名>`。
+
+第一次执行正式入口也可追加 `--stop-after-step 2`；它保留正式累积和基座评估，耗时高于独立 smoke。重启时去掉暂停参数，原命令自动恢复 latest。续训保持相同方法、K、卡数、代码、环境、配置和资源；启动器拒绝不匹配的冻结配置。已完成实验不再重启；新代码使用新实验目录。
+
+独立评估使用 SDXL 评估配置和训练记录中的模型版本；下面的1000步须已产生保留的 LoRA，换成实际存在的步数：
+
+```bash
+python evaluate.py --config configs/evaluate-sdxl.json \
+  --run "$RUNS_ROOT/sdxl-dpo-2gpu-10000-v1" --step 1000 \
+  --benchmark pickapic --metrics pickscore \
+  --out "$RUNS_ROOT/sdxl-dpo-2gpu-10000-v1/eval-pickapic-step1000-v1" \
+  --execution standalone --run-label sdxl-eval-step1000-v1
+```
+
+训练内监控是30步 Euler / CFG5，独立评估默认50步 Euler / CFG5；同一对照内保持相同面板、seed 和采样配置。当前本地验证覆盖配置、真实 tiny SDXL 双 CLIP/UNet/VAE/LoRA 的前后向、梯度检查点及 adapter 保存加载；完整1024模型和5090/H100显存性能待远程验证。
+
 ## 当前入口：先准备一次数据，再启动双卡实验
 
 数据准备和训练已经分开。根据2026-10-24的运行日志，SD1.5 Pick-a-Pic 已完成导出：train=728226、validation=40815、test=37392，且部署检查已找到清单和128条监控 prompt；不需要再扫描原始 Parquet。这里记录的是当时的日志结果，当前挂载状态以启动检查为准。
@@ -39,6 +183,75 @@ tail -f /mnt/afs/L202500030/xietianyu/workspace/DPO/logs/sd15-dpo-2gpu-10000-v1.
 ```
 
 已有8卡入口 `launchers/acp_sd15_dpo_8gpu.sh` 保留，当前优先使用上述双卡命令。没有执行远程 GPU 训练或显存实测。
+
+## ACP：4张5090、K=2、多视图 C
+
+启动脚本为 `launchers/acp_sd15_c_k2_4gpu.sh`。环境激活、资源检查、日志追加和自动恢复方式与8卡纯DPO一致；使用独立实验名 `sd15-C-k2-4gpu-10000-v1`，每卡batch2、累积32、全局batch256。沿用10000步、LR1e-5、β5000、LoRA16、seed17和每200步完整保存，保留 TensorBoard / PickScore 监控。
+
+这里的 C 是当前 `configs/multiview-C.json`：K2、model rollout，时间采样沿用 original；不是关闭 rollout 的普通高斯双视图 C。它与8卡纯DPO保持相同全局batch和优化步预算，计算成本和随机数分配不同。
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_c_k2_4gpu.sh
+```
+
+如果8卡任务已在同一个持久代码目录运行，可将这个新脚本单独保存或直接粘贴到新的4卡ACP启动命令中，使用相同版本的训练代码。不要为取得新启动脚本而更新旧任务正在使用的训练代码或环境。
+
+```text
+日志：/mnt/afs/L202500030/xietianyu/workspace/DPO/logs/sd15-C-k2-4gpu-10000-v1.txt
+配置：configs/local-sd15-C-k2-4gpu-10000-v1.json
+输出：/mnt/aoss/xietianyu/self_correct/runs/sd15-C-k2-4gpu-10000-v1
+```
+
+两个任务使用各自的完整恢复点；此C实验重启时仍需4张GPU。新实验可覆盖 `SCD_RUN_NAME` 为新的唯一名字；不要复用纯DPO的实验名。
+
+## ACP：2张5090，纯 DPO / K=2-C
+
+在已分配2张5090的容器中使用下面两个启动器。它们会激活 `dpo` 环境、进入远程仓库并检查资源。每卡batch2、梯度累积64，保持全局batch256；10000优化步、每200步完整保存，其他训练与监控参数沿用上面的版本。K2-C仍使用当前默认的 model rollout C。
+
+数据准备已独立为 `bash launchers/acp_prepare_data.sh pickapic sd15`，应先在已分配的 CPU 资源上完成。双卡训练启动器只检查并读取准备好的图片对清单和固定128条监控提示词；输入缺失或准备未完成时停止。DPO/C 可共同读取同一套已完成的数据，准备恢复和来源版本设置见本文的数据准备章节。续训时恢复原输入和配置，不自动重建数据。
+
+| 方法 | 脚本 | 独立实验名 |
+|---|---|---|
+| 纯 DPO | `launchers/acp_sd15_dpo_2gpu.sh` | `sd15-dpo-2gpu-10000-v1` |
+| K=2，C | `launchers/acp_sd15_c_k2_2gpu.sh` | `sd15-C-k2-2gpu-10000-v1` |
+
+先任选一个做两步检查；下面是两种方法各自的命令，只申请2张GPU时逐个运行：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_dpo_2gpu.sh --stop-after-step 2
+```
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_c_k2_2gpu.sh --stop-after-step 2
+```
+
+这里保留10000步配置及原定学习率计划，在第2个优化步额外完整保存并暂停；仍会执行固定的基线 PickScore 监控，因此不只是两步训练耗时。短跑验证的是启动、计算、保存及监控流程，不用于判断算法效果。检查成功后，在对应ACP任务的启动命令中去掉暂停参数即可继续至10000步。之后被驱逐重启也使用相同命令：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_dpo_2gpu.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_c_k2_2gpu.sh
+```
+
+每个实验的控制台日志追加到 `/mnt/afs/L202500030/xietianyu/workspace/DPO/logs/<实验名>.txt`，配置保存在仓库 `configs/local-<实验名>.json`，完整恢复点和TensorBoard等保存在 `/mnt/aoss/xietianyu/self_correct/runs/<实验名>`。若要新开重复实验，在启动前用 `export SCD_RUN_NAME=<新名字>`，不要混用两种算法的名字。
+
+双卡实验需从新的目录开始，不能直接用8/4卡checkpoint恢复。自动续训要求保持2张GPU、同一代码和冻结配置；有实验目录却缺少有效checkpoint或配置时会报错停止。取得启动器后无需改动现有训练代码，正在运行的其他实验继续固定原版本。
+
+## ACP 启动时 Git 报 dubious ownership
+
+`fatal: detected dubious ownership in repository` 表示容器当前用户与挂载仓库所有者不一致，Git 的所有者检查阻止了版本读取。旧启动器在 GPU 检查之前直接执行 `git rev-parse HEAD`，会因 `set -e` 提前退出。此时尚未开始训练，不需要删除实验目录或数据。
+
+无需更新代码，可在ACP启动命令中先信任自己的这个仓库，再执行原启动器。纯DPO示例；C实验将最后一行的脚本名换为 `acp_sd15_c_k2_2gpu.sh`：
+
+```bash
+set -e
+git config --global --add safe.directory /mnt/afs/L202500030/xietianyu/workspace/DPO
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/acp_sd15_dpo_2gpu.sh
+```
+
+这条配置只为当前容器用户添加上述仓库的信任项，便于训练内部也记录commit；新容器不一定保留该用户配置，因此可将它留在ACP启动命令中。新版2/4/8卡启动器在记录版本时使用仅对该命令有效的 `git -c safe.directory="$PWD"`，若仍无法读取Git元信息则警告后继续资源检查；不会修改全局Git配置。训练内部读取commit失败时已有容错，不会阻断训练。
 
 ## 先更新代码
 

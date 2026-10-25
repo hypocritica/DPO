@@ -119,6 +119,22 @@ def validate_config(config, *, files=True):
         raise ValueError('Gaussian multiview methods require no rollout or paired_drift')
     if type(training.get("world_size", 1)) is not int or training.get("world_size", 1) < 1:
         raise ValueError("world_size must be a positive integer")
+    if 'comparison_budget' in training:
+        budget = training['comparison_budget']
+        if (not isinstance(budget, dict) or budget.get('unit') not in ('pairs', 'pair_views')
+                or type(budget.get('per_update')) is not int or budget['per_update'] < 1):
+            raise ValueError('training.comparison_budget requires unit=pairs/pair_views and positive integer per_update')
+        method = config.get('method')
+        if (method not in ('dpo', 'multiview-B-gaussian', 'multiview-C-gaussian')
+                or 'independent_rollout' in training or 'paired_drift' in training):
+            raise ValueError('comparison_budget supports DPO and ordinary Gaussian multiview methods only')
+        if method == 'dpo' and k != 1:
+            raise ValueError('comparison_budget requires noise_views=1 for DPO')
+        actual = training['batch_size'] * training['gradient_accumulation_steps'] * training.get('world_size', 1)
+        if budget['unit'] == 'pair_views':
+            actual *= k
+        if actual != budget['per_update']:
+            raise ValueError(f"comparison_budget mismatch: actual {actual} {budget['unit']} per update, expected {budget['per_update']}")
     if training.get('logging', 'tensorboard') not in ('tensorboard', 'wandb', 'all', 'none', 'jsonl'):
         raise ValueError('logging must be tensorboard, wandb, all, none or jsonl')
     if "paired_drift" in training:
@@ -475,8 +491,11 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                    "git_revision": git_revision(),
                    "preprocessing": "EXIF RGB, full-image square LANCZOS resize, [-1,1]; no crop/flip",
                    "effective_batch_size_pairs": t["batch_size"] * t["gradient_accumulation_steps"] * world,
+                   "effective_batch_size_pair_views": t["batch_size"] * t["gradient_accumulation_steps"] * world * t["noise_views"],
+                   "noise_views": t["noise_views"],
                    "training_pairs": len(rows), "trainable_parameters": sum(p.numel() for p in parameters),
                    "planned_pair_exposures": t["max_steps"] * t["batch_size"] * t["gradient_accumulation_steps"] * world,
+                   "planned_pair_view_exposures": t["max_steps"] * t["batch_size"] * t["gradient_accumulation_steps"] * world * t["noise_views"],
                    "planned_data_passes": t["max_steps"] * t["batch_size"] * t["gradient_accumulation_steps"] * world / len(rows),
                    "seed_scope": "training seed; generation seeds configured separately"})
     if world > 1:
@@ -578,6 +597,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                 if diagnostic and rank == 0 and (step % diagnostic["every"] == 0 or step == t["max_steps"]):
                     run_diagnostics()
                 record = {"step": step, "effective_batch_size_pairs": t["batch_size"] * accumulation * world,
+                          "effective_batch_size_pair_views": t["batch_size"] * accumulation * world * t["noise_views"],
+                          "noise_views": t["noise_views"], "pair_views_seen": cost["prompt_pair_evaluations"],
                           "data_passes": cost["pairs_seen"] / len(rows), "run_id": run_id, "attempt": attempt, **metrics_sum,
                           "grad_norm": float(norm), "learning_rate": used_lr, "next_learning_rate": scheduler.get_last_lr()[0],
                           "last_microbatch_pair_ids": [r["pair_id"] for r in batch],
@@ -592,6 +613,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                     print(json.dumps({k: record[k] for k in ("step", "loss", "grad_norm", "learning_rate")}), flush=True)
                     if writer:
                         for key,value in {**metrics_sum,"grad_norm":float(norm),"learning_rate":used_lr,"pairs_seen":cost["pairs_seen"],
+                                          "effective_batch_size_pair_views":record["effective_batch_size_pair_views"],
+                                          "noise_views":t["noise_views"],"pair_views_seen":cost["prompt_pair_evaluations"],
                                           "data_passes":cost["pairs_seen"]/len(rows),"seconds_per_update":time.monotonic()-started}.items():
                             writer.add_scalar("training/"+key,value,step)
                         if device.startswith("cuda"):writer.add_scalar("resources/peak_cuda_GiB",record["peak_cuda_bytes"]/1024**3,step)
