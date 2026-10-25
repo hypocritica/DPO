@@ -1,6 +1,7 @@
 import copy
 from contextlib import redirect_stdout
 import io
+import json
 import signal
 import sys
 import tempfile
@@ -159,6 +160,9 @@ class StagePause(unittest.TestCase):
                 self.assertEqual(continuous['cost']['pairs_seen'], 16)
                 self.assertEqual(continuous['cost']['policy_image_evaluations'], 64)
                 self.assertEqual(continuous['cost']['reference_image_evaluations'], 64)
+                metadata = read_json(full / 'training.json')
+                self.assertEqual(metadata['effective_batch_size_pair_views'], 8)
+                self.assertEqual(metadata['planned_pair_view_exposures'], 32)
                 paused = run(conf, staged, stop_after_step=2)
                 self.assertTrue(paused['planned_pause'])
                 self.assertFalse(paused['complete'])
@@ -168,6 +172,13 @@ class StagePause(unittest.TestCase):
                 resumed = run(conf, staged, resume=staged / 'checkpoints/latest.json')
                 self.assertTrue(resumed['complete'])
                 self.assertFalse(resumed['planned_pause'])
+                records = sorted((json.loads(line) for path in staged.glob('metrics-*.jsonl')
+                                  for line in path.read_text().splitlines()), key=lambda r: r['step'])
+                self.assertEqual([r['step'] for r in records], [1, 2, 3, 4])
+                for record in records:
+                    self.assertEqual(record['effective_batch_size_pair_views'], 8)
+                    self.assertEqual(record['pair_views_seen'], 8 * record['step'])
+                    self.assertEqual(record['pair_views_seen'], record['cost']['prompt_pair_evaluations'])
                 self.assertEqual(continuous['run_id'], paused['run_id'])
                 self.assertEqual(continuous['run_id'], resumed['run_id'])
                 end_full = resolve_checkpoint(full / 'checkpoints/latest.json')

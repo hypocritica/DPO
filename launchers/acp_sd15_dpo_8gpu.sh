@@ -19,11 +19,13 @@ source paths.sh
 SCD_CONFIG="configs/local-${SCD_RUN_NAME}.json"
 SCD_OUT="${RUNS_ROOT}/${SCD_RUN_NAME}"
 date '+%F %T %z'
-git rev-parse HEAD
+# ACP mounts may have a different owner from the container user.
+if ! git -c safe.directory="$PWD" rev-parse HEAD; then
+  echo "WARNING: Could not record Git revision; continuing to training startup."
+fi
 echo "Console log: $SCD_LOG"
 echo "Experiment: $SCD_OUT"
 
-python scripts/check_deployment.py --family sd15 --stage prepared --gpu --world-size 8
 
 # Freeze once; a restarted ACP container reuses the same config and experiment.
 if [[ ! -f "$SCD_CONFIG" ]]; then

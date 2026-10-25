@@ -1,5 +1,6 @@
 """Train one portable SD1.5/SDXL preference experiment on allocated GPUs."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
 import json
@@ -50,21 +51,23 @@ def main():
     if args.print_config:
         print(json.dumps(config, indent=2))
         return
-    config = validate_config(config)
+    from self_correct_dpo.data.validation import load_training_pairs
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        config_check = executor.submit(validate_config, config)
+        data_check = executor.submit(load_training_pairs, config['data']['pairs'],
+            mode=config['data'].get('validation', 'auto'),
+            workers=config['data'].get('validation_workers', 8),
+            samples=config['data'].get('validation_samples', 8))
+        config = config_check.result()
+        all_rows = data_check.result()
     if args.resume == 'latest':
         args.resume = str(Path(args.out).resolve() / 'checkpoints/latest.json')
     if args.stop_after_step is not None and not 1 <= args.stop_after_step <= config["training"]["max_steps"]:
         parser.error('--stop-after-step must be between 1 and configured max_steps')
-    from self_correct_dpo.data.validation import load_training_pairs
-    all_rows = load_training_pairs(config['data']['pairs'],
-        mode=config['data'].get('validation', 'auto'),
-        workers=config['data'].get('validation_workers', 8),
-        samples=config['data'].get('validation_samples', 64))
     rows = [r for r in all_rows if r["split"] == "train"]
     validation_rows = [r for r in all_rows if r["split"] == "validation"]
     if config["data"].get("require_human_preference") and not validation_rows:
         raise ValueError("Human baseline needs a nonempty independent validation split")
-    check_rows(rows, config)
     monitored = config.get('evaluation',{}).get('enabled',False)
     world=config['training'].get('world_size',1)
     runtime_world=int(os.environ.get('WORLD_SIZE','1'))
@@ -81,6 +84,7 @@ def main():
     print(json.dumps({"family": config["model"]["family"], "objective": config["training"]["objective"],
                      "training_pairs": len(rows), "steps": config["training"]["max_steps"], "seed": config["seed"]}))
     if args.check_only:
+        check_rows(rows, config)
         return
     execution = {"mode": args.execution, "run_label": args.run_label}
     require_gpu_allocation(execution)

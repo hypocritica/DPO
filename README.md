@@ -8,14 +8,25 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 ro
 - [公共默认超参数](configs/defaults.json)
 - [数据说明](docs/DATA.md)、[方法公式](docs/METHOD.md)、[评估说明](docs/EVALUATION.md)
 - [算法审查与逐轮改进计划](docs/ALGORITHM_REVIEW_AND_PLAN.md)
+- [SDXL 论文依据与验证范围](docs/SDXL.md)
+
+Gaussian B/C 新比较入口分别为 [固定图片对](launchers/acp_gaussian_fixed_pairs.sh) 和 [固定图片对视图](launchers/acp_gaussian_fixed_views.sh)：两组统一10000步，SD1.5基准384、SDXL基准192，支持 K=2/4/6 和2/4/8卡，各模型共用同预算的新 DPO 基线。前者保留每步图片对数，后者将图片对数除以 K；配置、日志和输出名包含模式与预算。完整实验表和命令见 [command.md](command.md#两套-gaussian-c-对照固定图片对--固定视图预算)。下文原有256/128入口继续保留。
 
 资源路径在 `configs/resources.json` 中统一修改；私有覆盖用 `configs/resources.local.json`，无需 `source paths.sh`。模型根目录为 `/mnt/aoss/xietianyu/models`，数据集根目录为 `/mnt/aoss/xietianyu/datasets`，各资源保留原子目录结构。训练需要已处理的 `pairs.jsonl`；原始 Pick-a-Pic 地址为 `/mnt/aoss/xietianyu/datasets/pickapicv2/data`。SDXL、SD3、HPDv3 的位置已预留，SD3 训练后续实现。
 
-训练前默认复用匹配的准备/校验记录，完整检查清单并并行抽查少量图片；训练实际读取时再核对图片 SHA256。无记录时并行完整审计，并显示分阶段进度。强制完整审计使用 `python scripts/check_training_data.py --pairs /实际路径/pairs.jsonl --mode full`；快速路径的保证范围及恢复约定见 [command.md](command.md)。
+SDXL 的1024×1024入口为 [launchers/acp_sdxl.sh](launchers/acp_sdxl.sh)：纯 DPO、rollout B/C、普通高斯 B/C 共用同一启动器，支持单机2/4/8卡、全局128对、10000步和自动续训。完整数据准备、两步训练/恢复及评估命令见 [command.md](command.md#sdxl10241024-的完整入口)。
+
+SLAI 分组实验脚本分别放在 [launchers/sd15](launchers/sd15) 和 [launchers/sdxl](launchers/sdxl)：01–04为主训练、05为双卡并行评估、06–09补齐K=4/6。SD1.5基准384、SDXL基准192，每个训练脚本直接运行一个双卡实验；逐组启动命令见 [command.md](command.md#slai-分组脚本sd15--sdxl)。
+
+训练启动并行执行配置检查与清单加载，默认8线程抽查8张图片并覆盖各 split 首对，最多14张；实际训练读取时继续核对 SHA256。已移除自动逐卡 CUDA 自测、重复的训练行检查、全图 inventory 和校验缓存协议，默认不会自动完整读取所有图片。需要完整审计时显式运行 `python scripts/check_training_data.py --pairs /实际路径/pairs.jsonl --mode full`；具体说明见 [command.md](command.md)。
 
 商汤大装置首次部署按 [command.md](command.md) 从上到下执行：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
 
 数据准备独立使用 [launchers/acp_prepare_data.sh](launchers/acp_prepare_data.sh)，例如 `bash launchers/acp_prepare_data.sh pickapic sd15` 或 `hpdv3 sd15`；已完成输出自动复用。SD1.5 纯 DPO 双卡正式训练使用 [launchers/acp_sd15_dpo_2gpu.sh](launchers/acp_sd15_dpo_2gpu.sh)，10000步、每卡2对、累积64、全局256对。两个双卡训练入口共用 `acp_common.sh` 的环境、日志、资源检查、冻结配置和恢复流程。GPU 启动命令及旧容器脚本备份见 [command.md](command.md)。原8卡入口保留。
+
+4张卡的 K2-C 对照使用 [launchers/acp_sd15_c_k2_4gpu.sh](launchers/acp_sd15_c_k2_4gpu.sh)，同为10000步、全局batch256；独立保存配置、日志和checkpoint。此版本使用当前默认 model rollout C。并行实验保持训练代码不变，具体说明见 [command.md](command.md)。
+
+2张5090版本分别为 [纯DPO](launchers/acp_sd15_dpo_2gpu.sh) 和 [K2-C](launchers/acp_sd15_c_k2_2gpu.sh)：每卡batch2、梯度累积64、全局batch256、10000步，每200步完整保存。首次可追加 `--stop-after-step 2` 检查训练和保存，然后不加该参数重启续训。各自使用新的双卡实验目录，不从8/4卡实验恢复；命令见 [command.md](command.md)。
 
 ```bash
 # 在远程已分配GPU上运行；本集群登录节点不可运行训练。

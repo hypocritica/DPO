@@ -25,6 +25,25 @@ def compose(*arguments, template='multiview-C.json'):
 
 
 class GaussianConfigTests(unittest.TestCase):
+    def test_sdxl_all_methods_keep_resolution_and_global_batch_on_2_4_8_gpus(self):
+        for method in ('dpo', 'multiview-B', 'multiview-C',
+                       'multiview-B-gaussian', 'multiview-C-gaussian'):
+            for world in (2, 4, 8):
+                with self.subTest(method=method, world=world):
+                    config = compose('--family', 'sdxl', '--method', method,
+                                     '--world-size', str(world), '--max_train_steps', '10000')
+                    validate_config(config, files=False)
+                    t, evaluation = config['training'], config['evaluation']
+                    self.assertEqual((t['resolution'], evaluation['sampling']['height'],
+                                      evaluation['sampling']['width']), (1024, 1024, 1024))
+                    self.assertEqual((t['batch_size'], t['gradient_accumulation_steps']), (1, 128 // world))
+                    self.assertEqual((t['beta'], t['checkpoint_every'], t['lora_checkpoint_every']), (500, 200, 1000))
+                    self.assertEqual(t['noise_views'], 1 if method == 'dpo' else 2)
+                    self.assertEqual('independent_rollout' in t, method in ('multiview-B', 'multiview-C'))
+                    self.assertEqual(bool(t.get('batch_views')), method.endswith('-gaussian'))
+                    self.assertTrue(config['data']['pairs'].endswith('prepared-sdxl/pairs.jsonl'))
+                    self.assertTrue(evaluation['prompts'].endswith('sdxl/pickapic-monitor.jsonl'))
+
     def test_two_gpu_dpo_matches_gaussian_baseline_budget(self):
         config = compose('--family', 'sd15', '--method', 'dpo', '--views', '1',
                          '--world-size', '2', '--train_batch_size', '2',
@@ -118,6 +137,84 @@ class GaussianConfigTests(unittest.TestCase):
                 self.assertTrue(config['training']['batch_views'])
                 self.assertNotIn('independent_rollout', config['training'])
                 self.assertEqual(config['training']['gradient_accumulation_steps'], accumulation)
+
+
+class ComparisonBudgetTests(unittest.TestCase):
+    def make_config(self, output, *arguments):
+        return subprocess.run(
+            [sys.executable, str(ROOT / 'scripts/make_config.py'),
+             *arguments, '--out', str(output)],
+            capture_output=True, text=True, timeout=15)
+
+    def test_comparison_profiles_keep_steps_and_declared_exposure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'config.json'
+            for family, budget in (('sd15', 384), ('sdxl', 192)):
+                for unit in ('pairs', 'pair_views'):
+                    for k in (1, 2, 4, 6):
+                        for world in (2, 4, 8):
+                            with self.subTest(family=family, unit=unit, k=k, world=world):
+                                batch = 2 if family == 'sd15' and k <= 2 else 1
+                                result = self.make_config(output,
+                                    '--family', family, '--method',
+                                    'dpo' if k == 1 else 'multiview-C-gaussian',
+                                    '--views', str(k), '--world-size', str(world),
+                                    '--train_batch_size', str(batch),
+                                    '--budget-unit', unit, '--budget-per-update', str(budget),
+                                    '--max_train_steps', '10000')
+                                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                                config = json.loads(output.read_text())
+                                output.unlink()
+                                validate_config(config, files=False)
+                                t = config['training']
+                                self.assertNotIn('extends', config)
+                                self.assertEqual(t['comparison_budget'], {'unit': unit, 'per_update': budget})
+                                self.assertEqual((t['batch_size'], t['noise_views'], t['max_steps']),
+                                                 (batch, k, 10000))
+                                pairs = batch * world * t['gradient_accumulation_steps']
+                                # Check both exposure counts over the full experiment, not just accumulation.
+                                expected_pairs = budget if unit == 'pairs' else budget // k
+                                self.assertEqual(pairs * t['max_steps'], expected_pairs * 10000)
+                                self.assertEqual(pairs * k * t['max_steps'], expected_pairs * k * 10000)
+
+    def test_budget_cli_rejects_ambiguous_or_impossible_requests(self):
+        base = ('--family', 'sd15', '--method', 'multiview-C-gaussian',
+                '--views', '6', '--world-size', '2', '--train_batch_size', '1')
+        valid = ('--budget-unit', 'pair_views', '--budget-per-update', '384')
+        cases = (
+            ('--budget-unit', 'pairs'),
+            ('--budget-per-update', '384'),
+            ('--budget-unit', 'pair_views', '--budget-per-update', '256'),
+            (*valid, '--effective-batch', '384'),
+            (*valid, '--gradient_accumulation_steps', '32'),
+            (*valid, '--method', 'multiview-B'),
+            (*valid, '--method', 'multiview-C'),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for index, arguments in enumerate(cases):
+                with self.subTest(arguments=arguments):
+                    output = Path(directory) / f'{index}.json'
+                    result = self.make_config(output, *base, *arguments)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(output.exists())
+
+    def test_frozen_budget_rejects_changed_batch_accumulation_or_views(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'frozen.json'
+            result = self.make_config(output,
+                '--family', 'sd15', '--method', 'multiview-C-gaussian',
+                '--views', '6', '--world-size', '2', '--train_batch_size', '1',
+                '--budget-unit', 'pair_views', '--budget-per-update', '384')
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            config = json.loads(output.read_text())
+        validate_config(config, files=False)
+        for key, value in (('batch_size', 2), ('gradient_accumulation_steps', 31),
+                           ('noise_views', 4), ('world_size', 4)):
+            with self.subTest(key=key):
+                invalid = copy.deepcopy(config)
+                invalid['training'][key] = value
+                with self.assertRaises(ValueError):
+                    validate_config(invalid, files=False)
 
 
 if __name__ == '__main__':

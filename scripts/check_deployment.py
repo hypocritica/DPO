@@ -56,6 +56,13 @@ def main():
     for name in ['tokenizer'] + (['tokenizer_2'] if args.family == 'sdxl' else []):
         check(f'model/{name}', (model / name / 'tokenizer_config.json').is_file(), model / name)
     check('scheduler', (model / 'scheduler/scheduler_config.json').is_file(), model / 'scheduler')
+    if args.family == 'sdxl':
+        from self_correct_dpo.architecture import validate_sdxl_base
+        try:
+            validate_sdxl_base(model)
+            check('SDXL base architecture', True, 'dual CLIP, pooled projection, time IDs and VAE scaling')
+        except (OSError, ValueError, KeyError) as exc:
+            check('SDXL base architecture', False, str(exc))
     marker = model / '.scd-download.json'
     if marker.is_file():
         receipt = json.loads(marker.read_text())
@@ -79,6 +86,7 @@ def main():
     else:
         prepared = Path(resources['PICKAPIC_' + args.family.upper() + '_PREPARED'])
         check('pairs.jsonl', (prepared / 'pairs.jsonl').is_file(), prepared / 'pairs.jsonl')
+        check('ready.json', (prepared / 'ready.json').is_file(), prepared / 'ready.json')
         monitor = Path(resources['MONITOR_PROMPTS_' + args.family.upper()])
         check('monitor prompts', monitor.is_file(), monitor)
         if monitor.is_file():

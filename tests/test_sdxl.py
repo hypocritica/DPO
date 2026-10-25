@@ -200,6 +200,48 @@ def tiny_sdxl(root):
 
 
 class TinySdxlTests(unittest.TestCase):
+    def test_real_gaussian_batching_matches_separate_views_with_gradient_checkpointing(self):
+        import torch
+        from functools import partial
+        from torch.utils.checkpoint import checkpoint
+        with tempfile.TemporaryDirectory() as d:
+            backend, _ = tiny_sdxl(Path(d))
+            ordinary = object.__new__(MultiViewBackend)
+            ordinary.__dict__.update(backend.__dict__)
+            ordinary.model.enable_gradient_checkpointing(
+                gradient_checkpointing_func=partial(checkpoint, use_reentrant=False))
+            # Nonzero adapters exercise B/C beyond the policy==reference initial state.
+            with torch.no_grad():
+                for p in ordinary.trainable_parameters():
+                    p.add_(torch.randn_like(p) * .03)
+            images = torch.linspace(-.8, .8, 2*2*3*16*16).reshape(2, 2, 3, 16, 16)
+            for k in (1, 2, 4):
+                for arm in ('B', 'C'):
+                    with self.subTest(k=k, arm=arm):
+                        ordinary.training_config.update(noise_views=k, batch_views=False)
+                        prompts = [['a']*k, ['b']*k]
+                        generator = torch.Generator().manual_seed(17)
+                        separate = ordinary.score_errors(images, prompts, generator)
+                        loss, _ = formal_loss(separate, arm, 500.)
+                        loss.backward()
+                        expected = [p.grad.clone() for p in ordinary.trainable_parameters()]
+                        ordinary.model.zero_grad(set_to_none=True)
+                        ordinary.training_config['batch_views'] = True
+                        replay = torch.Generator().manual_seed(17)
+                        batched = ordinary.score_errors(images, prompts, replay)
+                        actual, _ = formal_loss(batched, arm, 500.)
+                        actual.backward()
+                        for key in ('policy_errors', 'reference_errors'):
+                            torch.testing.assert_close(batched[key], separate[key], rtol=2e-5, atol=2e-6)
+                        torch.testing.assert_close(actual, loss, rtol=2e-4, atol=2e-5)
+                        self.assertTrue(torch.equal(generator.get_state(), replay.get_state()))
+                        self.assertFalse(batched['reference_errors'].requires_grad)
+                        for p, wanted in zip(ordinary.trainable_parameters(), expected):
+                            self.assertTrue(torch.isfinite(p.grad).all())
+                            torch.testing.assert_close(p.grad, wanted, rtol=3e-3, atol=2e-5)
+                        self.assertTrue(all(p.grad is None for m in ordinary.frozen_modules for p in m.parameters()))
+                        ordinary.model.zero_grad(set_to_none=True)
+
     def test_real_dual_clip_conditions_rollout_and_lora_roundtrip(self):
         import torch
         from peft import PeftModel
