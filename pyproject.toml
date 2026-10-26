@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,7 @@ description = "Portable SD1.5/SDXL preference experiments with detached rollout 
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "torch>=2.3.0a0", "diffusers>=0.33.1,<0.34", "transformers>=4.45.2,<4.54",
+  "torch>=2.14.1,<2.15", "diffusers>=0.33.1,<0.34", "transformers>=4.45.2,<4.54",
   "peft>=0.10,<0.11", "numpy>=1.26,<2", "Pillow>=10.4,<11",
   "accelerate>=0.34,<2", "safetensors>=0.4", "tensorboard>=2.19,<2.20",
   "protobuf>=5.29,<6"
@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 tracking = ["wandb>=0.17,<1"]
 arrow = ["datasets>=3.3,<4", "pyarrow>=19"]
-evaluation = ["torchvision", "timm>=0.9", "ftfy", "regex", "einops", "webdataset", "matplotlib>=3.7,<4", "PyYAML>=6"]
+evaluation = ["torchvision>=0.29.1,<0.30", "timm>=0.9", "ftfy", "regex", "einops", "webdataset", "matplotlib>=3.7,<4", "PyYAML>=6"]
 
 [project.scripts]
 self-correct-train = "self_correct_dpo.train:main"

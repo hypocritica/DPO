@@ -353,17 +353,41 @@ git log -1 --oneline
 
 ## 环境和路径
 
-截图中已有 `dpo` 环境，优先复用。新容器如果没有该环境，先执行 `conda create -n dpo python=3.10 -y`。不要在有活跃训练的环境里安装或更换依赖。
+使用已有 `dpo` 环境，以下步骤不删除或重建环境。新容器确实没有该环境时才执行 `conda create -n dpo python=3.11 -y`。在没有训练占用该环境时更新依赖。
+
+2026-10-26 用户选择官方稳定配套：PyTorch2.14.1/cu130、torchvision0.29.1/cu130、NCCL2.30.7；已提供的远程驱动为580.95.05，支持CUDA13.0。这是与用户已验证的NCCL2.31.2不同的新组合，安装成功不代表双卡通信已经验证。旧PyTorch2.7.1/cu128固定依赖NCCL2.26.2，不能将2.31.2直接与它放进同一份可解析的requirements。本次使用官方配套，不设置LD_PRELOAD，也不隔离安装NCCL。模型相关库保留已有API版本，避免同时迁移研究实现。
 
 ```bash
-# 在项目独立环境中执行；不向 base 安装。
-source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+set -e
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+source /mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh
 conda activate dpo
 python --version
 which python
-python -m pip install -r requirements.txt
+# 检查真实环境/输出挂载的空间；安装阶段可能写入数GB。
+df -h "$CONDA_PREFIX" /mnt/aoss/xietianyu
+
+# 清除上一次临时NCCL库覆盖；后续直接使用官方wheel自带依赖。
+unset LD_PRELOAD
+# cu12/cu13的NCCL包可能拥有相同库文件路径，先清理再统一安装。
+# 本项目不使用torchaudio，移除它可避免旧音频包固定旧torch版本。
+python -m pip uninstall -y nvidia-nccl-cu12 nvidia-nccl-cu13 torchaudio
+python -m pip install --upgrade pip
+python -m pip install --no-cache-dir --upgrade -r requirements.txt
 python -m pip install --no-deps -e .
 python -m pip check
+
+python - <<'PY'
+import torch, torchvision
+print('torch:', torch.__version__)
+print('torchvision:', torchvision.__version__)
+print('CUDA runtime:', torch.version.cuda)
+print('NCCL runtime:', torch.cuda.nccl.version())
+assert torch.__version__ == '2.14.1+cu130'
+assert torchvision.__version__ == '0.29.1+cu130'
+assert torch.version.cuda == '13.0'
+assert torch.cuda.nccl.version() == (2, 30, 7)
+PY
 
 # 可选 W&B：
 python -m pip install 'wandb>=0.17,<1'
@@ -382,7 +406,17 @@ source paths.sh
 
 `RUNS_ROOT` 必须是驱逐后仍存在的持久目录。SDXL、SD3、HPDv3 尚未下载，位置已经预留。SD3 当前仅提供路径和下载选项，训练入口仍为 SD1.5/SDXL。
 
-本项目固定使用 `requirements.txt` 中的 PyTorch 2.7.1 + cu128、torchvision 0.22.1 + cu128 和 Accelerate 0.34.2。PyTorch 2.7 开始提供 Blackwell / CUDA 12.8 支持，参见 [官方说明](https://pytorch.org/blog/pytorch-2-7/) 和 [2.7.1 安装版本表](https://pytorch.org/get-started/previous-versions/)。容器的 `nvcc` 版本不能替代实际 PyTorch CUDA kernel 检查；不要把本机 CPU 测试环境复制到5090容器。
+本项目GPU环境以 `requirements.txt` 为准：PyTorch2.14.1/cu130、torchvision0.29.1/cu130、NCCL2.30.7和Accelerate0.34.2。CUDA13.0构建要求兼容的R580及以上驱动，参考 [官方版本说明](https://pytorch.org/blog/pytorch-2-14-release-blog/)；实际NCCL版本以 `torch.cuda.nccl.version()` 为准，`nvidia-smi` 右上角的CUDA Version只是驱动能力。依赖解析与导入通过后，在SLAI已分配双卡容器做一次纯DPO优化步，验证DDP参数同步、前后向和保存，不自动执行逐卡串行检查：
+
+```bash
+source paths.sh
+python scripts/make_config.py --family sd15 --method dpo --world-size 2 \
+  --smoke --out configs/local-sd15-dpo-cu130-smoke-v1.json
+bash launchers/train.sh configs/local-sd15-dpo-cu130-smoke-v1.json \
+  "$RUNS_ROOT/sd15-dpo-cu130-smoke-v1" --stop-after-step 1
+```
+
+此smoke关闭生成评估、每卡1对、只累积1次，单独目录只做通信/训练/保存验证，不改变正式实验预算。若这个名字已存在，使用新的v2等名字。完整训练或续训依旧固定同一套依赖；原环境训练产生的checkpoint继续使用原环境，新依赖使用新的实验目录。
 
 迁移后若旧终端执行过 `source paths.sh`，请在新终端激活环境后读取新配置；已导出的旧资源环境变量会优先于资源表。`configs/resources.local.json` 中若有旧路径，也需一起更新。迁移只改变资源前缀，SD1.5 仍在 `stable_diffusion/sd15`，PickScore 仍在 `preference/pickscore`，HPDv2/HPDv3 仍在各自的 `hpdv2` / `hpdv3` 子目录。
 

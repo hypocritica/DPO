@@ -53,7 +53,7 @@
 
 2026-10-25 验证结果：`test_config.py` 8项、`test_sdxl.py` 7项全部通过；Bash/Python语法及 diff 空白检查通过。临时 checkout 实际执行26组 shell/配置生成组合，覆盖 SDXL 五种方法×2/4/8卡、较大高斯 K、原 SD1.5 双卡入口，以及默认纯 DPO、自动恢复、卡数/分辨率不匹配和冻结配置丢失保护。shell 验证仅替代 Conda 激活、GPU 预检和训练调用，真实配置生成与校验原样执行。
 
-验证环境为项目现有 Python3.10.19、PyTorch2.6.0、Diffusers0.33.1、Transformers4.53.3、PEFT0.10.0；远程 requirements 中的 PyTorch2.7.1/CUDA12.8 和 Transformers4.45.2 组合仍需真实 GPU 检查。
+历史组件验证环境为项目现有 Python3.10.19、PyTorch2.6.0、Diffusers0.33.1、Transformers4.53.3、PEFT0.10.0。2026-10-26远程requirements改为官方配套PyTorch2.14.1/CUDA13.0、torchvision0.29.1和NCCL2.30.7，模型相关API版本继续沿用；该组合尚需真实GPU导入、双卡通信和训练检查。用户已有的NCCL2.31.2通信通过记录不替代这组2.30.7的验证。
 
 部署前按 command.md 在真实已分配 GPU 上运行1024两步训练及暂停恢复；普通高斯增加 K 时先在相同 K 下检查显存。SDXL 模型更大，多卡 DDP 各自保留完整基座，不能把显存相加。正式比较同时记录生成指标、图片对曝光、K、GPU 时间和峰值显存。
 
