@@ -12,6 +12,7 @@ import uuid
 from self_correct_dpo.data.benchmarks import prompt_key
 from self_correct_dpo.runtime.checkpoints import atomic_json, resolve_checkpoint
 from self_correct_dpo.common import digest, load_suite, read_json, read_jsonl, sha256, write_json
+from self_correct_dpo.runtime.storage_compat import compatible_identity, record_compatibility
 from self_correct_dpo.evaluation.runner import checkpoint_adapter, evaluate_checkpoint, run_command, validate_evaluation, verify_complete
 
 
@@ -154,8 +155,12 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
         'code_sha256':{name:sha256(source_file(name)) for name in
                       ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py')}}
     input_file=out/'monitor-inputs.json'
-    if input_file.exists() and read_json(input_file)!=frozen:
-        raise ValueError('Monitoring inputs changed; start a fresh experiment')
+    if input_file.exists():
+        recorded = read_json(input_file)
+        if not compatible_identity(recorded, frozen):
+            raise ValueError('Monitoring inputs changed; start a fresh experiment')
+        record_compatibility(out, recorded['code_sha256'], frozen['code_sha256'])
+        frozen = recorded
     if (out/'training.json').exists():
         recorded=read_json(out/'training.json').get('monitor_inputs')
         if recorded is not None and recorded!=frozen['inputs']:

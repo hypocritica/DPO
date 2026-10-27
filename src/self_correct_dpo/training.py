@@ -16,6 +16,7 @@ import tempfile
 import time
 
 from self_correct_dpo.common import model_artifact_identity, digest, read_json, sha256, write_json
+from self_correct_dpo.runtime.storage_compat import compatible_sources, record_compatibility
 
 def git_revision():
     import subprocess
@@ -383,6 +384,9 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         recorded = read_json(out / "training.json")
         if "parent" in recorded:
             identity["parent"] = recorded["parent"]
+        observed_code = identity['code']
+        if compatible_sources(recorded['code'], observed_code):
+            identity['code'] = recorded['code']
     run_id = digest(identity)
     if resume:
         if read_json(out / "training.json")["run_id"] != run_id:
@@ -407,6 +411,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         newer = [p for p in (out / "checkpoints").glob("step-*") if p.is_dir() and int(p.name[5:]) > ckpt["step"]]
         if newer:
             raise ValueError("Resume the latest checkpoint; use a new run for branching")
+        if rank == 0:
+            record_compatibility(out, recorded['code'], observed_code)
     elif rank == 0 and out.exists():
         raise FileExistsError(f"Use a fresh output directory: {out}")
     np.random.seed(config["seed"])

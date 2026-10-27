@@ -13,6 +13,7 @@ from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.config import load_config
 from self_correct_dpo.data.benchmarks import BENCHMARKS
 from self_correct_dpo.evaluation.scorers import DEFAULT_METRICS, METRICS, scorer_identity
+from self_correct_dpo.runtime.storage_compat import compatible_identity, record_compatibility
 
 
 def run_command(command):
@@ -114,8 +115,13 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
     meta={'identity':identity,'evaluation_id':digest(identity)}
     out=Path(out).resolve()
     if out.exists():
-        if read_json(out/'evaluation.json')!=meta:
+        recorded = read_json(out/'evaluation.json')
+        if (recorded.get('evaluation_id') != digest(recorded['identity'])
+                or not compatible_identity(recorded['identity'], identity)):
             raise ValueError('Cannot resume evaluation with changed checkpoint, prompts or scorers')
+        if not check_only:
+            record_compatibility(out, recorded['identity']['code_sha256'], identity['code_sha256'])
+        meta = recorded
         if (out/'complete.json').is_file():
             summary=verify_complete(out)
             if not keep_images and not (out/'images-pruned.json').exists(): prune_images(out)

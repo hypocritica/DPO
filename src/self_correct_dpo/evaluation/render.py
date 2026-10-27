@@ -6,6 +6,7 @@ Sharding assigns whole scenes, never individual members of a prompt orbit.
 from self_correct_dpo.common import source_file
 from self_correct_dpo.config import load_config
 import argparse
+import errno
 from contextlib import contextmanager
 import fcntl
 import importlib.metadata
@@ -22,6 +23,7 @@ import uuid
 from self_correct_dpo.common import canonical_scheduler_config
 from self_correct_dpo.common import (artifact_identity, model_artifact_identity, digest, load_suite, read_json, require_gpu_allocation,
                     sha256, verify_images, write_json)
+from self_correct_dpo.runtime.storage_compat import compatible_sources, record_compatibility
 
 FAMILIES = {"sd15": ("StableDiffusionPipeline", "DDIMScheduler", "unet"),
             "sdxl": ("StableDiffusionXLPipeline", "EulerDiscreteScheduler", "unet"),
@@ -327,6 +329,23 @@ def append_record(manifest, record):
     os.fsync(manifest.fileno())
 
 
+def publish_image(staged, destination):
+    """Publish under render_lock; AOSS supports rename but not hard links.
+
+    The journal and flushed PNG already exist. A rename interrupted before the
+    manifest append is recovered from the destination by recover_transactions.
+    The output lock serializes the existence check and rename for this renderer.
+    """
+    try:
+        os.link(staged, destination)
+    except OSError as error:
+        if error.errno not in {errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP}:
+            raise
+        if os.path.lexists(destination):
+            raise FileExistsError(errno.EEXIST, 'Refusing to overwrite a rendered image', str(destination)) from error
+        os.rename(staged, destination)
+
+
 def recover_transactions(root, run, records, manifest):
     """Finish image commits journaled before a crash; never overwrite an image."""
     expected = expected_records(run)
@@ -346,7 +365,7 @@ def recover_transactions(root, run, records, manifest):
         else:
             if not destination.exists():
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                os.link(staged, destination)
+                publish_image(staged, destination)
             append_record(manifest, record)
             records.append(record)
             by_key[key] = record
@@ -369,10 +388,9 @@ def commit_image(image, root, run, record, manifest):
     record["image_id"] = digest({"run_id": run["run_id"], **record})
     journal = pending / f"{transaction_id}.json"
     write_json(journal, {"record": record, "staged_image": str(staged.relative_to(root))})
-    # link is atomic and refuses an existing destination, unlike rename/replace.
-    os.link(staged, root / record["image"])
+    publish_image(staged, root / record["image"])
     append_record(manifest, record)
-    staged.unlink()
+    staged.unlink(missing_ok=True)
     journal.unlink()
     return record
 
@@ -387,6 +405,8 @@ def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_
               "common_sha256": sha256(source_file("common.py"))}
     for key, value in wanted.items():
         if run.get(key) != value:
+            if key == 'render_sha256' and compatible_sources({'render.py': run.get(key)}, {'render.py': value}):
+                continue
             raise ValueError(f"Cannot resume: {key} changed")
     return run
 
@@ -471,6 +491,8 @@ def main():
         out.mkdir(parents=True, exist_ok=False)
         write_json(out / "run.json", run)
     with render_lock(out):
+        if args.resume:
+            record_compatibility(out, {'render.py': run['render_sha256']}, {'render.py': sha256(__file__)})
         if (out / "complete.json").exists():
             verify_images(out)
             print(f"Already complete and verified: {out}")

@@ -2,6 +2,36 @@
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
 
+## AOSS 图片保存修复与原实验续训
+
+`os.link()` 在部分 `/mnt/aoss` 挂载上返回 `Errno 38`。图片提交和待恢复图片事务均在硬链接不支持时使用同一输出锁下的重命名；已有目标图片不覆盖，PNG、journal及manifest校验继续保留。此修复不调整训练目标、预算或监控时间：200、500、1000……步评估（含基座对照），每1000步保留LoRA，每200步更新完整续训点。
+
+为保留旧实验进度，训练、监控、评估与render的源码检查仅接受 `b766801` 对应源码到本修复的精确SHA256配对；其他源码、配置、数据、模型、评分器、依赖或卡数变化仍拒绝。已有 `training.json`、监控身份、评估身份、run ID和checkpoint元数据保持原样，实际修复版源码及兼容策略SHA写入各输出目录的 `storage-compatibility-*.json`。未完成的评估PNG可从pending事务恢复，不需要删除评估目录。
+
+在远程准备独立代码目录一次，保留其他正在训练的checkout和dpo环境：
+
+```bash
+set -e
+SCD_FIX=/mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1
+git clone --single-branch --branch fix/aoss-render-resume \
+  https://github.com/hypocritica/DPO.git "$SCD_FIX"
+SCD_LOCAL=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
+if [[ -f "$SCD_LOCAL" ]]; then
+  cp "$SCD_LOCAL" "$SCD_FIX/configs/resources.local.json"
+fi
+```
+
+在已分配、与旧实验相同的双卡容器中续训01：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1/launchers/acp_resume_storage_fix.sh \
+  sd15-dpo-p384-cu130-v1
+```
+
+此入口自动激活原dpo环境，从旧 `training.json` 提取完全相同的配置，并使用原输出目录的latest续训。已有200步续训点时，先补完基座和200步评估，再继续到500步评估，直至10000步。可追加 `--stop-after-step 201` 做一次受限的真实恢复，再用无暂停参数的原命令继续；这是绝对步数，不改变max_steps。其他中断实验仅替换实验名；原本关闭评估的实验仍保持关闭，不借恢复切换监控配置。没有完整checkpoint的实验无法通过此入口恢复。
+
+需要独立评估旧快照时，也从修复目录调用 `launchers/sd15/05_evaluate.sh STEP RUN_A RUN_B`，不要修改正在训练的旧目录。实际GPU恢复和远程挂载行为仍需在SLAI验证，本机只做CPU测试。
+
 ## SLAI 分组脚本：SD1.5 / SDXL
 
 `launchers/sd15/` 和 `launchers/sdxl/` 各自提供可直接填入容器启动命令的编号脚本。每个训练脚本固定2张GPU、seed17、10000个优化步，沿用每200步完整保存和自动续训；SD1.5 为512×512、基准384，SDXL 为1024×1024、基准192。脚本固定模型、K、每卡 batch 和预算，默认生成独立的 `*-slai-v1` 实验名。共享环境、资源路径、冻结配置和训练逻辑继续使用现有公共入口，启动时不新增逐卡自测或全图扫描。
