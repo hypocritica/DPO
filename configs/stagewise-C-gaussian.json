@@ -1,0 +1,16 @@
+{
+  "extends": ["defaults.json", "models/sd15.json"],
+  "method": "stagewise-C-gaussian",
+  "training": {
+    "formal_arm": "C",
+    "noise_views": 2,
+    "batch_views": true,
+    "stagewise": {
+      "boundary": 500,
+      "objective": "dpo",
+      "target_margin": 1.0,
+      "huber_delta": 1.0,
+      "huber_weight": 0.5
+    }
+  }
+}

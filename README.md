@@ -10,6 +10,8 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 ro
 - [算法审查与逐轮改进计划](docs/ALGORITHM_REVIEW_AND_PLAN.md)
 - [SDXL 论文依据与验证范围](docs/SDXL.md)
 
+新增 [SD1.5 stagewise 四组入口](launchers/sd15_stagewise)：按pair选择低/高噪声阶段、阶段内各视图独立t和ε，比较全部DPO、低阶段Huber、全程固定混合及反向分配。四组均10000步、K=2、192pair/384pair-view，默认双卡B=2、累积48；公式与独立checkout部署命令见 [方法](docs/METHOD.md) 和 [command.md](command.md)。
+
 Gaussian B/C 新比较入口分别为 [固定图片对](launchers/acp_gaussian_fixed_pairs.sh) 和 [固定图片对视图](launchers/acp_gaussian_fixed_views.sh)：两组统一10000步，SD1.5基准384、SDXL基准192，支持 K=2/4/6 和2/4/8卡，各模型共用同预算的新 DPO 基线。前者保留每步图片对数，后者将图片对数除以 K；配置、日志和输出名包含模式与预算。完整实验表和命令见 [command.md](command.md#两套-gaussian-c-对照固定图片对--固定视图预算)。下文原有256/128入口继续保留。
 
 资源路径在 `configs/resources.json` 中统一修改；私有覆盖用 `configs/resources.local.json`，无需 `source paths.sh`。模型根目录为 `/mnt/aoss/xietianyu/models`，数据集根目录为 `/mnt/aoss/xietianyu/datasets`，各资源保留原子目录结构。训练需要已处理的 `pairs.jsonl`；原始 Pick-a-Pic 地址为 `/mnt/aoss/xietianyu/datasets/pickapicv2/data`。SDXL、SD3、HPDv3 的位置已预留，SD3 训练后续实现。

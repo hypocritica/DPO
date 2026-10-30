@@ -115,9 +115,25 @@ def validate_config(config, *, files=True):
         raise ValueError('training.batch_views must be a boolean')
     if training.get('batch_views') and ('independent_rollout' in training or 'paired_drift' in training):
         raise ValueError('batch_views supports ordinary Gaussian views only; disable rollout/paired_drift')
-    if config.get('method') in ('multiview-B-gaussian', 'multiview-C-gaussian') and (
+    if config.get('method') in ('multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian') and (
             'independent_rollout' in training or 'paired_drift' in training):
         raise ValueError('Gaussian multiview methods require no rollout or paired_drift')
+    stagewise = training.get('stagewise')
+    if config.get('method') == 'stagewise-C-gaussian' or 'stagewise' in training:
+        if (config.get('method') != 'stagewise-C-gaussian' or arm != 'C'
+                or 'independent_rollout' in training or 'paired_drift' in training):
+            raise ValueError('stagewise requires method=stagewise-C-gaussian, C and ordinary Gaussian views')
+        if not isinstance(stagewise, dict) or set(stagewise) != {'boundary', 'objective', 'target_margin', 'huber_delta', 'huber_weight'}:
+            raise ValueError('stagewise requires boundary, objective, target_margin, huber_delta and huber_weight')
+        total = read_json(Path(model['path']) / 'scheduler/scheduler_config.json')['num_train_timesteps'] if files else 1000
+        if type(stagewise['boundary']) is not int or not 0 < stagewise['boundary'] < total:
+            raise ValueError('stagewise boundary must be inside the scheduler timestep range')
+        if stagewise['objective'] not in ('dpo', 'phase', 'constant', 'reverse'):
+            raise ValueError('Unknown stagewise objective')
+        for key in ('target_margin', 'huber_delta', 'huber_weight'):
+            value = stagewise[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f'stagewise.{key} must be finite and positive')
     if type(training.get("world_size", 1)) is not int or training.get("world_size", 1) < 1:
         raise ValueError("world_size must be a positive integer")
     if 'comparison_budget' in training:
@@ -126,7 +142,7 @@ def validate_config(config, *, files=True):
                 or type(budget.get('per_update')) is not int or budget['per_update'] < 1):
             raise ValueError('training.comparison_budget requires unit=pairs/pair_views and positive integer per_update')
         method = config.get('method')
-        if (method not in ('dpo', 'multiview-B-gaussian', 'multiview-C-gaussian')
+        if (method not in ('dpo', 'multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian')
                 or 'independent_rollout' in training or 'paired_drift' in training):
             raise ValueError('comparison_budget supports DPO and ordinary Gaussian multiview methods only')
         if method == 'dpo' and k != 1:
@@ -420,7 +436,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     torch.manual_seed(config["seed"])
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config["seed"])
-    from self_correct_dpo.algorithms.formal import MultiViewBackend, sample_views, formal_loss
+    from self_correct_dpo.algorithms.formal import MultiViewBackend, sample_views, formal_loss, stagewise_loss
     arm = t.get("formal_arm", "C")
     if arm not in {"B", "C"}:
         raise ValueError("SD1.5 supports only B/C")
@@ -559,7 +575,11 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                         import torch.nn.functional as F
                         logits = preference_logits(values["policy_errors"], values["reference_errors"], t["beta"])
                         mean = logits.mean(1)
-                        loss = F.softplus(-mean if arm == "C" else -logits).mean()
+                        if 'stagewise' in t:
+                            loss, stage_metrics = stagewise_loss(logits, values['prepared']['low_stage'], t['stagewise'])
+                        else:
+                            loss = F.softplus(-mean if arm == "C" else -logits).mean()
+                            stage_metrics = {}
                         metrics = {"loss": loss.detach(), "margin_mean": mean.mean(),
                                    "margin_variance": logits.var(1, unbiased=False).mean(),
                                    "implicit_accuracy": (logits > 0).float().mean(),
@@ -568,6 +588,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                                    **{f"loss_view_{j}": F.softplus(-logits[:, j]).mean() for j in range(t["noise_views"])},
                                    **{f"policy_mse_view_{j}_{branch}": values["policy_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))},
                                    **{f"reference_mse_view_{j}_{branch}": values["reference_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))}}
+                        metrics.update(stage_metrics)
                         if not torch.isfinite(loss):
                             raise FloatingPointError("Non-finite training loss")
                         # Keep every view's policy graph and differentiate the

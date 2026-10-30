@@ -123,3 +123,9 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 2026-10-26 RTX5090依赖迁移：用户选择官方稳定组合PyTorch2.14.1/cu130、torchvision0.29.1/cu130、NCCL2.30.7，远程驱动为580.95.05；requirements和包元数据同步更新，模型相关API版本保留。远程操作保留已有dpo环境，不提供自动删除环境、隔离NCCL或LD_PRELOAD覆盖；升级前清理cu12/cu13的旧NCCL包，避免共享库路径互相覆盖。Python3.10下pip元数据解析通过，共89个发行包，采用dry-run、PEP658元数据和受限ZIP范围读取，禁止整包下载，未安装任何依赖。11项现有配置测试、依赖声明语法与diff检查通过。用户已有NCCL2.31.2通信通过记录不代表新2.30.7组合已验证；仍需远程版本核对和双卡DPO一步训练/保存，命令见command.md。
 
 2026-10-27 AOSS存储恢复：图片发布与pending事务恢复在硬链接不支持时使用render输出锁保护的重命名，保留已刷新PNG、journal、manifest校验及目标不覆盖检查。训练、监控、评估、render的源码兼容仅放行从b766801基线到本修复的精确SHA配对；不重写旧training/monitor/evaluation身份或checkpoint，另存兼容审计记录。`acp_resume_storage_fix.sh`从training.json恢复原配置与latest，部署至独立checkout以保护正在运行的实验。9项新增CPU测试和3项既有保存/恢复测试通过，覆盖不支持硬链接、发布前后中断恢复、不覆盖图片、非兼容错误、旧版四层身份、200步恢复后的优化器/RNG一致性、1000步快照保留及原200/500评估计划。临时checkout中的真实恢复脚本保留原配置/latest/暂停参数并拒绝训练覆盖，测试替代了Conda激活和训练执行；Bash语法、Python语法和diff检查通过。实际SLAI GPU续训仍须远程执行。
+
+2026-10-30 Stagewise SD1.5入口：新增独立 `launchers/sd15_stagewise/` 四组，固定10000步、192pair/384pair-view，双卡B=2、累积48；旧入口不变。临时checkout中执行12组真实配置生成（四目标×2/4/8卡），确认10000步和累积48/24/12、预算及128prompt基座监控；自动latest续训、阶段边界/评估采样篡改拒绝、已有输出缺冻结配置拒绝、训练CLI覆盖和非法卡数拒绝通过。检查替代了远程Conda激活与实际训练调用，未安装依赖或提交GPU作业；新增5个Bash脚本语法、help及diff空白检查通过。实际5090双卡训练、峰值显存、性能及正式两步保存/恢复仍须在SLAI已分配容器验证。
+
+本轮算法在项目既有 `.venv`（Python3.10.19、PyTorch2.6.0）上通过5项新增CPU检查及22项原配置/联合梯度/时间采样回归。覆盖非中点边界的均匀边际、段内独立时间与噪声、pair共享、RNG重放、四目标与梯度、合批/逐视图一致性和旧Gaussian随机序列保留。四个10000步解析配置与原C-K2固定384视图预算的配置逐项比较，仅 `method` 和新增 `training.stagewise` 不同。
+
+另通过12项既有暂停/恢复与AOSS存储兼容检查；历史版本迁移测试改用明确的original/fixed源码身份fixture，生产兼容白名单保持不变，未批准的训练源码变化仍拒绝续训。独立临时CPU小模型检查调用真实MultiViewBackend采样、误差计算和训练循环：四种目标的日志loss均与独立公式计算一致且产生不同更新；连续4步与第2步暂停后恢复的权重、optimizer、scheduler、阶段指标和各CPU RNG完全一致。这些检查未加载完整SD1.5模型，不代表GPU训练或显存验证。

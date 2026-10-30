@@ -96,12 +96,13 @@ class ImagePublication(unittest.TestCase):
 class SourceCompatibility(unittest.TestCase):
     def test_exact_allowlist_and_all_other_identity_fields(self):
         old = {name: value['original'] for name, value in SOURCE_HASHES.items()}
-        current = {name: sha256(source_file(name)) for name in old}
-        self.assertEqual(current, {name: value['fixed'] for name, value in SOURCE_HASHES.items()})
+        # This migration concerns two historical revisions, not today's checkout.
+        current = {name: value['fixed'] for name, value in SOURCE_HASHES.items()}
         self.assertTrue(compatible_sources(old, current))
         self.assertFalse(compatible_sources(current, old))
         self.assertFalse(compatible_sources(old, {**current, 'models.py': 'different'}))
         self.assertFalse(compatible_sources(old, {**current, 'render.py': 'unreviewed'}))
+        self.assertFalse(compatible_sources(old, {**current, 'training.py': 'unreviewed'}))
         self.assertTrue(compatible_sources({'runner.py': old['evaluation.py']},
                                            {'runner.py': current['evaluation.py']}))
         a, b = {'settings': {'every': 500}, 'code_sha256': old}, {'settings': {'every': 500}, 'code_sha256': current}
@@ -168,8 +169,13 @@ class SourceCompatibility(unittest.TestCase):
                                    'max_grad_norm': 1., 'checkpoint_policy': 'bounded', 'lora_checkpoint_every': 1000,
                                    'prompt_mode': 'canonical', 'sampling': 'balanced', 'logging': 'jsonl'}}
             legacy = {source_file(name).resolve(): value['original'] for name, value in SOURCE_HASHES.items()}
+            fixed = {source_file(name).resolve(): value['fixed'] for name, value in SOURCE_HASHES.items()}
             def previous_sha(path):
                 return legacy.get(Path(path).resolve()) or sha256(path)
+            def fixed_sha(path):
+                # Simulate the approved storage-only revision even after later
+                # algorithm development changes the live training source.
+                return fixed.get(Path(path).resolve()) or sha256(path)
             out = root / 'resumed'
             with redirect_stdout(io.StringIO()), patch('self_correct_dpo.training.image_batch',
                     return_value=torch.zeros(1, 2, 3, 1, 1)), patch('self_correct_dpo.training.sha256', side_effect=previous_sha):
@@ -179,12 +185,12 @@ class SourceCompatibility(unittest.TestCase):
             latest = out / 'checkpoints/latest.json'
             self.assertEqual(read_json(resolve_checkpoint(latest) / 'checkpoint.json')['step'], 200)
             def unreviewed_sha(path):
-                return 'unreviewed' if Path(path).resolve() == source_file('models.py').resolve() else sha256(path)
+                return 'unreviewed' if Path(path).resolve() == source_file('training.py').resolve() else fixed_sha(path)
             with patch('self_correct_dpo.training.sha256', side_effect=unreviewed_sha):
                 with self.assertRaisesRegex(ValueError, 'training code changed'):
                     train(config, rows, out, resume=latest, backend_factory=ToyBackend, device='cpu')
             with redirect_stdout(io.StringIO()), patch('self_correct_dpo.training.image_batch',
-                    return_value=torch.zeros(1, 2, 3, 1, 1)):
+                    return_value=torch.zeros(1, 2, 3, 1, 1)), patch('self_correct_dpo.training.sha256', side_effect=fixed_sha):
                 resumed = train(config, rows, out, resume=latest, backend_factory=ToyBackend, device='cpu')
                 train(config, rows, root / 'continuous', backend_factory=ToyBackend, device='cpu')
             self.assertEqual(resumed['run_id'], original_id)

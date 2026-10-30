@@ -1,3 +1,47 @@
+## 新四组 Stagewise SD1.5：独立 checkout 与 SLAI 命令
+
+本节使用 `launchers/sd15_stagewise/`，只运行新实验。旧实验继续使用原 checkout；不要在正在训练或准备续训的目录拉取新代码。当前本地改动尚未提交/推送；本轮交付 `stagewise_sd15.patch`。先将补丁上传为远程 `$HOME/stagewise_sd15.patch`，核对交付的 SHA256，再在基线 `fcbfb37` 上创建独立工作树并应用补丁：
+
+```bash
+git -C /mnt/afs/L202500030/xietianyu/workspace/DPO worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030 fcbfb37
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030
+git apply --check "$HOME/stagewise_sd15.patch"
+git apply "$HOME/stagewise_sd15.patch"
+```
+
+若远程尚无 `fcbfb37`，先只读抓取 `git -C /mnt/afs/L202500030/xietianyu/workspace/DPO fetch origin`；不要切换或更新旧实验工作文件。新工作树应用后的代码也应固定，待这些实验完成再更新。
+
+确认新 checkout 使用相同 `configs/resources.json`；若原目录使用 `configs/resources.local.json`，将本人这份私有覆盖复制到新 checkout 的相同位置，并核对模型、数据、128条 monitor panel与持久 `RUNS_ROOT`。复用既有 `dpo` 环境与已准备的数据；训练不会重新下载或准备。以下各命令分别填入 SLAI **已分配2张5090** 的容器启动命令，每个容器执行一组，不含平台提交或本机 Slurm 操作：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/01_stage_dpo.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/02_stage_huber.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/03_constant_mix.sh
+```
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/04_reverse.sh
+```
+
+四组固定 K=2、全局192 pair/384 pair-view、10000优化步；双卡每卡B=2、累积48。其余保持 seed17、lr1e-5、beta5000、LoRA rank/alpha16、512 BF16、weight decay0.01、constant LR/warmup200。监控保持同一128 prompt、seed17、DDIM30、CFG7.5，包括基座评估，200步首次评估之后每500步；完整checkpoint每200步，LoRA每1000步。四组目标公式见 `docs/METHOD.md`。所有组从同一基座开启新训练，第一组也采用按pair选择阶段的采样，不能视为旧全域iid-t DPO的续训。
+
+先对每组做两步暂停检查；以下为第二组示例，保留正式累积和基座评估，因此不是低成本微型训练。暂停后检查输出保存，再在同一代码/环境/资源与卡数下去掉暂停参数继续：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/02_stage_huber.sh --stop-after-step 2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/02_stage_huber.sh --resume_from_checkpoint latest
+```
+
+`--stop-after-step` 是绝对优化步数，不改变10000步预算。重启原命令自动恢复latest；只放行该参数和 `--resume_from_checkpoint PATH`/`--resume PATH`，拒绝训练覆盖。默认实验名分别为 `sd15-stagewise-{dpo,phase,constant,reverse}-k2-p192-2gpu-10000-slai-v1`。冻结配置 `configs/local-<实验名>.json`、控制台 `logs/<实验名>.txt`、输出 `$RUNS_ROOT/<实验名>`；缺失冻结配置但已有输出时拒绝启动。每次启动重建预期配置并全量比较，防止改目标、阶段边界、优化参数或评估后误续训。
+
+新重复实验可前置 `SCD_RUN_NAME=新的独立实验名`；seed仍为17。独立新实验可设置 `SCD_WORLD_SIZE=4` 或 `8`，保持每卡B=2、全局192pair，自动得到累积24或12；不支持同一实验中途改卡数。只允许2/4/8卡，并使用精确整除，绝不向下取整。旧入口保持原10000步默认值。
+
 # 商汤大装置：从部署到 DPO 实验
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。

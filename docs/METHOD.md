@@ -22,6 +22,23 @@ B/C 支持任意正整数 K，默认 K=2，可通过 `--views 3`、`--views 4` �
 
 合批减少调用开销，UNet 的图片计算量仍随 K 增长。降低每卡图片对数 B、增加梯度累积可控制单次显存并保持全局 pair batch；不能把视图数 K 乘进图片对曝光计数。同一全局 pair batch 下，K=4 仍比 K=2 处理更多带噪图片，不能视为同算力预算。
 
+## 按噪声阶段采样的 Gaussian C（四组消融）
+
+`stagewise-C-gaussian` 独立于原有全域 iid-t 的 Gaussian C，默认 K=2、`batch_views=true`，无 rollout。每个 pair 先按区间长度概率选择阶段：低噪声 `[0,500)` 或高噪声 `[500,1000)`（各 1/2）。同一个 pair 的 K 个视图属于同一阶段，各视图在该阶段内独立采样 t 和 ε；winner/loser 内共享该视图的 t 和 ε。这不是 K 个视图共享一个精确 t。各视图的边缘 t 分布仍全域均匀，但视图的阶段相关性不同于旧全域 iid-t；因此第一组也是新的阶段采样对照。
+
+令 `m = mean_k m_k`、`D(m) = softplus(-m)`、`H(m) = Huber_delta=1(m-1)`（均先聚合 margin 再计算 loss）。四组为：
+
+| 入口 | objective | 低噪声 | 高噪声 |
+|---|---|---|---|
+| `01_stage_dpo.sh` | `dpo` | D(m) | D(m) |
+| `02_stage_huber.sh` | `phase` | 0.5 H(m) | D(m) |
+| `03_constant_mix.sh` | `constant` | 0.5 D(m) + 0.25 H(m) | 0.5 D(m) + 0.25 H(m) |
+| `04_reverse.sh` | `reverse` | D(m) | 0.5 H(m) |
+
+Huber 在 `|m-1| <= 1` 时为 `0.5*(m-1)^2`，否则为 `|m-1|-0.5`。`huber_weight=0.5`；constant 对 DPO 与已加权 Huber 各取一半，不额外叠加未加权 Huber。边界、目标 margin、Huber delta/weight 与 objective 写入 `training.stagewise` 并冻结。
+
+四组均从同一 SD1.5 基座开始新训练，不从旧 DPO LoRA 续训；10000 个优化步、全局192 pair/384 pair-view，默认双卡每卡2 pair、累积48、seed17。其余优化与128 prompt监控沿用既有设置。配置和暂停/续训命令见根目录 `command.md`。
+
 ## 停止梯度的 DDIM 扰动
 
 ```text

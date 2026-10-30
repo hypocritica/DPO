@@ -21,10 +21,48 @@ def sample_views(rows, config, microbatch, *, world=1, rank=0):
     return batch, [[p[0]] * k for p in prompts], [[p[0]] * k for p in ids]
 
 
-def formal_loss(values, arm, beta):
+def stagewise_terms(mean, low_stage, settings):
+    """Per-pair loss and signed derivative with respect to the mean margin."""
+    dpo = F.softplus(-mean)
+    residual = mean - settings['target_margin']
+    delta, weight = settings['huber_delta'], settings['huber_weight']
+    huber = weight * F.huber_loss(mean, torch.full_like(mean, settings['target_margin']),
+                                  delta=delta, reduction='none')
+    dpo_coefficient = -torch.sigmoid(-mean)
+    huber_coefficient = weight * residual.clamp(-delta, delta)
+    objective = settings['objective']
+    if objective == 'dpo':
+        return dpo, dpo_coefficient
+    if objective == 'constant':
+        return .5 * (dpo + huber), .5 * (dpo_coefficient + huber_coefficient)
+    if objective not in ('phase', 'reverse'):
+        raise ValueError(f'Unknown stagewise objective: {objective}')
+    use_huber = low_stage if objective == 'phase' else ~low_stage
+    return torch.where(use_huber, huber, dpo), torch.where(use_huber, huber_coefficient, dpo_coefficient)
+
+
+def stagewise_loss(logits, low_stage, settings):
+    mean = logits.mean(1)
+    per_pair, coefficient = stagewise_terms(mean, low_stage, settings)
+    # All bucket sums divide by the full pair count. Fractions retain the
+    # denominator needed to interpret them after microbatch/rank averaging.
+    metrics = {'stage_low_fraction': low_stage.float().mean(),
+               'stage_coefficient_mean': coefficient.detach().mean()}
+    for label, mask in (('low', low_stage), ('high', ~low_stage)):
+        for name, value in (('margin', mean), ('loss', per_pair), ('coefficient', coefficient)):
+            metrics[f'stage_{label}_{name}_weighted'] = (value.detach() * mask).mean()
+    return per_pair.mean(), metrics
+
+
+def formal_loss(values, arm, beta, stagewise=None):
     logits = preference_logits(values['policy_errors'], values['reference_errors'], beta)
     mean = logits.mean(1)
-    if arm == 'B':
+    stage_metrics = {}
+    if stagewise is not None:
+        if arm != 'C':
+            raise ValueError('stagewise requires formal_arm=C')
+        loss, stage_metrics = stagewise_loss(logits, values['prepared']['low_stage'], stagewise)
+    elif arm == 'B':
         loss = F.softplus(-logits).mean()
     elif arm == 'C':
         loss = F.softplus(-mean).mean()
@@ -32,7 +70,7 @@ def formal_loss(values, arm, beta):
         raise ValueError(arm)
     return loss, {'loss': loss.detach(), 'margin_mean': mean.detach().mean(),
                   'margin_variance': logits.detach().var(1, unbiased=False).mean(),
-                  'implicit_accuracy': (logits.detach() > 0).float().mean()}
+                  'implicit_accuracy': (logits.detach() > 0).float().mean(), **stage_metrics}
 
 
 class MultiViewBackend(PreferenceBackend):
@@ -45,13 +83,31 @@ class MultiViewBackend(PreferenceBackend):
         condition = self._condition(texts)
         views = []
         k = getattr(self, 'training_config', {}).get('noise_views', 2)
+        stagewise = getattr(self, 'training_config', {}).get('stagewise')
+        low_stage = None
+        total = self.scheduler.config.num_train_timesteps
+        if stagewise is not None:
+            boundary = stagewise['boundary']
+            if type(boundary) is not int or not 0 < boundary < total:
+                raise ValueError('stagewise boundary must be inside the scheduler timestep range')
+            low_stage = torch.randint(total, (b,), device=latents.device, generator=generator) < boundary
         for _ in range(k):
-            noise, indices = shared_pair_noise(latents, self.scheduler.config.num_train_timesteps, generator)
+            if stagewise is None:
+                noise, indices = shared_pair_noise(latents, total, generator)
+            else:
+                noise = torch.randn(latents[:, 0].shape, dtype=latents.dtype,
+                                    device=latents.device, generator=generator)
+                # Both integer draws are exact uniform; each view samples
+                # independently inside its pair's shared stage.
+                low = torch.randint(boundary, (b,), device=latents.device, generator=generator)
+                high = torch.randint(boundary, total, (b,), device=latents.device, generator=generator)
+                indices = torch.where(low_stage, low, high)[:, None].expand(-1, 2)
+                noise = noise[:, None].expand_as(latents)
             flat, noise, times = latents.flatten(0, 1), noise.flatten(0, 1), indices.flatten()
             noisy = self.scheduler.add_noise(flat, noise, times)
             target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(flat, noise, times)
             views.append({'noisy': noisy, 'times': times, 'target': target})
-        return {'views': views, 'condition': condition, 'batch_size': b}
+        return {'views': views, 'condition': condition, 'batch_size': b, **({'low_stage': low_stage} if stagewise is not None else {})}
 
     def view_errors(self, prepared, view, reference=False):
         v = prepared['views'][view] if isinstance(view, int) else view
