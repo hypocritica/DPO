@@ -1,15 +1,15 @@
 ## 新四组 Stagewise SD1.5：独立 checkout 与 SLAI 命令
 
-本节使用 `launchers/sd15_stagewise/`，只运行新实验。旧实验继续使用原 checkout；不要在正在训练或准备续训的目录拉取新代码。当前本地改动尚未提交/推送；本轮交付 `stagewise_sd15.patch`。先将补丁上传为远程 `$HOME/stagewise_sd15.patch`，核对交付的 SHA256，再在基线 `fcbfb37` 上创建独立工作树并应用补丁：
+本节使用 `launchers/sd15_stagewise/`，只运行新实验。旧实验继续使用原 checkout；不要在正在训练或准备续训的目录拉取新代码。新算法已在本地提交，远程部署前先确认该版本已通过 GitHub 插件推送。用已确认的远程提交完整 SHA 创建独立工作树，代码和配置都固定在该提交：
 
 ```bash
-git -C /mnt/afs/L202500030/xietianyu/workspace/DPO worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030 fcbfb37
+SCD_STAGE_REV='替换为已确认推送的stagewise提交完整SHA'
+git -C /mnt/afs/L202500030/xietianyu/workspace/DPO fetch origin
+git -C /mnt/afs/L202500030/xietianyu/workspace/DPO worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030 "$SCD_STAGE_REV"
 cd /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030
-git apply --check "$HOME/stagewise_sd15.patch"
-git apply "$HOME/stagewise_sd15.patch"
 ```
 
-若远程尚无 `fcbfb37`，先只读抓取 `git -C /mnt/afs/L202500030/xietianyu/workspace/DPO fetch origin`；不要切换或更新旧实验工作文件。新工作树应用后的代码也应固定，待这些实验完成再更新。
+先将上面的 SHA 占位符替换为实际提交。`fetch` 不切换或更新旧实验工作文件；新工作树在这些实验完成前也不再更新。
 
 确认新 checkout 使用相同 `configs/resources.json`；若原目录使用 `configs/resources.local.json`，将本人这份私有覆盖复制到新 checkout 的相同位置，并核对模型、数据、128条 monitor panel与持久 `RUNS_ROOT`。复用既有 `dpo` 环境与已准备的数据；训练不会重新下载或准备。以下各命令分别填入 SLAI **已分配2张5090** 的容器启动命令，每个容器执行一组，不含平台提交或本机 Slurm 操作：
 
@@ -31,7 +31,27 @@ exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launche
 
 四组固定 K=2、全局192 pair/384 pair-view、10000优化步；双卡每卡B=2、累积48。其余保持 seed17、lr1e-5、beta5000、LoRA rank/alpha16、512 BF16、weight decay0.01、constant LR/warmup200。监控保持同一128 prompt、seed17、DDIM30、CFG7.5，包括基座评估，200步首次评估之后每500步；完整checkpoint每200步，LoRA每1000步。四组目标公式见 `docs/METHOD.md`。所有组从同一基座开启新训练，第一组也采用按pair选择阶段的采样，不能视为旧全域iid-t DPO的续训。
 
-先对每组做两步暂停检查；以下为第二组示例，保留正式累积和基座评估，因此不是低成本微型训练。暂停后检查输出保存，再在同一代码/环境/资源与卡数下去掉暂停参数继续：
+首次部署或排错时仍使用既有 `python scripts/check_deployment.py --gpu`；它只在已分配 GPU 的容器中手动运行，正式启动器不重复逐卡自测。训练数据仍默认8线程抽查8张并覆盖各 split 首对，不自动全量预处理或审计。
+
+低成本快速验证复用既有 `make_config.py --smoke` 流程。先在新 checkout 激活同一 `dpo` 环境并 `source paths.sh`，然后执行下例（在已分配双卡容器中运行）；它关闭评估、warmup和诊断，每卡1对、累积1、只训练2步，每步保存，输出与正式实验分开：
+
+```bash
+python scripts/make_config.py --family sd15 --method stagewise-C-gaussian \
+  --world-size 2 --smoke --set training.stagewise.objective=phase \
+  --out configs/local-stagewise-phase-smoke-v1.json
+python train.py --config configs/local-stagewise-phase-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-stagewise-phase-smoke-v1" --check-only
+python train.py --config configs/local-stagewise-phase-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-stagewise-phase-smoke-v1" \
+  --execution standalone --run-label stagewise-phase-smoke-v1 --stop-after-step 1
+python train.py --config configs/local-stagewise-phase-smoke-v1.json \
+  --out "$RUNS_ROOT/sd15-stagewise-phase-smoke-v1" \
+  --execution standalone --run-label stagewise-phase-smoke-v1 --resume_from_checkpoint latest
+```
+
+其他三组将 objective 改为 `dpo`、`constant`、`reverse`，并分别更换配置文件、输出和 run-label；配置不覆盖已有文件。`--benchmark` 也沿用既有100步、关闭评估的独立流程。smoke/benchmark结果不续接正式实验。
+
+快速验证通过后，再对每组做正式预算下的两步暂停检查；以下为第二组示例，保留正式累积和基座评估。暂停后检查输出保存，再在同一代码/环境/资源与卡数下去掉暂停参数继续：
 
 ```bash
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-stagewise-20261030/launchers/sd15_stagewise/02_stage_huber.sh --stop-after-step 2
@@ -59,11 +79,14 @@ set -e
 SCD_FIX=/mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1
 git clone --single-branch --branch fix/aoss-render-resume \
   https://github.com/hypocritica/DPO.git "$SCD_FIX"
+git -C "$SCD_FIX" checkout --detach fcbfb3757a5194e84a6bdf1b747f97360383d39f
 SCD_LOCAL=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
 if [[ -f "$SCD_LOCAL" ]]; then
   cp "$SCD_LOCAL" "$SCD_FIX/configs/resources.local.json"
 fi
 ```
+
+旧实验续训固定在上述 AOSS 修复提交；不能仅跟随分支最新版本，因为后续 stagewise 算法修改了训练源码，不属于旧实验获准的存储兼容修复。已存在的旧 checkout 继续保留原版本。
 
 在已分配、与旧实验相同的双卡容器中续训01：
 

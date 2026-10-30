@@ -129,3 +129,5 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 本轮算法在项目既有 `.venv`（Python3.10.19、PyTorch2.6.0）上通过5项新增CPU检查及22项原配置/联合梯度/时间采样回归。覆盖非中点边界的均匀边际、段内独立时间与噪声、pair共享、RNG重放、四目标与梯度、合批/逐视图一致性和旧Gaussian随机序列保留。四个10000步解析配置与原C-K2固定384视图预算的配置逐项比较，仅 `method` 和新增 `training.stagewise` 不同。
 
 另通过12项既有暂停/恢复与AOSS存储兼容检查；历史版本迁移测试改用明确的original/fixed源码身份fixture，生产兼容白名单保持不变，未批准的训练源码变化仍拒绝续训。独立临时CPU小模型检查调用真实MultiViewBackend采样、误差计算和训练循环：四种目标的日志loss均与独立公式计算一致且产生不同更新；连续4步与第2步暂停后恢复的权重、optimizer、scheduler、阶段指标和各CPU RNG完全一致。这些检查未加载完整SD1.5模型，不代表GPU训练或显存验证。
+
+2026-10-30 发布前复核：39项CPU测试通过（stagewise 5、joint 6、config 11、timestep 5、pause 3、storage 9）；12组stagewise启动配置及冻结/自动恢复保护复核通过。四组正式配置与旧C-K2固定384视图预算配置相比，仅method和training.stagewise不同；四组smoke及benchmark配置均可生成，分别保持既有2步/100步且关闭评估的语义。另对四种目标各执行真实1000步CPU小模型训练循环和监控协调器：确认基座/200/500/1000评估调用、200/400/500/600/800/1000完整状态保存、1000步独立LoRA保留，以及500步评分中断后从latest继续并补完评分。该检查替代模型组件、图像输入、评分资产及评分器，未运行真实生成、PickScore或GPU；环境为既有Python3.10.19/PyTorch2.6.0。检查记录在本地logs/stagewise-schedule-review-20261030.json。原SD1.5/SDXL启动脚本、公共ACP脚本和默认配置相对fcbfb37未修改；command.md补充独立smoke流程，并将旧AOSS续训部署固定到fcbfb37，防止误用含新算法的分支版本。
