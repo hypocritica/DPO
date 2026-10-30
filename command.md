@@ -1,3 +1,31 @@
+## SDXL 轻量转换：复用已准备的 SD1.5 清单和图片
+
+已完成 SD1.5 Pick-a-Pic 准备时，使用 `launchers/acp_prepare_sdxl_from_sd15.sh`。它只读取原 `pairs.jsonl`、`ready.json`、可选 `audit.json`、已导出的 `official-test-unique.jsonl` 和本地 SDXL 两个 tokenizer。分批检查所有 prompt，不截断；任一 prompt 超限则排除整对。保留项的 split、标签、ID 和图片 SHA256 不变，图片路径转换成指向原文件的绝对路径。不会读/检查/复制图片，也不会访问原始 Parquet 或加载模型权重。
+
+资源来自统一资源表：输入 `PICKAPIC_SD15_PREPARED`，输出 `PICKAPIC_SDXL_PREPARED`，模型 `SDXL_MODEL`，面板目录为 `MONITOR_PROMPTS_SDXL` 的父目录。默认生成128条、seed17的监控面板和剩余测试面板；候选来自原官方 test_unique 文本导出，也通过两个 tokenizer，并排除原清单全部 train caption（包括本次被过滤的训练项）。不重新划分数据；它是 SD1.5 已保留数据的子集，无法恢复此前 SD1.5 过滤掉的样本。
+
+为固定在 `fcbfb37` 的 SLAI checkout 添加两个独立文件，只执行一次，不切换分支、不更新训练源码：
+
+```bash
+set -e
+SCD_CODE=/mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1
+git -c safe.directory="$SCD_CODE" -C "$SCD_CODE" fetch origin codex/sdxl-manifest-reuse
+git -c safe.directory="$SCD_CODE" -C "$SCD_CODE" restore --source=FETCH_HEAD --worktree -- \
+  scripts/prepare_sdxl_from_sd15.py launchers/acp_prepare_sdxl_from_sd15.sh
+```
+
+在已分配的 CPU 容器启动命令中执行（四组 SDXL 实验共用，只准备一次）：
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1/launchers/acp_prepare_sdxl_from_sd15.sh
+```
+
+日志在该 checkout 的 `logs/prepare-sdxl-from-sd15.txt`，含 source_identity、token_filter、monitor_panels 和 complete/reuse 阶段。完成后继续原 SDXL 编号训练命令。源数据必须有匹配的 ready 记录和图片 SHA256，SDXL tokenizer 必须已下载；不需要原始 Parquet。转换只校验元数据，图片内容继续由训练读取时验证。
+
+完成输出再次运行会核对输入/tokenizer身份及输出元数据哈希后复用。发布中断可重跑；已有完整原版 SDXL 数据、未完成全量预处理目录或其他来源面板均拒绝覆盖，保留原目录并先检查实际路径。自定义 `--source-pairs`、`--out`、`--model`、`--panels-out`、`--resources` 可查看 `--help`；自定义输出需要同步资源覆盖，不能将源 SD1.5 目录作为目标，也不要修改已有 SDXL 训练的清单或面板。
+
+本地使用标准库小文件/可控 tokenizer fixture 验证四项检查：第二 tokenizer/超长过滤、split/标签/图片引用与哈希保留、CLI资源默认值与本地双tokenizer加载参数、输出复用和输入变更拒绝，以及面板发布后中断重试。检查禁止图片/Parquet的 open/stat。尚未在本机加载真实 SDXL tokenizer，完整数据规模的耗时由 SLAI CPU 运行核验。
+
 # 商汤大装置：从部署到 DPO 实验
 
 按本文顺序先跑通 SD1.5 纯 DPO，再比较多视图 B/C。以下命令在商汤已分配的单机容器中执行；先从 2 张 RTX 5090 开始，后续可使用 4/8 张或 H100。模型、数据和输出挂载到持久存储，确认新容器仍能访问。这里不提供或执行平台资源申请命令；本机 irip 集群仍遵守 Slurm 约定。
