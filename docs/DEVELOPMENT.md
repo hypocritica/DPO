@@ -1,5 +1,13 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-01 独立 checkpoint 评估分支
+
+`feat/checkpoint-benchmark-eval` 基于 `9730dab`，单独 checkout 维护 `evaluate_batch.py` 和 `requirements-eval.txt`。默认九个已选 SD1.5 run，5000/6000/7000/9000 步，五指标与三套可选提示词；旧训练入口、配置、checkpoint 和 AOSS 兼容白名单不变。新分支只用于独立评估，使用新输出目录，不承担旧训练/监控的源码迁移。
+
+11 项批量评估 CPU 测试与 2 项提示词导入测试通过，覆盖精确步数与 checksum、缺失/损坏区分、资源覆盖、实际双 worker CLI、五评分进程序列、增量汇总、恢复与失败记录、输入变更拒绝。实际下载并核验固定版本的 487/3200/1632 条官方提示词；完整 CLI 计划生成九实验×四步数×三面板的108行。9 项 AOSS 存储回归通过；其中历史迁移测试显式使用批准的 original/fixed SHA fixture，并断言新的 render SHA 不获自动放行。
+
+依赖检查包括官方 CUDA wheel 元数据、非 GPU 依赖解析和 ImageReward BLIP 微型 CPU 前向。未安装完整 eval GPU 环境、未运行五套真实评分模型或远程5090评估。SLAI安装、两图smoke、运行及恢复命令见 [command.md](../command.md) 和 [评估文档](CHECKPOINT_EVALUATION.md)。
+
 这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-25。
 
 ## 两台服务器的职责

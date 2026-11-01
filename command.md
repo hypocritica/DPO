@@ -1,3 +1,37 @@
+## 九个 SD1.5 实验的 checkpoint 五指标评估
+
+使用独立分支 `feat/checkpoint-benchmark-eval` 和独立 checkout `DPO-eval-v1`。不要更新正在训练的目录。完整资产检查、两图 smoke、指标口径、恢复与汇总说明见 [checkpoint 评估文档](docs/CHECKPOINT_EVALUATION.md)。
+
+首次安装到 SLAI 的 `eval` 环境：
+
+```bash
+git clone --branch feat/checkpoint-benchmark-eval --single-branch https://github.com/hypocritica/DPO.git /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v1
+conda create -n eval python=3.10 -y
+conda activate eval
+python -m pip install setuptools==80.9.0 wheel
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu130 torch==2.14.1+cu130 torchvision==0.29.1+cu130 nvidia-nccl-cu13==2.30.7
+python -m pip install --no-build-isolation -r requirements-eval.txt
+python -m pip check
+python scripts/check_eval_environment.py
+python scripts/prepare_eval_prompts.py --download-sdpo
+python evaluate_batch.py --benchmarks pickv2 --out /mnt/aoss/xietianyu/self_correct/evaluations/selected-sd15-pickv2-v1 --check-only
+```
+
+环境已存在则跳过创建。检查缺失的评分资产后补齐，再按文档完成两图 smoke。下面可作为 **已分配双卡的 SLAI 启动命令**；`conda` 必须在容器 PATH，若平台不加载 PATH，使用其实际 conda 可执行文件的绝对路径：
+
+```bash
+git config --global --add safe.directory /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v1
+exec conda run --no-capture-output -n eval bash launchers/sd15/evaluate_checkpoints.sh \
+  --benchmarks pickv2 --gpus 0,1 \
+  --out /mnt/aoss/xietianyu/self_correct/evaluations/selected-sd15-pickv2-v1
+```
+
+默认九个勾选实验，5000/6000/7000/9000 步，五项评分全部执行。`--benchmarks` 可选 `pickv2`、`hpsv2`、`partiprompts`，也可列出三项；变更提示词集后换输出目录。三套提示词分别487/3200/1632条。标准 Euler50、CFG7.5、seed0；该新协议不等同于之前128条 DDIM30 监控曲线。
+
+支持 `--runs NAME ...`、`--steps 5000 6000`、`--seeds 0 1`、`--prompts-root DIR`。新增 checkpoint 后重复同一命令会补齐缺失步数；不会用 latest 冒充目标步数。结果保存在输出目录的 `summary.csv`/`summary.json`，多卡运行中可查看 `summary-worker-N.csv/json`。被驱逐后用同一 checkout、环境和命令恢复；改协议或代码使用新版本输出目录。
+
 ## 新四组 Stagewise SD1.5：独立 checkout 与 SLAI 命令
 
 本节使用 `launchers/sd15_stagewise/`，只运行新实验。旧实验继续使用原 checkout；不要在正在训练或准备续训的目录拉取新代码。新算法已在本地提交，远程部署前先确认该版本已通过 GitHub 插件推送。用已确认的远程提交完整 SHA 创建独立工作树，代码和配置都固定在该提交：

@@ -9,6 +9,7 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 ro
 - [数据说明](docs/DATA.md)、[方法公式](docs/METHOD.md)、[评估说明](docs/EVALUATION.md)
 - [算法审查与逐轮改进计划](docs/ALGORITHM_REVIEW_AND_PLAN.md)
 - [SDXL 论文依据与验证范围](docs/SDXL.md)
+- [九个 SD1.5 实验的 checkpoint 五指标评估](docs/CHECKPOINT_EVALUATION.md)：独立 `eval` 环境，5000/6000/7000/9000 步，PickV2/HPSV2/PartiPrompts，多卡分工与恢复汇总。
 
 新增 [SD1.5 stagewise 四组入口](launchers/sd15_stagewise)：按pair选择低/高噪声阶段、阶段内各视图独立t和ε，比较全部DPO、低阶段Huber、全程固定混合及反向分配。四组均10000步、K=2、192pair/384pair-view，默认双卡B=2、累积48；公式与独立checkout部署命令见 [方法](docs/METHOD.md) 和 [command.md](command.md)。
 
