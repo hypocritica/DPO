@@ -1,0 +1,39 @@
+# One isolated conda environment: eval, Python 3.10, Linux x86_64 / RTX 5090.
+# Generation plus PickScore, HPS v2.0, LAION aesthetic, CLIP and ImageReward.
+# Run repository Python entrypoints directly; no editable install is needed.
+# Do not install legacy requirements-imagereward.txt or image-reward.
+# Preinstall setuptools==80.9.0 wheel and the three GPU packages below,
+# then use `pip install --no-build-isolation -r requirements-eval.txt`
+# so OpenAI CLIP builds with pkg_resources available.
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.14.1+cu130
+torchvision==0.29.1+cu130
+nvidia-nccl-cu13==2.30.7
+setuptools==80.9.0  # OpenAI CLIP setup.py imports pkg_resources.
+
+diffusers==0.33.1
+transformers==4.45.2
+peft==0.10.0
+accelerate==0.34.2
+huggingface-hub==0.30.2
+tokenizers==0.20.3
+safetensors==0.5.3
+numpy==1.26.4
+Pillow==10.4.0
+
+# ImageReward's official __init__ imports ReFL, including datasets; also used
+# by prompt preparation. No training-only reporting dependencies are needed.
+datasets==3.3.2
+pyarrow==23.0.0
+# 0.9.16 retains the timm.models.* compatibility imports used by BLIP/HPSv2.
+timm==0.9.16
+fairscale==0.4.13
+# Required by official ImageReward package imports, even for its own reward.
+clip @ git+https://github.com/openai/CLIP.git@dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1
+ftfy==6.3.1
+regex>=2024.5.15
+Einops==0.8.1
+webdataset==0.2.111
+PyYAML==6.0.2
+tqdm>=4.66,<5
+packaging>=24,<26

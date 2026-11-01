@@ -119,9 +119,18 @@ class SourceCompatibility(unittest.TestCase):
                    'common_sha256': sha256(source_file('common.py'))}
             run['run_id'] = digest(run)
             write_json(root / 'run.json', run)
-            self.assertEqual(render.validate_resume_run(root, **arguments), run)
-            with self.assertRaisesRegex(ValueError, 'config changed'):
-                render.validate_resume_run(root, **{**arguments, 'config': {'sampling': 'changed'}})
+            fixed_render = SOURCE_HASHES['render.py']['fixed']
+            live_render = sha256(source_file('render.py'))
+            def fixed_sha(path):
+                return fixed_render if Path(path).resolve() == source_file('render.py').resolve() else sha256(path)
+            if live_render != fixed_render:
+                with self.assertRaisesRegex(ValueError, 'render_sha256 changed'):
+                    render.validate_resume_run(root, **arguments)
+            # Exercise the reviewed historical storage revision, independent of live code.
+            with patch.object(render, 'sha256', side_effect=fixed_sha):
+                self.assertEqual(render.validate_resume_run(root, **arguments), run)
+                with self.assertRaisesRegex(ValueError, 'config changed'):
+                    render.validate_resume_run(root, **{**arguments, 'config': {'sampling': 'changed'}})
 
     def test_legacy_evaluation_identity_is_kept_without_rewriting_metadata(self):
         from self_correct_dpo.evaluation import runner
@@ -139,8 +148,22 @@ class SourceCompatibility(unittest.TestCase):
             meta = {'identity': identity, 'evaluation_id': digest(identity)}
             write_json(root / 'evaluation.json', meta)
             before = (root / 'evaluation.json').read_bytes()
+            fixed = {source_file(name).resolve(): value['fixed'] for name, value in SOURCE_HASHES.items()}
+            def fixed_sha(path):
+                return fixed.get(Path(path).resolve()) or sha256(path)
             with patch.object(runner, 'validate_evaluation', return_value=inputs), patch.object(
                     runner, 'model_artifact_identity', return_value={'model': 'same'}):
+                live_render = sha256(source_file('render.py'))
+                if live_render != SOURCE_HASHES['render.py']['fixed']:
+                    def unreviewed_sha(path):
+                        return live_render if Path(path).resolve() == source_file('render.py').resolve() else fixed_sha(path)
+                    with patch.object(runner, 'sha256', side_effect=unreviewed_sha):
+                        with self.assertRaisesRegex(ValueError, 'changed checkpoint'):
+                            runner._evaluate_checkpoint(model, None, 'prompts', 'scorers', ['pickscore'],
+                                                        sampling, root, step=0, check_only=True)
+            with patch.object(runner, 'validate_evaluation', return_value=inputs), patch.object(
+                    runner, 'model_artifact_identity', return_value={'model': 'same'}), patch.object(
+                    runner, 'sha256', side_effect=fixed_sha):
                 result = runner._evaluate_checkpoint(model, None, 'prompts', 'scorers', ['pickscore'], sampling,
                                                      root, step=0, check_only=True)
                 self.assertEqual(result['evaluation_id'], meta['evaluation_id'])
@@ -217,7 +240,8 @@ class SourceCompatibility(unittest.TestCase):
             inputs = {'prompts': 128}
             names = ('pipeline.py', 'evaluation.py', 'metrics.py', 'scorers.py', 'render.py', 'benchmarks.py')
             current = {'settings': settings, 'inputs': inputs,
-                       'code_sha256': {name: sha256(source_file(name)) for name in names}}
+                       'code_sha256': {name: SOURCE_HASHES[name]['fixed'] if name in SOURCE_HASHES
+                                       else sha256(source_file(name)) for name in names}}
             previous = {**current, 'code_sha256': {name: SOURCE_HASHES[name]['original'] if name in SOURCE_HASHES
                                                   else current['code_sha256'][name] for name in names}}
             write_json(out / 'monitor-inputs.json', previous)
@@ -237,6 +261,14 @@ class SourceCompatibility(unittest.TestCase):
             def next_training(command):
                 self.assertEqual(command[command.index('--stop-after-step') + 1], '500')
                 raise RuntimeError('next training reached')
+            live_render = sha256(source_file('render.py'))
+            if live_render != SOURCE_HASHES['render.py']['fixed']:
+                unreviewed = {**current, 'code_sha256': {**current['code_sha256'], 'render.py': live_render}}
+                with self.assertRaisesRegex(ValueError, 'Monitoring inputs changed'):
+                    pipeline.run_pipeline(config, out / 'config.json', out, execution={'mode': 'standalone'},
+                                          resume=out / 'checkpoints/latest.json', monitor_identity=unreviewed,
+                                          evaluator=evaluate, command_runner=next_training)
+                self.assertEqual(steps, [])
             with redirect_stdout(io.StringIO()), patch.object(pipeline, 'update_curve'):
                 with self.assertRaisesRegex(RuntimeError, 'next training reached'):
                     pipeline.run_pipeline(config, out / 'config.json', out, execution={'mode': 'standalone'},

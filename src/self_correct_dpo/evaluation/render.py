@@ -110,7 +110,7 @@ def validate_config(config, arm):
     seeds = sampling["seeds"]
     if not seeds or len(seeds) != len(set(seeds)) or any(type(s) is not int or s < 0 for s in seeds):
         raise ValueError("Use at least one distinct, nonnegative integer seed")
-    allowed_schedulers = {'DDIMScheduler', 'PNDMScheduler'} if model['family']=='sd15' else {'EulerDiscreteScheduler','DDIMScheduler'} if model['family']=='sdxl' else {scheduler_class}
+    allowed_schedulers = {'DDIMScheduler', 'PNDMScheduler', 'EulerDiscreteScheduler'} if model['family']=='sd15' else {'EulerDiscreteScheduler','DDIMScheduler'} if model['family']=='sdxl' else {scheduler_class}
     if sampling['scheduler'] not in allowed_schedulers:
         raise ValueError(f"Unsupported scheduler for {model['family']}: {sampling['scheduler']}")
     if sampling["dtype"] not in {"bfloat16", "float16", "float32"}:

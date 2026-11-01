@@ -1,0 +1,39 @@
+{
+  "runs": [
+    "sd15-B-k2-fixedviews384-cu130-v1",
+    "sd15-C-k2-fixedviews384-cu130-v2",
+    "sd15-C-k4-fixedviews384-cu130-noeval-v2",
+    "sd15-dpo-p384-cu130-v1",
+    "sd15-gaussian-C-k6-v384-cu130-v1",
+    "sd15-stagewise-constant-k2-p192-2gpu-10000-slai-v1",
+    "sd15-stagewise-dpo-k2-p192-2gpu-10000-slai-v1",
+    "sd15-stagewise-phase-k2-p192-2gpu-10000-slai-v1",
+    "sd15-stagewise-reverse-k2-p192-2gpu-10000-slai-v1"
+  ],
+  "steps": [
+    5000,
+    6000,
+    7000,
+    9000
+  ],
+  "benchmarks": {
+    "pickv2": "${BENCHMARKS_ROOT}/sd15/paper-eval/pickv2.jsonl",
+    "hpsv2": "${BENCHMARKS_ROOT}/sd15/paper-eval/hpsv2.jsonl",
+    "partiprompts": "${BENCHMARKS_ROOT}/sd15/paper-eval/partiprompts.jsonl"
+  },
+  "scorers_config": "scorers.json",
+  "sampling": {
+    "scheduler": "EulerDiscreteScheduler",
+    "dtype": "bfloat16",
+    "height": 512,
+    "width": 512,
+    "num_inference_steps": 50,
+    "guidance_scale": 7.5,
+    "negative_prompt": "",
+    "seeds": [
+      0
+    ],
+    "prompt_truncation": "truncate",
+    "safety_checker": "disabled"
+  }
+}
