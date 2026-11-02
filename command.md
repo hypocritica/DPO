@@ -1,3 +1,50 @@
+## main统一部署：后续实验使用远程DPO目录
+
+`main`已整合`exp/sd15-baselines-20261102`的SFT/KTO/MaPO/DMPO/DSPO与`exp/stagewise-k6-20261103`的SD1.5双5090、SDXL四5090 K6 Stage-C启动器。后续新实验统一使用`/mnt/afs/L202500030/xietianyu/workspace/DPO`。下方独立exp目录的部署记录保留供旧实验追溯；新实验可把对应命令的checkout前缀换成本节DPO路径，脚本参数与预算相同。
+
+目录尚不存在时，首次克隆：
+
+```bash
+git clone --branch main https://github.com/hypocritica/DPO.git \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO
+```
+
+已有DPO目录使用以下更新命令，不要向非空目录再次clone。先结束仍使用该目录的训练/评估；若旧任务还需恢复，保留其原checkout、冻结配置和环境。旧main训练源码与本次版本不同，不能仅更新代码后直接承接旧任务。正常Git更新保留未跟踪且被忽略的`configs/resources.local.json`、`configs/local-*.json`及日志/输出。
+
+```bash
+bash <<'BASH'
+set -e
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo '存在未提交文件，已停止更新；请先保留并处理这些改动。'
+  exit 1
+fi
+git fetch origin refs/heads/main:refs/remotes/origin/main
+if git show-ref --verify --quiet refs/heads/main; then
+  git switch main
+else
+  git switch -c main --track origin/main
+fi
+git merge --ff-only origin/main
+git log -1 --format='%H %s'
+BASH
+```
+
+显式fetch main也支持之前只克隆了某个exp分支的目录；分支分叉时`--ff-only`会停止，不覆盖本地提交。此流程不更换或安装环境。每个实验记录启动时SHA，运行和续训期间固定代码。旧基线提交9573c1e到K6启动器提交697b132只改启动器/文档，保持原冻结配置等条件时训练源码身份相同；不要将它们与旧main源码混为一谈。
+
+新实验入口（每个容器选择一条）：
+
+```bash
+# SD1.5两张5090：KTO；同目录02_sft、03_mapo、04_dmpo、05_dspo。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sd15_baselines/01_kto.sh
+# SD1.5两张5090：DPO K6 Stage。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sd15_final/05_dpo_k6_stage.sh
+# SDXL四张5090：DPO K6 Stage。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sdxl_final/05_dpo_k6_stage.sh
+```
+
+两套final目录均包含01_dspo、02_dspo_k6_stage、03_dmpo、04_dmpo_k6_stage、05_dpo_k6_stage，完整参数与smoke/恢复方式见下一节。
+
 ## 最终对比：SD1.5 双5090 / SDXL 四5090，K6 Stage-C
 
 每个基座运行五组：DSPO K1、DSPO + K6 Stage-C、DMPO K1、DMPO + K6 Stage-C、DPO + K6 Stage-C。使用分支 `exp/stagewise-k6-20261103` 的独立checkout。全部为普通高斯视图、fixed pair_views预算；Stage为每个pair每次重新随机选择low/high、六个视图在该段内独立采样，边界500。此处不启用phase/Huber，也不是low/high各三个视图。DMPO仍计算反向KL，DSPO仍保留自己的score损失配方。
