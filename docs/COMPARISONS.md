@@ -17,6 +17,25 @@
 
 所有方法使用相同训练划分、base、LoRA rank、生成prompt和seed以及模型系列内相同分辨率、scheduler、CFG、采样步数。先用独立验证面板选择学习率/目标超参和checkpoint，再对锁定checkpoint跑测试集；不要用最终测试指标反复选checkpoint。默认研究起点沿用本项目 seed=17、LoRA rank/alpha=16、学习率1e-5、BF16；正式论文应记录超参选择范围和随机种子，不能将尚未训练的默认值写成最优设置。
 
+## 最终K6 Stage实验与论文表格
+
+2026-11-03确认的当前待跑矩阵：SD1.5用两张RTX5090、SDXL用四张RTX5090；每个基座分别跑DSPO K1、DSPO + K6 Stage-C、DMPO K1、DMPO + K6 Stage-C、DPO + K6 Stage-C。启动器显式选择fixed pair_views，SD1.5每更新384、SDXL每更新192，均10000更新；普通compare入口的默认pairs不会自动变更。此处Stage是随机共享阶段采样，不含phase/Huber，不采用3+3分段覆盖。
+
+建议按以下方式报告；K=6应由验证集选择，不为每个测试指标另选K：
+
+| 内容 | 放置位置 | 回答的问题 |
+|---|---|---|
+| Base、DPO K1、适用的SFT/KTO/MaPO/DMPO/DSPO；DPO/DMPO/DSPO + K6 Stage-C | 主结果表，可将三种目标的组合放主文单独小表 | 总体效果及组合对不同目标的可迁移性 |
+| K=2/4/6，固定同一objective、Stage设置、pair_views和步数 | 主文消融表或曲线，完整数字可放附录 | 收益如何随视图数变化 |
+| K6 Gaussian-C / K6 Stage-C，分别对DPO/DMPO/DSPO比较 | Stage消融，至少主文报告关键结果 | 固定K后，阶段采样本身是否贡献收益 |
+| DPO K6 Stage-C / DPO K6 Stage-C + phase（low Huber/high DPO） | 目标函数消融 | Huber阶段目标是否提供额外收益 |
+
+“没有phase”须区分：去掉Stage是全时间域Gaussian-C；保留Stage但关闭Huber/phase，就是本次DPO K6 Stage-C。DMPO/DSPO此次均保留各自损失，不支持照搬DPO phase。若后续最终方法选择phase版本，主表应展示该验证集选定版本，并在消融表保留无phase对照。
+
+只比较DSPO/DMPO K1与K6 Stage-C可以支持整个组合有效，不能独立归因于Stage；需要各自的K6无Stage对照。没有必要把K2/K4的全部组合塞进主结果表，但正文应提供K趋势或关键消融，而不只展示最优K。若3+3版本以后实现，应单列为采样消融，不能混用当前同阶段六视图的名称。
+
+报告每种模型内相同数据/评估协议、预算、实际耗时和显存；fixed pair_views不等于精确等FLOPs。最终checkpoint按验证集规则选择，测试集只作锁定后的报告；关键结论补不同训练随机种子。SD1.5旧K1双卡baseline符合本次配方时可复用；SDXL DSPO阈值依赖跨rank microbatch，不能把双卡B1结果视作本次四卡B1的完全等价替代。
+
 ## 损失与视图构造分离
 
 `training.objective` / `--objective` 选择损失；`method` / `--method` 选择视图构造。为兼容旧接口，`method=dpo` 在新增目标下表示K=1的普通高斯视图，真实损失由 `objective` 决定。仅指定 `--objective` 会选择这一单视图构造；组合多视图时同时显式指定 `--method`。

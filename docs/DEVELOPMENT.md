@@ -150,3 +150,7 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 2026-11-02 五组SD1.5基线交付：`launchers/sd15_baselines/01_kto.sh`、`02_sft.sh`、`03_mapo.sh`、`04_dmpo.sh`、`05_dspo.sh`各运行一个双5090实验。复用ACP环境加载和日志、统一objective入口及冻结/恢复流程，固定K1、B2、累积96、全局384pair、10000步；每组独立命名，支持独立两步smoke、CPU检查和暂停/自动latest续训，拒绝训练CLI覆盖。运行命令和独立checkout部署见command.md首节；发布分支为 `exp/sd15-baselines-20261102`。
 
 发布前56项CPU测试通过（config19、objectives8、baseline_training6、joint6、stagewise5、stage_pause3、storage_compat9）。另在临时checkout执行49项真实shell/配置生命周期检查，替代远程Conda激活、日志和实际GPU训练调用，验证五组正式/独立smoke配置、固定双卡/B2/384预算、自动latest、显式恢复参数、配置变更拒绝、已有输出缺配置拒绝、smoke/正式同名拒绝、训练CLI覆盖拒绝及未完成数据准备拒绝。6个新Bash脚本语法和help、diff空白检查通过；未安装依赖、运行完整模型或提交GPU任务，5090实际训练仍需用户容器验证。
+
+2026-11-03 最终K6 Stage对比入口：新增`launchers/final_stagewise.sh`与`sd15_final/`、`sdxl_final/`各五个包装脚本，分别运行DSPO/DMPO K1及DSPO/DMPO/DPO K6 Stage-C。SD1.5固定双RTX5090、384 pair_views；SDXL固定四RTX5090、192 pair_views。K1每步384/192 pairs，K6每步64/32 pairs，均10000步。复用已有compare配置冻结、独立smoke及自动恢复，不修改算法、默认配置或旧启动器。Stage沿用每pair随机选段后段内六视图，没有Huber/phase或3+3改动。独立发布分支`exp/stagewise-k6-20261103`，命令集中在command.md首节，论文表格与消融安排记录于COMPARISONS.md。
+
+本轮19项既有配置测试通过；临时checkout的48项实际shell/配置生命周期检查通过（10正式、10smoke、18恢复/冻结/参数/数据边界、10help），另11个新脚本的Bash语法和可执行权限通过。保留真实Bash→compare→make_config/validate_config，仅替代远程ACP环境加载、日志与最终train调用；核对卡数、batch、累积、预算、目标参数及Stage设置，并检查自动/显式恢复、暂停、smoke/正式同名冲突、缺失冻结配置、配置篡改和训练覆盖拒绝。只修改启动脚本及文档，未安装依赖或启动GPU训练；实际完整模型的显存、速度与效果仍需远程smoke和正式实验确认。

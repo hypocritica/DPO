@@ -1,3 +1,71 @@
+## 最终对比：SD1.5 双5090 / SDXL 四5090，K6 Stage-C
+
+每个基座运行五组：DSPO K1、DSPO + K6 Stage-C、DMPO K1、DMPO + K6 Stage-C、DPO + K6 Stage-C。使用分支 `exp/stagewise-k6-20261103` 的独立checkout。全部为普通高斯视图、fixed pair_views预算；Stage为每个pair每次重新随机选择low/high、六个视图在该段内独立采样，边界500。此处不启用phase/Huber，也不是low/high各三个视图。DMPO仍计算反向KL，DSPO仍保留自己的score损失配方。
+
+### 部署一次
+
+```bash
+set -e
+SCD_FINAL_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103
+git clone --single-branch --branch exp/stagewise-k6-20261103 \
+  https://github.com/hypocritica/DPO.git "$SCD_FINAL_REPO"
+git -C "$SCD_FINAL_REPO" checkout --detach
+git -C "$SCD_FINAL_REPO" rev-parse HEAD
+SCD_LOCAL=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
+if [[ -f "$SCD_LOCAL" ]]; then
+  cp "$SCD_LOCAL" "$SCD_FINAL_REPO/configs/resources.local.json"
+fi
+```
+
+首次核对发布的完整SHA；所有容器使用这一固定checkout。复用原有`dpo`环境、模型、已准备数据、评分模型及monitor面板。若有效私有资源覆盖保存在其他旧checkout，应从该位置复制。脚本自动加载资源和Conda，不提交平台作业、不下载或准备数据。每个命令放进一个已分配对应卡数的SLAI容器，五条命令是五个独立任务。
+
+| 模型/方法 | GPU数 | 每卡pair B | 累积次数 | 全局pair/更新 | pair_views/更新 |
+|---|---:|---:|---:|---:|---:|
+| SD1.5 DSPO/DMPO K1 | 2 | 2 | 96 | 384 | 384 |
+| SD1.5 三组K6 Stage-C | 2 | 1 | 32 | 64 | 384 |
+| SDXL DSPO/DMPO K1 | 4 | 1 | 48 | 192 | 192 |
+| SDXL 三组K6 Stage-C | 4 | 1 | 8 | 32 | 192 |
+
+所有组10000优化步、seed17、LR1e-5、BF16、LoRA rank/alpha16；SD1.5为512，SDXL为1024。沿用每200步完整保存、每1000步LoRA及既有生成监控。DPO beta为5000/500，DMPO beta为2000/6000且alpha=.01，DSPO为SD1.5 score_residual/beta=.01和SDXL official_sdxl/beta=2000/阈值.1（按SD1.5/SDXL顺序）。同一objective的K1和K6共享这些参数。参数是已实现的研究起点，不能视为已验证最优。SDXL DSPO阈值按每view跨rank的microbatch归约，四卡K1/K6均B1；旧双卡DSPO结果不能只凭全局预算相同当作完全相同配方。
+
+### SD1.5：每组两张RTX5090
+
+```bash
+# 各行分别放入一个双卡容器；不要把整个代码块作为一条任务执行。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sd15_final/01_dspo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sd15_final/02_dspo_k6_stage.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sd15_final/03_dmpo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sd15_final/04_dmpo_k6_stage.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sd15_final/05_dpo_k6_stage.sh
+```
+
+### SDXL：每组四张RTX5090
+
+```bash
+# 各行分别放入一个四卡容器。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/01_dspo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/02_dspo_k6_stage.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/03_dmpo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/04_dmpo_k6_stage.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/05_dpo_k6_stage.sh
+```
+
+### 检查与恢复
+
+每组先用对应脚本运行独立两步smoke；保持正式分辨率、K、卡数和每卡B，累积1、关闭生成评估、每步保存，使用独立输出。例如四卡SDXL DSPO K6：
+
+```bash
+SCD_MODE=smoke bash /mnt/afs/L202500030/xietianyu/workspace/DPO-final-stagewise-20261103/launchers/sdxl_final/02_dspo_k6_stage.sh
+```
+
+四卡DDP不会合并单卡显存，K6合批仍每卡12张noisy图；真实1024模型显存须由这一步确认。smoke通过后运行正式脚本。可先用正式命令加`--stop-after-step 2`完成两次实际预算的更新并保存，再重跑原命令自动恢复latest。所有脚本支持`--config-only`、`--check-only`、`--stop-after-step N`、`--resume PATH`及`--resume_from_checkpoint PATH`；拒绝训练超参覆盖。
+
+`SCD_RUN_NAME`可指定新实验名；默认输出名包含family、objective、k1或k6-stage、pv384或pv192、卡数、10000或smoke及final-v1。日志位于checkout的`logs/<实验名>.txt`，冻结配置为`configs/local-<实验名>.json`，输出为`$RUNS_ROOT/<实验名>`。保持同一代码、配置、环境及卡数续训。
+
+已运行的SD1.5双卡K1 DSPO/DMPO基线，若数据、参数、步数与评估相同，可以直接复用结果；K1时旧pairs384与本次pair_views384实际相等。继续训练旧任务仍用旧checkout和原脚本，不能把旧目录换成本次新命名继续。无需为了新启动器重复训练相同基线。
+
+论文主表与K消融、去掉Stage、去掉phase的安排见[COMPARISONS.md](docs/COMPARISONS.md#最终k6-stage实验与论文表格)。本次五组是当前待补实验，主表仍须包含Base、DPO K1及已计划的SFT/MaPO/KTO等适用基线。
+
 ## SD1.5：五组双 RTX 5090 单视图基线
 
 分支 `exp/sd15-baselines-20261102` 包含当前SFT/KTO/MaPO/DMPO/DSPO、SDXL Stagewise-C及五组基线启动脚本。使用独立checkout；旧实验仍固定原代码，不在正在续训的目录切换分支。
