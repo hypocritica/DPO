@@ -1,0 +1,11 @@
+{
+  "extends": [
+    "dpo.json"
+  ],
+  "training": {
+    "objective": "mapo",
+    "mapo_beta": 0.1,
+    "mapo_snr": 0.5,
+    "diagnostic": null
+  }
+}

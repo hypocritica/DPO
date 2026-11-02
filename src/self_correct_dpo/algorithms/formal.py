@@ -109,7 +109,7 @@ class MultiViewBackend(PreferenceBackend):
             views.append({'noisy': noisy, 'times': times, 'target': target})
         return {'views': views, 'condition': condition, 'batch_size': b, **({'low_stage': low_stage} if stagewise is not None else {})}
 
-    def view_errors(self, prepared, view, reference=False):
+    def view_errors(self, prepared, view, reference=False, *, return_prediction=False):
         v = prepared['views'][view] if isinstance(view, int) else view
         b = prepared['batch_size']
         if reference:
@@ -123,7 +123,19 @@ class MultiViewBackend(PreferenceBackend):
         else:
             with self._autocast():
                 prediction = self._predict(v['noisy'], v['times'], prepared['condition'])
-        return (prediction.float() - v['target'].float()).square().flatten(1).mean(1).reshape(b, 1, 2)
+        errors = (prediction.float() - v['target'].float()).square().flatten(1).mean(1).reshape(b, 1, 2)
+        return (errors, prediction) if return_prediction else errors
+
+    def view_errors_with_gap(self, prepared, view):
+        """Reduce the winner score residual immediately, preserving policy gradients."""
+        if self.scheduler.config.prediction_type != 'epsilon':
+            raise ValueError('DSPO requires epsilon prediction, matching the official implementation')
+        refs, reference = MultiViewBackend.view_errors(self, prepared, view,
+            reference=True, return_prediction=True)
+        policy, prediction = MultiViewBackend.view_errors(self, prepared, view,
+            return_prediction=True)
+        gap = (prediction[::2].float() - reference[::2].detach().float()).square().flatten(1).mean(1)
+        return policy, refs, gap[:, None]
 
     def score_errors(self, images, prompts, generator):
         """Score each view, optionally in one UNet batch; reference stays frozen."""
@@ -137,9 +149,19 @@ class MultiViewBackend(PreferenceBackend):
             view = {key: torch.cat([v[key] for v in prepared['views']], dim=0)
                     for key in ('noisy', 'times', 'target')}
             # Score the frozen reference before retaining policy activations.
+            if self.training_config.get('objective') == 'dspo':
+                policy, refs, gap = self.view_errors_with_gap(packed, view)
+                return {'policy_errors': policy.reshape(k, b, 2).permute(1, 0, 2),
+                        'reference_errors': refs.reshape(k, b, 2).permute(1, 0, 2),
+                        'winner_prediction_gaps': gap.reshape(k, b).t(), 'prepared': prepared}
             refs = self.view_errors(packed, view, reference=True).reshape(k, b, 2).permute(1, 0, 2)
             policy = self.view_errors(packed, view).reshape(k, b, 2).permute(1, 0, 2)
             return {'policy_errors': policy, 'reference_errors': refs, 'prepared': prepared}
+        if self.training_config.get('objective') == 'dspo':
+            values = [self.view_errors_with_gap(prepared, j) for j in range(len(prepared['views']))]
+            return {**{key: torch.cat([value[i] for value in values], 1)
+                       for i, key in enumerate(('policy_errors', 'reference_errors', 'winner_prediction_gaps'))},
+                    'prepared': prepared}
         policy = [self.view_errors(prepared, j) for j in range(len(prepared['views']))]
         refs = [self.view_errors(prepared, j, reference=True) for j in range(len(prepared['views']))]
         return {'policy_errors': torch.cat(policy, 1), 'reference_errors': torch.cat(refs, 1), 'prepared': prepared}

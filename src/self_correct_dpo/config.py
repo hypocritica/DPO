@@ -63,6 +63,7 @@ def load_config(path, *, scorers=None, benchmarks=None, resources=None, _parents
 
 def add_training_arguments(parser):
     parser.add_argument('--family', choices=['sd15', 'sdxl'])
+    parser.add_argument('--objective', choices=['dpo', 'sft', 'kto', 'mapo', 'dmpo', 'dspo'])
     parser.add_argument('--resources', help='Resource registry; default configs/resources.json')
     parser.add_argument('--method', choices=['dpo', 'multiview-B', 'multiview-C',
                                            'multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian'])
@@ -102,16 +103,41 @@ def training_config(args):
         os.environ['SCD_RESOURCES'] = str(Path(args.resources).expanduser().resolve())
     config = load_config(args.config, resources=args.resources)
     family = args.family or config['model']['family']
-    if args.family and family != config['model']['family']:
+    family_changed = family != config['model']['family']
+    if args.family and family_changed:
         config = merge_config(config, load_config(CONFIG_DIR / 'models' / f'{family}.json', resources=args.resources))
-    if args.method:
-        config['method'] = args.method
-        settings = load_config(CONFIG_DIR / f'{args.method}.json', resources=args.resources)['training']
+    # An explicit objective starts from a clean single-view baseline unless
+    # the caller also explicitly selects a view construction.
+    selected_method = args.method or ('dpo' if getattr(args, 'objective', None) else None)
+    if selected_method:
+        config['method'] = selected_method
+        settings = load_config(CONFIG_DIR / f'{selected_method}.json', resources=args.resources)['training']
         for key in ('formal_arm', 'noise_views', 'independent_rollout', 'batch_views', 'stagewise'):
             config['training'].pop(key, None)
             if key in settings:
                 config['training'][key] = settings[key]
     t = config['training']
+    if getattr(args, 'objective', None):
+        previous_objective = t.get('objective', 'dpo')
+        for key in ('dmpo_alpha', 'mapo_beta', 'mapo_snr', 'dspo_recipe', 'dspo_sdxl_threshold',
+                    'kto_desirable_weight', 'kto_undesirable_weight'):
+            t.pop(key, None)
+        t['objective'] = args.objective
+        if args.objective == 'dpo' and previous_objective != 'dpo':
+            t['beta'] = load_config(CONFIG_DIR / 'models' / f'{family}.json', resources=args.resources)['training']['beta']
+            t['diagnostic'] = read_json(CONFIG_DIR / 'defaults.json')['training'].get('diagnostic')
+        if args.objective != 'dpo':
+            # Only objective-specific fields, never inherited model/batch defaults.
+            t.update(read_json(CONFIG_DIR / f'{args.objective}.json')['training'])
+    # DMPO uses its published scale, distinct from the legacy DPO beta.
+    if t.get('objective') == 'dmpo' and (getattr(args, 'objective', None) or family_changed):
+        t['beta'] = 2000 if family == 'sd15' else 6000
+    if t.get('objective') == 'kto' and (getattr(args, 'objective', None) or family_changed):
+        t['beta'] = 1000
+    if t.get('objective') == 'dspo' and (getattr(args, 'objective', None) or family_changed):
+        t.update(beta=0.01 if family == 'sd15' else 2000,
+                 dspo_recipe='score_residual' if family == 'sd15' else 'official_sdxl',
+                 dspo_sdxl_threshold=0.1)
     original_effective = t['batch_size'] * t['gradient_accumulation_steps'] * t.get('world_size', 1)
     runtime_world = int(os.environ.get('WORLD_SIZE', '1'))
     if args.world_size is None and runtime_world > 1:

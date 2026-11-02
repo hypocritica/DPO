@@ -1,3 +1,137 @@
+## SD1.5：五组双 RTX 5090 单视图基线
+
+分支 `exp/sd15-baselines-20261102` 包含当前SFT/KTO/MaPO/DMPO/DSPO、SDXL Stagewise-C及五组基线启动脚本。使用独立checkout；旧实验仍固定原代码，不在正在续训的目录切换分支。
+
+### 远程部署一次
+
+```bash
+set -e
+SCD_BASELINE_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102
+git clone --single-branch --branch exp/sd15-baselines-20261102 \
+  https://github.com/hypocritica/DPO.git "$SCD_BASELINE_REPO"
+git -C "$SCD_BASELINE_REPO" checkout --detach
+git -C "$SCD_BASELINE_REPO" rev-parse HEAD
+SCD_LOCAL=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
+if [[ -f "$SCD_LOCAL" ]]; then
+  cp "$SCD_LOCAL" "$SCD_BASELINE_REPO/configs/resources.local.json"
+fi
+```
+
+首次部署记录输出的完整SHA，并与本次发布SHA核对；后续容器继续使用该checkout，不随分支更新。复用已有 `dpo` 环境、模型、准备完成的Pick-a-Pic及评分资产。脚本自动激活 `/mnt/afs/L202500030/xietianyu/miniconda3` 中的 `dpo` 环境，不安装或下载。资源由 `configs/resources.json` / `resources.local.json` / 环境变量提供。
+
+五组都从同一SD1.5基座开始，K=1、512、BF16、seed17、LoRA rank/alpha16、LR1e-5，每卡B=2、双卡累积96次，即每个优化步384个pair记录，训练10000步；SFT每条记录只训练winner。沿用每200步完整保存、每1000步LoRA、基座及200/500/...步固定面板监控。SFT/MaPO不执行reference前向，等pair数不等于等FLOPs；KTO为pair-derived标签，其KL基准依赖microbatch划分。
+
+| 脚本 | 目标及起始超参 | 默认正式输出目录名 |
+|---|---|---|
+| `launchers/sd15_baselines/01_kto.sh` | KTO，beta1000、两个lambda均1 | `sd15-kto-k1-p384-2gpu-10000-slai-v1` |
+| `launchers/sd15_baselines/02_sft.sh` | winner-only SFT | `sd15-sft-k1-p384-2gpu-10000-slai-v1` |
+| `launchers/sd15_baselines/03_mapo.sh` | MaPO，mapo_beta=.1、mapo_snr=.5 | `sd15-mapo-k1-p384-2gpu-10000-slai-v1` |
+| `launchers/sd15_baselines/04_dmpo.sh` | DMPO，本地beta2000、alpha=.01 | `sd15-dmpo-k1-p384-2gpu-10000-slai-v1` |
+| `launchers/sd15_baselines/05_dspo.sh` | DSPO，score_residual、beta=.01 | `sd15-dspo-k1-p384-2gpu-10000-slai-v1` |
+
+DMPO的本地logit系数为beta，SDPO仓库为beta/2；这里沿用当前项目配方，不将同名beta视为跨实现同尺度。以上均是原目标基线，不包含SDPO的winner-preserving机制，也不包含多视图或stagewise。超参来源及适配边界见 [COMPARISONS.md](docs/COMPARISONS.md)。
+
+### 每个双卡容器运行一组
+
+五条命令分别填入五个已分配双5090容器；不要在同一个双卡容器同时启动五条。
+
+```bash
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/01_kto.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/02_sft.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/03_mapo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/04_dmpo.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/05_dspo.sh
+```
+
+先在各自容器用 `SCD_MODE=smoke bash <对应脚本>` 做独立两步检查：512分辨率、每卡B=2、累积1、关闭生成评估、每步完整保存；独立输出名为 `sd15-<目标>-k1-2gpu-smoke-slai-v1`。通过后使用上面的正式命令。smoke不替代384pair正式更新及评分资产检查。
+
+```bash
+# 以KTO为例，其他四组替换脚本名。
+SCD_MODE=smoke bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/01_kto.sh
+
+# 正式预算内先跑2个优化步并保存，后续原命令自动从latest继续。
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/01_kto.sh --stop-after-step 2
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-baselines-20261102/launchers/sd15_baselines/01_kto.sh
+```
+
+原命令重复启动自动恢复latest；也支持 `--resume latest` / `--resume_from_checkpoint latest`，完整恢复要求原代码、配置、依赖和双卡设置一致。`--config-only`仅生成配置，`--check-only`做既有CPU模型/数据预检。`SCD_RUN_NAME`可指定独立输出名；训练超参覆盖被拒绝，避免意外混用配方。控制台日志在checkout内 `logs/<实验名>.txt`，冻结配置为 `configs/local-<实验名>.json`，checkpoint和监控在 `$RUNS_ROOT/<实验名>`。已有输出缺失冻结配置、配置变化或smoke/正式模式共用名称会拒绝启动。
+
+## SDXL 纯 DPO：双 H100 80GB 的 batch 对照与正式实验
+
+在商汤已分配 **2 张 H100 80GB** 的容器内执行。沿用当前 AOSS 修复 checkout、`dpo` 环境、模型和数据；以下命令复用已有入口，无需更新正在使用的训练源码。每个 H100 实验使用新名称，从基座开始，不更改旧5090实验的冻结配置或续训状态。
+
+保持 K=1、1024、BF16、全局192对/优化步、seed17、LR1e-5、beta500、LoRA rank/alpha16和梯度检查点。B 表示每卡图片对数，UNet 每次处理 `2 × B` 张图片。这里先只改变 B 和相应累积次数；VAE 仍使用原来的 FP32、`vae_batch_size=1`，不会随 B 自动扩大编码批量。
+
+| 每卡 B | 每卡 UNet 图片数 | 累积次数 | 全局图片对/步 |
+|---|---:|---:|---:|
+| 4 | 8 | 24 | 192 |
+| 8 | 16 | 12 | 192 |
+| 12 | 24 | 8 | 192 |
+
+这些是待实测的候选，尚未验证 H100 显存或速度。先顺序测试 B=4、8，再根据显存余量考虑12；选择稳定且秒/优化步较低的配置，不能按累积次数减少的比例推算提速。固定全局192对时保留学习率；batch 拆分变化会改变随机数分配和浮点累积，不承诺逐位复现 B=1 的轨迹。
+
+### 五步吞吐对照
+
+下面整段可直接粘贴到容器终端。每个 B 独立生成配置、运行5个完整优化步，关闭生成评估与诊断，最后仍保存 checkpoint 和 LoRA。打印第2–5步训练循环耗时的中位数，以及两个 rank 各自的 PyTorch 显存峰值；峰值不包含全部驱动/NCCL显存，另用 `nvidia-smi` 查看整卡占用。若任一短测报错，命令停止，不自动继续正式训练。
+
+```bash
+bash <<'BASH'
+set -eo pipefail
+SCD_H100_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate dpo
+cd "$SCD_H100_REPO"
+source paths.sh
+mkdir -p logs
+SCD_H100_TAG="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+for SCD_H100_BATCH in 4 8; do
+  SCD_H100_BENCH="sdxl-dpo-h100-2gpu-b${SCD_H100_BATCH}-p192-bench-${SCD_H100_TAG}"
+  SCD_H100_CONFIG="configs/local-${SCD_H100_BENCH}.json"
+  python -u scripts/make_config.py --family sdxl --method dpo --views 1 \
+    --world-size 2 --train_batch_size "$SCD_H100_BATCH" \
+    --budget-unit pairs --budget-per-update 192 \
+    --mixed_precision bf16 --launcher accelerate \
+    --benchmark --max_train_steps 5 --out "$SCD_H100_CONFIG"
+  bash launchers/train.sh "$SCD_H100_CONFIG" "$RUNS_ROOT/$SCD_H100_BENCH" \
+    2>&1 | tee "logs/${SCD_H100_BENCH}.txt"
+  python - "$RUNS_ROOT/$SCD_H100_BENCH" <<'PY'
+import json
+from pathlib import Path
+import statistics
+import sys
+out = Path(sys.argv[1])
+print("Benchmark:", out.name)
+for pattern in ("metrics-*.jsonl", "rank-1-*.jsonl"):
+    path = sorted(out.glob(pattern))[-1]
+    with path.open() as handle:
+        rows = [json.loads(line) for line in handle if line.strip()]
+    seconds = [b["cost"]["training_seconds"] - a["cost"]["training_seconds"]
+               for a, b in zip(rows, rows[1:]) if b["step"] == a["step"] + 1]
+    peak = max(row["peak_cuda_bytes"] for row in rows) / 1024**3
+    print(f"{path.name}: median={statistics.median(seconds):.2f} s/update, "
+          f"PyTorch allocated peak={peak:.2f} GiB")
+PY
+done
+BASH
+```
+
+短测目录保留用于核对，不作为正式实验的恢复源。要测试 B=12，将循环中的 `4 8` 改成 `12` 再执行，会生成新的时间戳目录。只有当前任务独占这两张卡时才做吞吐对照，避免与其他训练并发而干扰结果。
+
+### 正式10000步
+
+下例为 B=4；如果 B=8 的短测更快且显存稳定，将 batch 和实验名中的 `b4` 一起改为8。首次使用独立名称，后续重新执行相同命令会自动从该 H100 实验的 latest 恢复。保留每200步完整保存、每1000步 LoRA、基座和200/500/...步评估。
+
+```bash
+export SCD_FAMILY=sdxl SCD_WORLD_SIZE=2 SCD_VIEWS=1
+export SCD_TRAIN_BATCH_SIZE=4 SCD_BUDGET_PER_UPDATE=192
+export SCD_RUN_NAME=sdxl-dpo-h100-2gpu-b4-p192-v1
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-aoss-storage-fix-v1/launchers/acp_gaussian_fixed_pairs.sh dpo
+```
+
+应看到 `Frozen config: B=4, K=1, UNet images/GPU=8, accumulation=24, global pairs=192`。不要用 `launchers/sdxl/01_dpo.sh` 承接这些环境变量，该分组入口会把 B 固定回1。通用入口以 `dpo` 参数选择纯 DPO，脚本文件名中的 `gaussian` 不会将方法切成多视图。
+
+验证边界：本地标准库实际生成了 B=4/8/12 的正式和五步短测共6组配置，确认预算、累积、精度、评估与保存设置；未连接商汤 H100、未提交作业、未测量性能。
+
 ## 新四组 Stagewise SD1.5：独立 checkout 与 SLAI 命令
 
 本节使用 `launchers/sd15_stagewise/`，只运行新实验。旧实验继续使用原 checkout；不要在正在训练或准备续训的目录拉取新代码。新算法已在本地提交，远程部署前先确认该版本已通过 GitHub 插件推送。用已确认的远程提交完整 SHA 创建独立工作树，代码和配置都固定在该提交：
@@ -944,3 +1078,256 @@ python scripts/download_assets.py extract-hpdv3
 SDXL 下载后用 `--family sdxl`、`--model "$SDXL_MODEL"`、`--out "$PICKAPIC_SDXL_PREPARED"` 另行准备清单；复用同一图片池，再生成 `$BENCHMARKS_ROOT/sdxl` 面板。随后重复资源检查、同 K 小跑、配置冻结和正式训练。不要拿 SD1.5 的 batch/β 直接覆盖 SDXL 默认值。
 
 HPDv3 的 SD3 数据可用 `prepare_downloaded_data.py hpdv3 --family unfiltered` 导出。这只准备数据；当前 SD3 训练入口尚未实现。
+
+## SFT、KTO、MaPO、DMPO、DSPO 与现有多视图组合
+
+实现、原文公式和适配边界见 [docs/COMPARISONS.md](docs/COMPARISONS.md)。本节使用包含新增代码的独立checkout；不在正在续训的旧checkout更新源码。代码尚未自动推送或部署到SLAI。进入部署了这些代码的目录并激活已有 `dpo` 环境后运行。配置仍通过 `configs/resources.json` / `resources.local.json` 读取模型、清单和持久输出；启动器不安装环境、不下载模型、不提交平台任务。
+
+统一入口是 `python scripts/compare_objectives.py`。默认双卡，`--world-size 4|8`可改卡数，自动保持相应预算。`--config-only`只生成冻结配置；`--check-only`运行既有CPU数据/模型预检。实际训练必须在SLAI已分配GPU容器中运行，本机登录节点只用上述两种检查模式。
+
+### 先生成配置，再独立两步验证
+
+```bash
+# 只生成配置，适合在开发机查看：不会访问GPU或启动训练。
+python scripts/compare_objectives.py --family sd15 --objective sft --config-only
+python scripts/compare_objectives.py --family sdxl --objective dmpo --config-only
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 6 --budget-unit pair_views --config-only
+
+# 下列实际smoke只在已分配双卡容器运行；使用当前激活的项目Python。
+# 两步、梯度累积1、无生成评估、每步完整保存；输出与正式训练分开。
+python scripts/compare_objectives.py --family sd15 --objective sft --mode smoke
+python scripts/compare_objectives.py --family sdxl --objective mapo --mode smoke
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 6 --mode smoke
+```
+
+每个新方法/模型实际运行前先做对应的 `--mode smoke`；以上只是示例，不代表所有组合的GPU检查已完成。SDXL保持1024分辨率，默认每卡1对；K6的前向批量较大，实际显存需验证，不能从CPU测试推断5090一定可容纳。
+
+检查暂停与恢复，用一个新smoke名称运行以下两条命令：
+
+```bash
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 2 --mode smoke \
+  --run-name sd15-dmpo-k2-resume-smoke-v1 --stop-after-step 1
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 2 --mode smoke \
+  --run-name sd15-dmpo-k2-resume-smoke-v1 --resume latest
+```
+
+### 主表：单视图基线
+
+各行是一个独立实验。以下默认10000步、SD1.5每步384对、SDXL每步192对，seed17、rank/alpha16、LR1e-5；每200步完整保存、每1000步保留LoRA，正常监控评估继续启用。SFT每对只使用winner，MaPO不使用reference。保留已有同预算DPO和Base结果；若没有对应DPO，可把objective换成dpo新跑匹配对照。
+
+```bash
+python scripts/compare_objectives.py --family sd15 --objective sft
+python scripts/compare_objectives.py --family sd15 --objective kto
+python scripts/compare_objectives.py --family sd15 --objective mapo
+python scripts/compare_objectives.py --family sd15 --objective dmpo
+
+python scripts/compare_objectives.py --family sdxl --objective sft
+python scripts/compare_objectives.py --family sdxl --objective mapo
+python scripts/compare_objectives.py --family sdxl --objective dmpo
+```
+
+默认DMPO的beta为2000/6000（SD1.5/SDXL），alpha=.01；KTO beta1000；MaPO独立使用mapo_beta=.1、mapo_snr=.5。这些是起始配置，论文需披露验证选择过程。KTO来自pair-derived二元标签，详见方法说明。
+
+### DMPO + 当前Gaussian C
+
+```bash
+# 固定pair数：与主表DMPO保持每步同样多的训练pair，计算量随K增加。
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 2
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 4
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 6
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method multiview-C-gaussian --views 4
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method multiview-C-gaussian --views 6
+
+# 固定pair-view数：SD15 K4每步96对，SDXL K4每步48对。
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 4 --budget-unit pair_views
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method multiview-C-gaussian --views 4 --budget-unit pair_views
+
+# 固定pair-view数：SD15 K6每步64对，SDXL K6每步32对。
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-C-gaussian --views 6 --budget-unit pair_views
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method multiview-C-gaussian --views 6 --budget-unit pair_views
+
+# 聚合消融：各视图先算DMPO loss再平均。
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method multiview-B-gaussian --views 2 --budget-unit pair_views
+
+# 分阶段采样 + DMPO-C，对应旧stagewise全程DPO组的采样规则。
+# 与旧stagewise预算匹配：每步192对 / 384 pair-views。
+python scripts/compare_objectives.py --family sd15 --objective dmpo \
+  --method stagewise-C-gaussian --views 2 --budget-unit pair_views
+```
+
+每组DMPO组合都与相同method、K、预算的DPO比较（将 `--objective dmpo` 改为 `--objective dpo`）。默认输出名称包含family/objective/method/K/预算/卡数/模式，因此单视图DMPO与DMPO+多视图不会覆盖彼此。K2/K4/K6按主方法的设置选择。分阶段Huber混合暂不开放DMPO，配置显式拒绝。
+
+### DSPO：单视图、多视图与stagewise
+
+SD1.5默认 `dspo_recipe=score_residual`、beta=0.01；SDXL默认 `official_sdxl`、beta=2000、阈值0.1，分别对应作者代码的两种配方。DSPO-B平均各视图完整loss；DSPO-C先平均margin形成共享gate，再平均各视图残差loss。C是本项目扩展，公式和SDXL跨rank阈值适配见 [COMPARISONS.md](docs/COMPARISONS.md)。DSPO仅支持epsilon prediction。
+
+```bash
+# 开发机可做：只冻结配置，不加载模型或启动训练。
+python scripts/compare_objectives.py --family sd15 --objective dspo --config-only
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method multiview-C-gaussian --views 4 --config-only
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views --config-only
+
+# 已分配双卡容器：先用独立smoke目录训练两步。
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views --mode smoke
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method multiview-C-gaussian --views 4 --mode smoke
+
+# 正式单视图基线，默认10000步、每步384/192对。
+python scripts/compare_objectives.py --family sd15 --objective dspo
+python scripts/compare_objectives.py --family sdxl --objective dspo
+
+# 普通Gaussian融合，固定pair预算；K可改2/4/6，B可替换C作消融。
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method multiview-C-gaussian --views 4
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method multiview-C-gaussian --views 6
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method multiview-B-gaussian --views 4
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method multiview-C-gaussian --views 6
+
+# SD1.5阶段内融合，固定384 pair-view：K4=96对/步，K6=64对/步。
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method stagewise-C-gaussian --views 4 --budget-unit pair_views
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views
+
+# 同一smoke实验暂停后恢复；正式实验也用同样的参数保持方式。
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method multiview-C-gaussian --views 4 --mode smoke \
+  --run-name sd15-dspo-c-k4-resume-smoke-v1 --stop-after-step 1
+python scripts/compare_objectives.py --family sd15 --objective dspo \
+  --method multiview-C-gaussian --views 4 --mode smoke \
+  --run-name sd15-dspo-c-k4-resume-smoke-v1 --resume latest
+
+# 显式超参会参与完整冻结检查；调整时选择新run-name。
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --dspo-recipe official_sdxl --beta 3000 --dspo-sdxl-threshold 0.1 \
+  --run-name sdxl-dspo-beta3000-v1 --config-only
+```
+
+固定pair-view的Gaussian对照只需同样加 `--budget-unit pair_views`。上述两步smoke使用累积1，不保持正式预算。默认beta和10000步是本框架的研究起点，应使用验证集选择超参及checkpoint。每个DSPO组合与相同采样、K和预算的DPO/DMPO对比，不能直接用不同预算的旧stagewise结果替代。
+
+DSPO也可使用已有独立rollout：
+
+```bash
+python scripts/make_config.py --family sd15 --objective dspo --method multiview-C \
+  --views 4 --world-size 2 --batch-size 1 --effective-batch 384 \
+  --max_train_steps 10000 --out configs/local-sd15-dspo-rollout-c-k4-v1.json
+python train.py --config configs/local-sd15-dspo-rollout-c-k4-v1.json \
+  --out /mnt/aoss/xietianyu/self_correct/runs/sd15-dspo-rollout-c-k4-v1 \
+  --execution standalone --run-label sd15-dspo-rollout-c-k4-v1
+```
+
+rollout使用detached状态和已有有效target，属于项目扩展；其额外UNet开销不计作普通Gaussian等计算量。
+
+### SDXL：DMPO / DSPO + Stagewise-C
+
+以下命令在包含新增代码的独立checkout根目录、已激活项目环境的SLAI已分配GPU容器运行。两个目标均支持K=2/4/6、2/4/8卡、固定pair或pair-view预算；默认1024分辨率、每卡1对、10000步。stagewise仍为每pair先选一次阶段，全部K个视图在该段独立抽t和噪声；没有改成低/高各K/2。
+
+```bash
+# 开发机：只生成配置，不访问GPU。
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views --config-only
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views --config-only
+
+# 已分配容器：各自独立两步smoke，保持1024分辨率、累积1、关闭评估。
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method stagewise-C-gaussian --views 6 --mode smoke
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 6 --mode smoke
+
+# 正式固定pair-view预算：192 pair-view/步，K2/4/6分别为96/48/32对/步。
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views
+
+# 匹配采样、K和预算的DPO对照。
+python scripts/compare_objectives.py --family sdxl --objective dpo \
+  --method stagewise-C-gaussian --views 6 --budget-unit pair_views
+
+# 固定pair预算：192对/步，视图数随K增加。
+python scripts/compare_objectives.py --family sdxl --objective dmpo \
+  --method stagewise-C-gaussian --views 4 --budget-unit pairs
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 4 --budget-unit pairs
+
+# 同一独立smoke实验暂停后恢复。
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 6 --mode smoke \
+  --run-name sdxl-dspo-stagewise-k6-resume-smoke-v1 --stop-after-step 1
+python scripts/compare_objectives.py --family sdxl --objective dspo \
+  --method stagewise-C-gaussian --views 6 --mode smoke \
+  --run-name sdxl-dspo-stagewise-k6-resume-smoke-v1 --resume latest
+```
+
+DMPO默认beta=6000、alpha=.01；DSPO默认 `official_sdxl`、beta=2000、阈值.1，保留逐视图跨rank阈值判断。两者仅组合 `stagewise.objective=dpo` 的阶段采样，不加入Huber混合或额外DPO项。正式训练默认启用原SDXL监控与每200步完整保存；输出名包含模型、目标、方法、K、预算、卡数和模式。改变这些参数需要独立实验。K6在1024分辨率的实际显存和吞吐仍需远程smoke验证。
+
+### Stagewise K4/K6的原四种目标
+
+当前每个pair先抽low/high阶段，全部K个view在该阶段独立采样；K4平均4个margin，K6平均6个，再应用该段目标。不是K4低/高各2个，也不是K6各3个。若做两段各半的额外消融，须先段内聚合再加权两段loss，详见方法说明；当前未实现该新模式。
+
+`compare_objectives.py`开放stagewise采样与DPO/DMPO/DSPO的组合。原DPO的phase/constant/reverse实验使用底层配置入口，例如：
+
+```bash
+# 改成6可生成独立K6实验；固定384 pair-view预算。
+SCD_STAGE_VIEWS=4
+python scripts/make_config.py --family sd15 --objective dpo \
+  --method stagewise-C-gaussian --views "$SCD_STAGE_VIEWS" \
+  --world-size 2 --batch-size 1 --budget-unit pair_views --budget-per-update 384 \
+  --max_train_steps 10000 --set training.stagewise.objective=phase \
+  --out "configs/local-sd15-stagewise-phase-k${SCD_STAGE_VIEWS}-v1.json"
+python train.py --config "configs/local-sd15-stagewise-phase-k${SCD_STAGE_VIEWS}-v1.json" \
+  --out "/mnt/aoss/xietianyu/self_correct/runs/sd15-stagewise-phase-k${SCD_STAGE_VIEWS}-v1" \
+  --execution standalone --run-label "sd15-stagewise-phase-k${SCD_STAGE_VIEWS}-v1"
+```
+
+phase为low段Huber、高段DPO；constant/reverse改对应配置值并使用独立文件/输出名。DMPO/DSPO只开放 `stagewise.objective=dpo` 的阶段采样；尚未定义的Huber混合配置会被拒绝。
+
+### 可选rollout组合和超参覆盖
+
+普通Gaussian统一入口只接受无rollout预算比较。若当前方法使用独立rollout，用底层配置入口复用原来的状态构造；rollout额外前向开销必须另报：
+
+```bash
+python scripts/make_config.py --family sd15 --objective dmpo --method multiview-C \
+  --views 2 --world-size 2 --batch-size 1 --effective-batch 384 \
+  --max_train_steps 10000 --out configs/local-sd15-dmpo-rollout-c-k2-v1.json
+python train.py --config configs/local-sd15-dmpo-rollout-c-k2-v1.json \
+  --out /mnt/aoss/xietianyu/self_correct/runs/sd15-dmpo-rollout-c-k2-v1 \
+  --execution standalone --run-label sd15-dmpo-rollout-c-k2-v1
+
+# 调参使用独立冻结配置/输出。此例只是匹配旧DPO beta5000的margin尺度。
+python scripts/make_config.py --family sd15 --objective dmpo --method dpo \
+  --world-size 2 --batch-size 2 --budget-unit pairs --budget-per-update 384 \
+  --max_train_steps 10000 --beta 2500 --set training.dmpo_alpha=0.01 \
+  --seed 17 --out configs/local-sd15-dmpo-beta2500-v1.json
+```
+
+`--set training.mapo_beta=...`、`--set training.mapo_snr=...`、`--set training.kto_desirable_weight=...` 和 `--set training.kto_undesirable_weight=...` 同样由底层 `make_config.py` 支持。冻结后通过 `train.py --config ... --out ...` 运行，不在同一输出中改超参。只有明确切换objective或实际切换模型family才加载相应beta预设；相同family重复解析冻结配置保留已设置beta，命令 `--beta` / `--set` 优先级最高。
+
+已有未完成输出默认从latest恢复，也可显式 `--resume latest`。相同名称的配置发生变化、已有输出缺失冻结配置都会拒绝；已完成的实验如需重跑，使用新的 `--run-name`。`--mode smoke` 完成后，正式训练使用默认train模式从base重新开始。
+
+### 统一生成评估
+
+沿用 `evaluate.py --run <训练输出> --step <保留步数>`，SD1.5使用 `configs/evaluate.json`，SDXL使用 `configs/evaluate-sdxl.json`。`--benchmarks hpdv2 pickapic partiprompts`、`--metrics pickscore hpsv2 image_reward`可选择同一评估集合，实际可用键以 `python evaluate.py --help` 和评分配置为准。固定生成seed、prompt、scheduler和CFG；单独保存每个方法的结果。新目标使用相同LoRA保存格式，不需要另写生成器。
+
+本节代码检查仅在CPU完成；不代表真实大模型训练、生成评估或性能已验证，也未自动启动正式实验。

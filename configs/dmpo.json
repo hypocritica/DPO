@@ -1,0 +1,11 @@
+{
+  "extends": [
+    "dpo.json"
+  ],
+  "training": {
+    "objective": "dmpo",
+    "beta": 2000,
+    "dmpo_alpha": 0.01,
+    "diagnostic": null
+  }
+}

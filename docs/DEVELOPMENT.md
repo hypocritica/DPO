@@ -128,6 +128,25 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 
 本轮算法在项目既有 `.venv`（Python3.10.19、PyTorch2.6.0）上通过5项新增CPU检查及22项原配置/联合梯度/时间采样回归。覆盖非中点边界的均匀边际、段内独立时间与噪声、pair共享、RNG重放、四目标与梯度、合批/逐视图一致性和旧Gaussian随机序列保留。四个10000步解析配置与原C-K2固定384视图预算的配置逐项比较，仅 `method` 和新增 `training.stagewise` 不同。
 
+2026-11-02 新增目标对比：`training.objective` 可选SFT、KTO、MaPO、DMPO，`method`继续控制视图构造。单视图基线和DMPO组合的原始来源、参数尺度、pair-derived KTO边界见 [COMPARISONS.md](COMPARISONS.md)，入口为 `scripts/compare_objectives.py`，命令仍集中在 `command.md`。默认DPO/rollout设置保留；新的objective源码纳入恢复身份，不放宽旧实验的源码一致性要求。
+
+本轮43项CPU测试通过：objectives 5、baseline_training 4、config 16、joint 6、stage_pause 3、storage_compat 9。覆盖公式/梯度、SFT仅winner、MaPO零reference、DMPO K2/K6及Gaussian/rollout B/C和stagewise采样、四目标暂停恢复和K6恢复一致性、费用计数、配置冻结和旧存储兼容。另通过43组新入口配置生成及非法配置/冻结冲突检查；两rank CPU/Gloo的真实训练一步确认KTO与DMPO梯度及Adam一阶动量和全局拼接batch一致，KTO先跨rank求均值再clamp。数学测试使用已有 `self_correct_dpo_slai23_cpu`（Python3.10.22/PyTorch2.3.0+cpu），后端与恢复使用项目上级 `.venv`（Python3.10.19/PyTorch2.6.0）。未安装依赖、提交GPU作业、推送或部署远程；这些小模型检查不代表真实SD1.5/SDXL GPU训练、显存或生成效果已验证。
+
 另通过12项既有暂停/恢复与AOSS存储兼容检查；历史版本迁移测试改用明确的original/fixed源码身份fixture，生产兼容白名单保持不变，未批准的训练源码变化仍拒绝续训。独立临时CPU小模型检查调用真实MultiViewBackend采样、误差计算和训练循环：四种目标的日志loss均与独立公式计算一致且产生不同更新；连续4步与第2步暂停后恢复的权重、optimizer、scheduler、阶段指标和各CPU RNG完全一致。这些检查未加载完整SD1.5模型，不代表GPU训练或显存验证。
 
 2026-10-30 发布前复核：39项CPU测试通过（stagewise 5、joint 6、config 11、timestep 5、pause 3、storage 9）；12组stagewise启动配置及冻结/自动恢复保护复核通过。四组正式配置与旧C-K2固定384视图预算配置相比，仅method和training.stagewise不同；四组smoke及benchmark配置均可生成，分别保持既有2步/100步且关闭评估的语义。另对四种目标各执行真实1000步CPU小模型训练循环和监控协调器：确认基座/200/500/1000评估调用、200/400/500/600/800/1000完整状态保存、1000步独立LoRA保留，以及500步评分中断后从latest继续并补完评分。该检查替代模型组件、图像输入、评分资产及评分器，未运行真实生成、PickScore或GPU；环境为既有Python3.10.19/PyTorch2.6.0。检查记录在本地logs/stagewise-schedule-review-20261030.json。原SD1.5/SDXL启动脚本、公共ACP脚本和默认配置相对fcbfb37未修改；command.md补充独立smoke流程，并将旧AOSS续训部署固定到fcbfb37，防止误用含新算法的分支版本。
+
+
+2026-11-02 K=4补齐：统一目标对比入口支持Gaussian B/C的K=2/4/6（SD1.5/SDXL、DPO/DMPO），SD1.5 stagewise入口也允许K=2/4/6，默认仍K=2。K4默认每卡1对，沿用384/192的pair或pair-view预算。22组K4配置/入口检查、3组非法多视图基线拒绝以及4项既有后端/恢复CPU测试通过；后端组合测试已覆盖K2/4/6。未执行GPU训练。8000步与图片/pair计数关系见COMPARISONS.md。
+
+2026-11-02 DSPO与stagewise K4/K6：新增显式DSPO目标/配置，SD1.5采用作者score-residual配方，SDXL采用作者阈值配方；仅支持epsilon prediction。B平均逐视图loss，C共享平均margin的gate并保留各视图残差，支持Gaussian、detached rollout以及stagewise段内采样。SDXL阈值按每view跨rank归约，属于已注明的分布式适配。stagewise继续每pair先抽同一个阶段、K个view均在该段独立采样，没有改为低/高各K/2；原DPO phase/constant/reverse聚合也覆盖K4/6。
+
+本轮43项CPU测试通过（objectives 8、baseline_training 6、config 18、joint 6、stagewise 5），另通过34组DSPO入口配置、冻结保护和两条phase K4/K6文档命令。覆盖直接向量公式的loss/梯度等价、K1/4/6、B/C、reference冻结、D=0初始化可训练、合批/逐视图一致、段内独立性及均匀边际、K6暂停恢复和费用计数。两rank CPU/Gloo生产训练测试验证SDXL逐view阈值同步：loss=0.12434701994、Adam exp_avg=0.00406438252，与拼接global batch一致。仅轻量CPU验证；未执行真实SD1.5/SDXL GPU训练、安装依赖、推送或部署。命令和方法定义见command.md与COMPARISONS.md。
+
+2026-11-02 SDXL Stagewise-C对比入口补齐：移除 `compare_objectives.py` 中仅允许SD1.5的入口限制，开放SDXL的DMPO/DSPO及匹配采样的DPO对照，支持K2/4/6、2/4/8卡和固定pair/pair-view两种预算。复用已有模型预设和后端；SDXL仍为1024分辨率，DMPO beta=6000，DSPO为official_sdxl、beta=2000、阈值.1。每pair共享阶段、段内独立t/噪声及C聚合不变，不新增Huber组合。
+
+本轮44项CPU测试通过（config 19、baseline_training 6、objectives 8、stagewise 5、joint 6），覆盖SDXL新统一入口、两种预算、两步smoke配置、冻结冲突拒绝，以及SDXL DSPO stagewise K1/2/4/6的合批/逐视图loss、梯度和RNG一致性。另执行42组SDXL DMPO/DSPO统一入口配置生成检查（两目标×K2/4/6×2/4/8卡×两预算的36组正式配置，及两目标×2/4/8卡的6组K6 smoke配置），全部通过；配置检查没有启动实际训练。沿用已有项目CPU环境，不安装依赖、不提交GPU作业、不推送或部署；真实1024模型GPU训练及显存仍需SLAI容器smoke验证。运行命令见command.md的“SDXL：DMPO / DSPO + Stagewise-C”。
+
+2026-11-02 五组SD1.5基线交付：`launchers/sd15_baselines/01_kto.sh`、`02_sft.sh`、`03_mapo.sh`、`04_dmpo.sh`、`05_dspo.sh`各运行一个双5090实验。复用ACP环境加载和日志、统一objective入口及冻结/恢复流程，固定K1、B2、累积96、全局384pair、10000步；每组独立命名，支持独立两步smoke、CPU检查和暂停/自动latest续训，拒绝训练CLI覆盖。运行命令和独立checkout部署见command.md首节；发布分支为 `exp/sd15-baselines-20261102`。
+
+发布前56项CPU测试通过（config19、objectives8、baseline_training6、joint6、stagewise5、stage_pause3、storage_compat9）。另在临时checkout执行49项真实shell/配置生命周期检查，替代远程Conda激活、日志和实际GPU训练调用，验证五组正式/独立smoke配置、固定双卡/B2/384预算、自动latest、显式恢复参数、配置变更拒绝、已有输出缺配置拒绝、smoke/正式同名拒绝、训练CLI覆盖拒绝及未完成数据准备拒绝。6个新Bash脚本语法和help、diff空白检查通过；未安装依赖、运行完整模型或提交GPU任务，5090实际训练仍需用户容器验证。

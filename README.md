@@ -9,6 +9,11 @@ SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 ro
 - [数据说明](docs/DATA.md)、[方法公式](docs/METHOD.md)、[评估说明](docs/EVALUATION.md)
 - [算法审查与逐轮改进计划](docs/ALGORITHM_REVIEW_AND_PLAN.md)
 - [SDXL 论文依据与验证范围](docs/SDXL.md)
+- [SFT / KTO / MaPO / DMPO / DSPO 对比与多视图组合](docs/COMPARISONS.md)
+
+新增对比入口 `scripts/compare_objectives.py`：SD1.5支持SFT/KTO/MaPO/DMPO/DSPO，SDXL支持SFT/MaPO/DMPO/DSPO；DMPO/DSPO可组合现有Gaussian或rollout B/C，两个模型系列均开放Stagewise-C及相同采样的DPO对照。损失用 `--objective`，视图构造用 `--method`。入口提供K2/K4/K6、固定pair或pair-view预算、独立两步smoke、冻结配置及恢复；完整命令见 [command.md](command.md)。stagewise保持每pair共享阶段、全部K个视图段内聚合，原方法默认设置保留。
+
+SD1.5单视图基线脚本见 [launchers/sd15_baselines](launchers/sd15_baselines)：01 KTO、02 SFT、03 MaPO、04 DMPO、05 DSPO，每组固定双RTX5090、B=2、累积96、384pair/步、10000步，独立输出及自动latest续训。`SCD_MODE=smoke`选择独立两步检查；部署分支和逐组启动命令见 [command.md](command.md#sd15五组双-rtx-5090-单视图基线)。
 
 新增 [SD1.5 stagewise 四组入口](launchers/sd15_stagewise)：按pair选择低/高噪声阶段、阶段内各视图独立t和ε，比较全部DPO、低阶段Huber、全程固定混合及反向分配。四组均10000步、K=2、192pair/384pair-view，默认双卡B=2、累积48；公式与独立checkout部署命令见 [方法](docs/METHOD.md) 和 [command.md](command.md)。
 

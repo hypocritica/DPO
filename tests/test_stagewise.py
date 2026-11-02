@@ -1,5 +1,6 @@
 """Small CPU contracts for within-stage Gaussian aggregation."""
 import copy
+from itertools import combinations, product
 import unittest
 import torch
 import torch.nn.functional as F
@@ -14,13 +15,13 @@ SETTINGS = dict(boundary=500, objective='dpo', target_margin=1., huber_delta=1.,
 
 class StagewiseTests(unittest.TestCase):
     def test_sampling_support_independence_uniform_marginal_and_replay(self):
-        for boundary in (230, 500):
-            b = backend(2, rollout=False)
+        for boundary, k in product((230, 500), (2, 4, 6)):
+            b = backend(k, rollout=False)
             b.training_config['stagewise'] = dict(SETTINGS, boundary=boundary)
             images = torch.zeros(24000, 2, 1, 2, 2)
             g = torch.Generator().manual_seed(12)
             state = g.get_state()
-            p = b.prepare_views(images, [['p', 'p']] * len(images), g)
+            p = b.prepare_views(images, [['p'] * k] * len(images), g)
             after = g.get_state()
             low = p['low_stage']
             self.assertAlmostEqual(low.float().mean().item(), boundary/1000, delta=.012)
@@ -33,15 +34,17 @@ class StagewiseTests(unittest.TestCase):
                 self.assertTrue(torch.equal(v['target'][::2], v['target'][1::2]))
                 histogram = torch.histc(t.float(), bins=10, min=0, max=1000) / len(t)
                 self.assertTrue(torch.all((histogram - .1).abs() < .012))
-            for mask, width, offset in ((low, boundary, 0), (~low, 1000-boundary, boundary)):
-                a, c = [(t[mask].float()-offset) / width for t in times]
-                correlation = torch.corrcoef(torch.stack([a, c]))[0, 1]
-                self.assertLess(abs(correlation.item()), .05)
-                self.assertAlmostEqual((times[0][mask] == times[1][mask]).float().mean().item(), 1/width, delta=.003)
+            for first, second in combinations(times, 2):
+                for mask, width, offset in ((low, boundary, 0), (~low, 1000-boundary, boundary)):
+                    a, c = [(t[mask].float()-offset) / width for t in (first, second)]
+                    correlation = torch.corrcoef(torch.stack([a, c]))[0, 1]
+                    self.assertLess(abs(correlation.item()), .05)
+                    self.assertAlmostEqual((first[mask] == second[mask]).float().mean().item(), 1/width, delta=.003)
             noises = [v['target'][::2].flatten() for v in p['views']]
-            self.assertLess(abs(torch.corrcoef(torch.stack(noises))[0, 1].item()), .02)
+            for first, second in combinations(noises, 2):
+                self.assertLess(abs(torch.corrcoef(torch.stack([first, second]))[0, 1].item()), .02)
             g.set_state(state)
-            q = b.prepare_views(images, [['p', 'p']] * len(images), g)
+            q = b.prepare_views(images, [['p'] * k] * len(images), g)
             self.assertTrue(torch.equal(after, g.get_state()))
             for v, w in zip(p['views'], q['views']):
                 for key in ('times', 'noisy', 'target'):
@@ -70,14 +73,14 @@ class StagewiseTests(unittest.TestCase):
 
     def test_batched_sequential_and_streamed_gradients(self):
         images = torch.linspace(-.8,.8,2*2*3*64*64).reshape(2,2,3,64,64)
-        for objective in ('dpo', 'phase', 'constant', 'reverse'):
+        for objective, k in product(('dpo', 'phase', 'constant', 'reverse'), (2, 4, 6)):
             results = []
             for batched in (False, True):
-                b = backend(2, rollout=False)
+                b = backend(k, rollout=False)
                 settings = dict(SETTINGS, objective=objective)
                 b.training_config.update(stagewise=settings, batch_views=batched)
                 g = torch.Generator().manual_seed(17)
-                v = b.score_errors(images, [['p']*2]*2, g)
+                v = b.score_errors(images, [['p']*k]*2, g)
                 loss, metrics = formal_loss(v, 'C', 2., settings)
                 loss.backward()
                 results.append((loss.detach(), b.weight.grad.clone(), g.get_state()))
@@ -88,9 +91,9 @@ class StagewiseTests(unittest.TestCase):
                 from self_correct_dpo.algorithms.losses import preference_logits
                 margins = preference_logits(v['policy_errors'].detach(), v['reference_errors'], 2.)
                 _, coefficient = stagewise_terms(margins.mean(1), v['prepared']['low_stage'], settings)
-                for j in range(2):
+                for j in range(k):
                     logit = preference_logits(b.view_errors(v['prepared'], j), v['reference_errors'][:, j:j+1], 2.).squeeze(1)
-                    (coefficient.detach() * logit).mean().div(2).backward()
+                    (coefficient.detach() * logit).mean().div(k).backward()
                 torch.testing.assert_close(b.weight.grad, results[-1][1])
             for a, c in zip(*results):
                 torch.testing.assert_close(a, c)

@@ -41,15 +41,21 @@ class JointRolloutBackend(SingleRolloutBackend, MultiViewBackend):
     def score_errors(self, images, prompts, generator):
         """Keep policy graphs for all views; rollout and reference are detached."""
         prepared = self.prepare_views(images, prompts, generator)
-        policy = torch.cat([self.view_errors(prepared, j) for j in range(self.noise_views)], 1)
-        refs = torch.cat([self.view_errors(prepared, j, reference=True) for j in range(self.noise_views)], 1)
+        gaps = {}
+        if self.training_config.get('objective') == 'dspo':
+            values = [self.view_errors_with_gap(prepared, j) for j in range(self.noise_views)]
+            policy, refs, gap = [torch.cat([value[i] for value in values], 1) for i in range(3)]
+            gaps['winner_prediction_gaps'] = gap
+        else:
+            policy = torch.cat([self.view_errors(prepared, j) for j in range(self.noise_views)], 1)
+            refs = torch.cat([self.view_errors(prepared, j, reference=True) for j in range(self.noise_views)], 1)
         diagnostics = {}
         for j, view in enumerate(prepared['views']):
             for key, value in view['diagnostics'].items():
                 diagnostics[f'{key}_view_{j}'] = value
                 diagnostics[key] = diagnostics.get(key, 0) + value / self.noise_views
         return {'policy_errors': policy, 'reference_errors': refs, 'prepared': prepared,
-                'rollout_diagnostics': diagnostics}
+                'rollout_diagnostics': diagnostics, **gaps}
 
     def pair_errors(self, images, prompts, generator, reference=True):
         # Diagnostics also use the joint distribution and the same frozen states.
@@ -59,3 +65,34 @@ class JointRolloutBackend(SingleRolloutBackend, MultiViewBackend):
         refs = torch.cat([self.view_errors(prepared, j, reference=True)
                           for j in range(self.noise_views)], 1) if reference else None
         return {'policy_errors': errors, 'reference_errors': refs}
+
+
+class BaselineGaussianBackend(MultiViewBackend):
+    """Gaussian baselines, including true winner-only supervised denoising."""
+
+    def score_errors(self, images, prompts, generator):
+        objective = self.training_config['objective']
+        if objective == 'sft':
+            from self_correct_dpo.models import scale_vae_latents
+            # No loser VAE encoding, conditioning, UNet pass, or reference pass.
+            with torch.no_grad():
+                flat = images[:, 0].to(device=self.device, dtype=torch.float32)
+                chunks = flat.split(int(self.training_config.get('vae_batch_size', 4)))
+                latents = torch.cat([self.pipe.vae.encode(chunk).latent_dist.sample(generator=generator)
+                                     for chunk in chunks])
+                latents = scale_vae_latents(latents, self.pipe.vae.config.scaling_factor).to(self.dtype)
+                condition = self._condition([p[0] for p in prompts])
+                noise = torch.randn(latents.shape, device=latents.device, dtype=latents.dtype, generator=generator)
+                times = torch.randint(self.scheduler.config.num_train_timesteps,
+                                      (len(prompts),), device=latents.device, generator=generator)
+                noisy = self.scheduler.add_noise(latents, noise, times)
+                target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(latents, noise, times)
+            with self._autocast():
+                prediction = self._predict(noisy, times, condition)
+            errors = (prediction.float() - target.float()).square().flatten(1).mean(1)
+            return {'policy_errors': errors[:, None, None], 'reference_errors': None}
+        if objective != 'mapo':
+            return super().score_errors(images, prompts, generator)
+        prepared = self.prepare_views(images, prompts, generator)
+        policy = torch.cat([self.view_errors(prepared, j) for j in range(len(prepared['views']))], 1)
+        return {'policy_errors': policy, 'reference_errors': None, 'prepared': prepared}

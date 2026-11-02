@@ -1,0 +1,12 @@
+{
+  "extends": [
+    "dpo.json"
+  ],
+  "training": {
+    "objective": "dspo",
+    "beta": 0.01,
+    "dspo_recipe": "score_residual",
+    "dspo_sdxl_threshold": 0.1,
+    "diagnostic": null
+  }
+}

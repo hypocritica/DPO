@@ -1,0 +1,9 @@
+{
+  "extends": [
+    "dpo.json"
+  ],
+  "training": {
+    "objective": "sft",
+    "diagnostic": null
+  }
+}

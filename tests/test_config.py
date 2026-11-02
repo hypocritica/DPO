@@ -139,6 +139,137 @@ class GaussianConfigTests(unittest.TestCase):
                 self.assertEqual(config['training']['gradient_accumulation_steps'], accumulation)
 
 
+class ObjectiveConfigTests(unittest.TestCase):
+    def test_mapo_ranking_can_be_disabled_without_allowing_negative_weight(self):
+        c = compose('--objective', 'mapo', '--set', 'training.mapo_beta=0')
+        validate_config(c, files=False)
+        c['training']['mapo_beta'] = -0.1
+        with self.assertRaisesRegex(ValueError, 'mapo_beta'):
+            validate_config(c, files=False)
+
+    def test_objective_selection_clears_default_or_stagewise_views(self):
+        for template in ('multiview-C.json', 'stagewise-C-gaussian.json'):
+            for objective in ('sft', 'kto', 'mapo', 'dmpo'):
+                c = compose('--objective', objective, template=template)
+                self.assertEqual(c['method'], 'dpo')
+                self.assertEqual(c['training']['noise_views'], 1)
+                for key in ('stagewise', 'independent_rollout', 'batch_views'):
+                    self.assertNotIn(key, c['training'])
+                validate_config(c, files=False)
+
+    def test_dmpo_scales_and_explicit_override_survive_family_composition(self):
+        for family, beta in (('sd15', 2000), ('sdxl', 6000)):
+            for template in ('multiview-C.json', 'dmpo.json'):
+                c = compose('--family', family, '--objective', 'dmpo',
+                            '--method', 'multiview-B-gaussian', '--views', '6', template=template)
+                self.assertEqual(c['training']['beta'], beta)
+                self.assertEqual(c['training']['objective'], 'dmpo')
+                validate_config(c, files=False)
+            c = compose('--family', family, '--objective', 'dmpo', '--beta', '123')
+            self.assertEqual(c['training']['beta'], 123)
+        # Reading a frozen experiment must preserve its chosen hyperparameters.
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'frozen.json'
+            target.write_text(json.dumps(c))
+            restored = compose('--config', str(target))
+            self.assertEqual(restored, c)
+            restored = compose('--config', str(target), '--family', c['model']['family'])
+            self.assertEqual(restored, c)
+
+    def test_switching_kto_to_dpo_restores_dpo_scale_and_diagnostics(self):
+        c = compose('--objective', 'dpo', template='kto.json')
+        self.assertEqual(c['training']['beta'], 5000)
+        self.assertNotIn('kto_desirable_weight', c['training'])
+        self.assertTrue(c['training']['diagnostic'])
+        validate_config(c, files=False)
+
+    def test_dspo_family_recipes_overrides_and_frozen_preservation(self):
+        for family, beta, recipe in (('sd15', .01, 'score_residual'),
+                                      ('sdxl', 2000, 'official_sdxl')):
+            c = compose('--family', family, '--objective', 'dspo')
+            self.assertEqual((c['training']['beta'], c['training']['dspo_recipe']), (beta, recipe))
+            validate_config(c, files=False)
+            c = compose('--family', family, template='dspo.json')
+            self.assertEqual((c['training']['beta'], c['training']['dspo_recipe']), (beta, recipe))
+            custom = compose('--family', family, '--objective', 'dspo', '--beta', '123',
+                             '--set', 'training.beta=456',
+                             '--set', f'training.dspo_recipe={recipe}',
+                             '--set', 'training.dspo_sdxl_threshold=0.2')
+            self.assertEqual(custom['training']['beta'], 456)
+            validate_config(custom, files=False)
+            with tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / 'frozen.json'
+                target.write_text(json.dumps(custom))
+                self.assertEqual(compose('--config', str(target), '--family', family), custom)
+        switched = compose('--objective', 'dpo', template='dspo.json')
+        self.assertEqual(switched['training']['beta'], 5000)
+        self.assertNotIn('dspo_recipe', switched['training'])
+
+    def test_dmpo_dspo_gaussian_and_stagewise_view_profiles(self):
+        for family in ('sd15', 'sdxl'):
+            for objective in ('dmpo', 'dspo'):
+                for method in ('multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian'):
+                    for k in (2, 4, 6):
+                        c = compose('--family', family, '--objective', objective,
+                                    '--method', method, '--views', str(k))
+                        validate_config(c, files=False)
+                        self.assertEqual(c['training']['noise_views'], k)
+                        self.assertTrue(c['training']['batch_views'])
+                        self.assertNotIn('independent_rollout', c['training'])
+                invalid = compose('--family', family, '--objective', objective,
+                                  '--method', 'stagewise-C-gaussian',
+                                  '--set', 'training.stagewise.objective=phase')
+                with self.assertRaises(ValueError):
+                    validate_config(invalid, files=False)
+
+    def test_sdxl_stagewise_comparison_entry_budgets_smoke_and_freezing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            common = [sys.executable, str(ROOT / 'scripts/compare_objectives.py'),
+                      '--family', 'sdxl', '--method', 'stagewise-C-gaussian',
+                      '--config-only', '--config-dir', directory,
+                      '--runs-root', str(Path(directory) / 'runs')]
+            for objective, beta, recipe in (('dpo', 500, None), ('dmpo', 6000, None),
+                                            ('dspo', 2000, 'official_sdxl')):
+                for k in (2, 4, 6):
+                    for budget in ('pairs', 'pair_views'):
+                        name = f'{objective}-k{k}-{budget}'
+                        args = common + ['--objective', objective, '--views', str(k),
+                                         '--budget-unit', budget, '--run-name', name]
+                        result = subprocess.run(args, capture_output=True, text=True, timeout=15)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        c = json.loads((Path(directory) / f'local-{name}.json').read_text())
+                        t = c['training']
+                        validate_config(c, files=False)
+                        self.assertEqual((c['model']['family'], t['resolution']), ('sdxl', 1024))
+                        self.assertEqual((t['objective'], t['beta'], t.get('dspo_recipe')),
+                                         (objective, beta, recipe))
+                        self.assertEqual((t['formal_arm'], t['noise_views'], t['stagewise']['objective']),
+                                         ('C', k, 'dpo'))
+                        pairs = t['batch_size'] * t['world_size'] * t['gradient_accumulation_steps']
+                        self.assertEqual(pairs * (k if budget == 'pair_views' else 1), 192)
+                        self.assertEqual(t['max_steps'], 10000)
+                        if k == 6 and budget == 'pair_views':
+                            result = subprocess.run(args + ['--beta', '123'], capture_output=True,
+                                                    text=True, timeout=15)
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn('Frozen config differs', result.stderr)
+                name = f'{objective}-smoke'
+                result = subprocess.run(common + ['--objective', objective, '--views', '6',
+                    '--mode', 'smoke', '--run-name', name], capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                c = json.loads((Path(directory) / f'local-{name}.json').read_text())
+                self.assertEqual(c['training']['max_steps'], 2)
+                self.assertEqual(c['training']['gradient_accumulation_steps'], 1)
+                self.assertFalse(c['evaluation']['enabled'])
+
+    def test_objective_templates_are_clean_single_view(self):
+        for objective in ('sft', 'kto', 'mapo', 'dmpo'):
+            c = compose(template=f'{objective}.json')
+            self.assertEqual(c['training']['objective'], objective)
+            self.assertEqual(c['method'], 'dpo')
+            validate_config(c, files=False)
+
+
 class ComparisonBudgetTests(unittest.TestCase):
     def make_config(self, output, *arguments):
         return subprocess.run(

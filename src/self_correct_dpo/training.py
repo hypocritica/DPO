@@ -27,7 +27,7 @@ def git_revision():
         return None
 
 
-OBJECTIVES = {"sft", "dpo", "augmentation", "orbit_mean", "orbit_worst", "orbit_softmax", "orbit_consistency"}
+OBJECTIVES = {"sft", "kto", "mapo", "dmpo", "dspo", "dpo", "augmentation", "orbit_mean", "orbit_worst", "orbit_softmax", "orbit_consistency"}
 
 
 def validate_config(config, *, files=True):
@@ -93,8 +93,8 @@ def validate_config(config, *, files=True):
     if training.get("sampling") == "balanced" and training["objective"].startswith("orbit_"):
         raise ValueError("balanced sampling currently supports single-prompt objectives")
     if data.get("require_human_preference"):
-        if training["objective"] != "dpo" or training.get("prompt_mode", "canonical") != "canonical":
-            raise ValueError("Pick-a-Pic baseline requires canonical standard DPO")
+        if training["objective"] not in {"dpo", "sft", "kto", "mapo", "dmpo", "dspo"} or training.get("prompt_mode", "canonical") != "canonical":
+            raise ValueError("Pick-a-Pic baseline requires canonical conditioning")
         if training.get("consistency_weight", 0) != 0:
             raise ValueError("No orbit consistency term in the human baseline")
     if training.get("checkpoint_policy") == "bounded":
@@ -105,8 +105,36 @@ def validate_config(config, *, files=True):
         raise ValueError("Diagnostic pairs/every/seed must be positive integers")
     arm = training.setdefault("formal_arm", "C")
     k = training.setdefault("noise_views", 2)
-    if model["family"] not in ('sd15','sdxl') or training["objective"] != "dpo":
-        raise ValueError("This research release supports SD1.5/SDXL DPO only")
+    if model["family"] not in ('sd15','sdxl') or training["objective"] not in {'dpo','sft','kto','mapo','dmpo','dspo'}:
+        raise ValueError("This research release supports SD1.5/SDXL preference baselines only")
+    objective = training['objective']
+    if objective == 'dspo':
+        if files and read_json(Path(model['path']) / 'scheduler/scheduler_config.json').get('prediction_type', 'epsilon') != 'epsilon':
+            raise ValueError('DSPO requires epsilon prediction, matching the official implementation')
+        expected = 'score_residual' if model['family'] == 'sd15' else 'official_sdxl'
+        if training.get('dspo_recipe') != expected:
+            raise ValueError(f'DSPO {model["family"]} requires dspo_recipe={expected}')
+        threshold = training.get('dspo_sdxl_threshold', .1)
+        if isinstance(threshold, bool) or not math.isfinite(float(threshold)) or float(threshold) <= 0:
+            raise ValueError('dspo_sdxl_threshold must be finite and positive')
+    if objective == 'kto' and model['family'] != 'sd15':
+        raise ValueError('KTO comparison currently supports SD1.5 only')
+    if objective in {'sft', 'kto', 'mapo'} and (config.get('method') != 'dpo' or k != 1
+            or 'independent_rollout' in training or 'paired_drift' in training or 'stagewise' in training):
+        raise ValueError('SFT/KTO/MaPO baselines require method=dpo and K=1 without rollout/stagewise')
+    if objective != 'dpo' and 'paired_drift' in training:
+        raise ValueError('New baseline objectives do not support paired_drift')
+    if objective != 'dpo' and training.get('diagnostic'):
+        raise ValueError('DPO diagnostics are only supported for objective=dpo')
+    for key in ('dmpo_alpha', 'mapo_beta', 'mapo_snr', 'kto_desirable_weight', 'kto_undesirable_weight'):
+        if key in training:
+            value = training[key]
+            minimum_invalid = float(value) < 0 if key == 'mapo_beta' else float(value) <= 0
+            if isinstance(value, bool) or not math.isfinite(float(value)) or minimum_invalid:
+                bound = 'nonnegative' if key == 'mapo_beta' else 'positive'
+                raise ValueError(f'training.{key} must be finite and {bound}')
+    if not 0 < float(training.get('dmpo_alpha', .01)) < .5:
+        raise ValueError('training.dmpo_alpha must be between 0 and .5')
     if arm not in {"B", "C"}:
         raise ValueError("SD1.5/SDXL support only B/C; C is the default. Legacy A/D configs are archives.")
     if type(k) is not int or k < 1:
@@ -128,6 +156,8 @@ def validate_config(config, *, files=True):
         total = read_json(Path(model['path']) / 'scheduler/scheduler_config.json')['num_train_timesteps'] if files else 1000
         if type(stagewise['boundary']) is not int or not 0 < stagewise['boundary'] < total:
             raise ValueError('stagewise boundary must be inside the scheduler timestep range')
+        if objective != 'dpo' and (objective not in {'dmpo', 'dspo'} or stagewise['objective'] != 'dpo'):
+            raise ValueError('DMPO/DSPO compose with stagewise sampling only when stagewise.objective=dpo')
         if stagewise['objective'] not in ('dpo', 'phase', 'constant', 'reverse'):
             raise ValueError('Unknown stagewise objective')
         for key in ('target_margin', 'huber_delta', 'huber_weight'):
@@ -208,7 +238,7 @@ def check_rows(rows, config):
             raise ValueError("Empty conditioning prompts are not allowed")
         if t["objective"].startswith("orbit_") and len(prompts) < t["orbit_size"]:
             raise ValueError(f"Pair {row['pair_id']} has fewer eligible prompts than orbit_size")
-        if t["objective"] in {"sft", "dpo"} and t.get("prompt_mode", "canonical") == "canonical":
+        if t["objective"] in {"sft", "kto", "mapo", "dmpo", "dspo", "dpo"} and t.get("prompt_mode", "canonical") == "canonical":
             if sum(p["variant_id"] == "canonical" for p in prompts) != 1:
                 raise ValueError("Canonical objective needs canonical; use prompt_mode=random for A/B intervention")
 
@@ -266,14 +296,14 @@ def exposure_summary(counts):
             "prompt_pair_evaluations": sum(values), "pair_prompt_passes": sum(values) / len(values)}
 
 
-def image_batch(rows, resolution, device, workers=0):
+def image_batch(rows, resolution, device, workers=0, *, winners_only=False):
     import numpy as np
     import torch
     from PIL import Image, ImageOps
     from self_correct_dpo.data.arrow_images import image_source
     def load_pair(row):
         images=[]
-        for field in ("winner", "loser"):
+        for field in (("winner",) if winners_only else ("winner", "loser")):
             with Image.open(image_source(row, field, verify_files=True)) as image:
                 image=ImageOps.exif_transpose(image).convert("RGB")
                 image=image.resize((resolution,resolution),Image.Resampling.LANCZOS)
@@ -368,7 +398,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     model_identity = model_artifact_identity(config["model"])
     identity = {"config": config, "pairs_id": digest(rows), "base_identity": model_identity,
                 "code": {p.name: sha256(p) for p in [Path(__file__), source_file("models.py"),
-                         source_file("losses.py"), source_file("formal.py"), source_file("independent.py"), source_file("joint.py"), source_file("data.py"), source_file("architecture.py"),
+                         source_file("losses.py"), source_file("formal.py"), source_file("independent.py"), source_file("joint.py"), source_file("objectives.py"), source_file("data.py"), source_file("architecture.py"),
                          source_file("auto_preferences.py"), source_file("reward_preferences.py"),
                          source_file("pickapic.py"), source_file("checkpoints.py"),
                          source_file("diagnostics.py"), source_file("prompt_generalization.py"),
@@ -441,8 +471,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     if arm not in {"B", "C"}:
         raise ValueError("SD1.5 supports only B/C")
     sampler = sample_views
-    from self_correct_dpo.algorithms.joint import JointRolloutBackend
-    backend_class = JointRolloutBackend if 'independent_rollout' in t else MultiViewBackend
+    from self_correct_dpo.algorithms.joint import JointRolloutBackend, BaselineGaussianBackend
+    backend_class = JointRolloutBackend if 'independent_rollout' in t else (BaselineGaussianBackend if t['objective'] != 'dpo' else MultiViewBackend)
     if "paired_drift" in t:
         from self_correct_dpo.algorithms.paired_drift import PairedDriftBackend
         backend_class = PairedDriftBackend
@@ -567,28 +597,57 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                         exposed, _, exposed_ids = sampler(rows, config, microbatch, world=world, rank=other_rank)
                         for row, variants in zip(exposed, exposed_ids):
                             for variant in variants: cost["exposure"][row["pair_id"]][variant] += 1
-                    images = image_batch(batch, t["resolution"], device, workers=config["data"].get("num_workers", 0))
+                    images = image_batch(batch, t["resolution"], device, workers=config["data"].get("num_workers", 0), **({"winners_only": True} if t["objective"] == "sft" else {}))
                     synchronization = backend.distributed_model.no_sync() if world > 1 and inner < accumulation - 1 else nullcontext()
                     with synchronization:
                         values = backend.score_errors(images, prompts, generator)
                         from self_correct_dpo.algorithms.losses import preference_logits
                         import torch.nn.functional as F
-                        logits = preference_logits(values["policy_errors"], values["reference_errors"], t["beta"])
-                        mean = logits.mean(1)
-                        if 'stagewise' in t:
-                            loss, stage_metrics = stagewise_loss(logits, values['prepared']['low_stage'], t['stagewise'])
+                        if t['objective'] != 'dpo':
+                            from self_correct_dpo.algorithms.objectives import baseline_loss
+                            kto_kl = None
+                            if t['objective'] == 'kto':
+                                relative = (values['reference_errors'] - values['policy_errors']).detach().float()
+                                kto_kl = relative.mean()
+                                if world > 1:
+                                    dist.all_reduce(kto_kl, op=dist.ReduceOp.SUM)
+                                    kto_kl /= world
+                                kto_kl = kto_kl.clamp_min(0)
+                            dspo_options = {}
+                            if t['objective'] == 'dspo':
+                                gap_mean = None
+                                if t['dspo_recipe'] == 'official_sdxl':
+                                    gap_mean = values['winner_prediction_gaps'].detach().float().mean(dim=0)
+                                    if world > 1:
+                                        dist.all_reduce(gap_mean, op=dist.ReduceOp.SUM)
+                                        gap_mean /= world
+                                dspo_options = {'dspo_recipe': t['dspo_recipe'],
+                                    'dspo_sdxl_threshold': t.get('dspo_sdxl_threshold', .1),
+                                    'dspo_gap_mean': gap_mean}
+                            options = {key: t[key] for key in ('dmpo_alpha', 'mapo_beta', 'mapo_snr',
+                                'kto_desirable_weight', 'kto_undesirable_weight') if key in t}
+                            loss, metrics = baseline_loss(values, t['objective'], t['beta'], aggregation=arm,
+                                num_train_timesteps=backend.scheduler.config.num_train_timesteps,
+                                kto_kl=kto_kl, **dspo_options, **options)
+                            if 'stagewise' in t:
+                                metrics['stage_low_fraction'] = values['prepared']['low_stage'].float().mean()
                         else:
-                            loss = F.softplus(-mean if arm == "C" else -logits).mean()
-                            stage_metrics = {}
-                        metrics = {"loss": loss.detach(), "margin_mean": mean.mean(),
-                                   "margin_variance": logits.var(1, unbiased=False).mean(),
-                                   "implicit_accuracy": (logits > 0).float().mean(),
-                                   "aggregate_accuracy": (mean > 0).float().mean(),
-                                   **{f"margin_view_{j}": logits[:, j].mean() for j in range(t["noise_views"])},
-                                   **{f"loss_view_{j}": F.softplus(-logits[:, j]).mean() for j in range(t["noise_views"])},
-                                   **{f"policy_mse_view_{j}_{branch}": values["policy_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))},
-                                   **{f"reference_mse_view_{j}_{branch}": values["reference_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))}}
-                        metrics.update(stage_metrics)
+                            logits = preference_logits(values["policy_errors"], values["reference_errors"], t["beta"])
+                            mean = logits.mean(1)
+                            if 'stagewise' in t:
+                                loss, stage_metrics = stagewise_loss(logits, values['prepared']['low_stage'], t['stagewise'])
+                            else:
+                                loss = F.softplus(-mean if arm == "C" else -logits).mean()
+                                stage_metrics = {}
+                            metrics = {"loss": loss.detach(), "margin_mean": mean.mean(),
+                                       "margin_variance": logits.var(1, unbiased=False).mean(),
+                                       "implicit_accuracy": (logits > 0).float().mean(),
+                                       "aggregate_accuracy": (mean > 0).float().mean(),
+                                       **{f"margin_view_{j}": logits[:, j].mean() for j in range(t["noise_views"])},
+                                       **{f"loss_view_{j}": F.softplus(-logits[:, j]).mean() for j in range(t["noise_views"])},
+                                       **{f"policy_mse_view_{j}_{branch}": values["policy_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))},
+                                       **{f"reference_mse_view_{j}_{branch}": values["reference_errors"][:, j, i].mean() for j in range(t["noise_views"]) for i, branch in enumerate(("winner", "loser"))}}
+                            metrics.update(stage_metrics)
                         if not torch.isfinite(loss):
                             raise FloatingPointError("Non-finite training loss")
                         # Keep every view's policy graph and differentiate the
@@ -600,12 +659,12 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                     b, k = len(batch) * world, len(prompts[0])
                     cost["pairs_seen"] += b
                     cost["prompt_pair_evaluations"] += b * k
-                    cost["policy_image_evaluations"] += 2 * b * k
+                    cost["policy_image_evaluations"] += (1 if t["objective"] == "sft" else 2) * b * k
                     if 'independent_rollout' in t and t['independent_rollout'].get('state_source', 'model') == 'model':
                         cost['policy_image_evaluations'] += 2 * b * k
                         cost['rollout_model_calls'] = cost.get('rollout_model_calls', 0) + k * world
                         cost['rollout_image_evaluations'] = cost.get('rollout_image_evaluations', 0) + 2 * b * k
-                    cost["reference_image_evaluations"] += 0 if t["objective"] == "sft" else 2 * b * (k)
+                    cost["reference_image_evaluations"] += 0 if t["objective"] in {"sft", "mapo"} else 2 * b * (k)
                 if world > 1:
                     metrics_sum = average_metrics(metrics_sum, device)
                 norm = torch.nn.utils.clip_grad_norm_(parameters, t["max_grad_norm"], error_if_nonfinite=True)
