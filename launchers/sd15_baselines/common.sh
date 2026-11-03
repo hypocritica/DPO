@@ -8,7 +8,8 @@ case "$SCD_BASELINE_OBJECTIVE" in kto|sft|mapo|dmpo|dspo) ;; *)
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   cat <<'HELP'
 SD1.5 baseline: two allocated RTX 5090 GPUs, K=1, 512, BF16, LoRA rank/alpha16.
-Train: 10000 updates, B=2 per GPU, accumulation=96, global pairs=384.
+Train: 10000 updates, default B=2 per GPU, accumulation=96, global pairs=384.
+SCD_TRAIN_BATCH_SIZE changes B and accumulation; existing runs resume saved recipes.
 Environment: SCD_MODE=train|smoke (default train); SCD_RUN_NAME selects a new run.
 Smoke: two updates, accumulation=1, no generation evaluation, separate output.
 Options: --config-only, --check-only, --stop-after-step N,
@@ -52,13 +53,14 @@ if [[ ! "$SCD_RUN_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
 fi
 source "$(dirname -- "${BASH_SOURCE[0]}")/../acp_common.sh"
 scd_log "$SCD_RUN_NAME"
+scd_resume_if_exists "$RUNS_ROOT/$SCD_RUN_NAME" "${SCD_BASELINE_ARGS[@]}"
 if [[ "$SCD_BASELINE_CONFIG_ONLY" != true &&
       ( ! -f "$PICKAPIC_SD15_PREPARED/ready.json" || ! -f "$PICKAPIC_SD15_PREPARED/pairs.jsonl" ) ]]; then
   echo 'Prepare Pick-a-Pic first: bash launchers/acp_prepare_data.sh pickapic sd15'; exit 1
 fi
-echo "SD1.5 objective=$SCD_BASELINE_OBJECTIVE, K=1, GPUs=2, B=2, mode=$SCD_MODE"
+echo "SD1.5 objective=$SCD_BASELINE_OBJECTIVE, K=1, GPUs=2, B=${SCD_TRAIN_BATCH_SIZE:-2}, mode=$SCD_MODE"
 echo "Experiment: $RUNS_ROOT/$SCD_RUN_NAME"
 exec python -u scripts/compare_objectives.py --family sd15 \
   --objective "$SCD_BASELINE_OBJECTIVE" --method dpo --views 1 \
-  --world-size 2 --batch-size 2 --budget-unit pairs --mode "$SCD_MODE" \
+  --world-size 2 --batch-size "${SCD_TRAIN_BATCH_SIZE:-2}" --budget-unit pairs --mode "$SCD_MODE" \
   --run-name "$SCD_RUN_NAME" "${SCD_BASELINE_ARGS[@]}"

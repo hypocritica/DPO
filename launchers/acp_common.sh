@@ -21,6 +21,19 @@ scd_log() {
   echo "Console log: $SCD_LOG"
 }
 
+scd_resume_if_exists() {
+  local scd_resume_out="$1"
+  shift
+  if [[ -f "$scd_resume_out/training.json" ]]; then
+    local scd_batch_args=()
+    if [[ -n "${SCD_TRAIN_BATCH_SIZE:-}" ]]; then
+      scd_batch_args=(--batch-size "$SCD_TRAIN_BATCH_SIZE")
+    fi
+    exec python -u "$SCD_REPO_ROOT/scripts/resume_batch.py" --run "$scd_resume_out" \
+      "${scd_batch_args[@]}" "$@"
+  fi
+}
+
 scd_train() {
   SCD_METHOD="$1"
   shift
@@ -84,6 +97,7 @@ scd_train() {
   SCD_OUT="${RUNS_ROOT}/${SCD_RUN_NAME}"
   echo "Experiment: $SCD_OUT"
   echo "Method=$SCD_METHOD, family=$SCD_FAMILY, K=$SCD_VIEWS, GPUs=$SCD_WORLD_SIZE"
+  scd_resume_if_exists "$SCD_OUT" "$@"
 
   if [[ ! -f "$SCD_PREPARED/ready.json" || ! -f "$SCD_PREPARED/pairs.jsonl" ]]; then
     echo "Data preparation must finish first: $SCD_PREPARED"

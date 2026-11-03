@@ -1,19 +1,17 @@
-## 已运行 SFT：中断后提高每卡 B 并继续原进度
+## 当前 batch-resume 分支：所有方法都允许改 B 接续原训练
 
-专用分支 `exp/sft-batch-resume-20261104` 从已发布 main 创建。本分支的原名
-`launchers/sd15_baselines/02_sft.sh` 直接转到大batch续训入口，只换checkout目录即可。
-新入口显式放行 SFT 的 batch 拆分变更：默认双卡 B=8、累积24，仍为全局384。
-模型、数据、验证面板、算法设置、学习率、总步数和卡数继续按原实验检查；仅允许
-`batch_size`、`gradient_accumulation_steps` 变化，以及本分支的 `training.py` 续训钩子。
-适用原来的 balanced、canonical、K1 SFT，不套用到依赖 microbatch 统计量的 KTO/DSPO。
+分支仍为 `exp/sft-batch-resume-20261104`，远程代码目录仍使用
+`/mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume`；目录名字保留，但功能已覆盖
+DPO、SFT、KTO、MaPO、DMPO、DSPO，以及Gaussian B/C、rollout、多视图和Stagewise。
+本分支所有恢复均允许只改变每卡B及对应累积次数，不再需要SFT专用开关。
+原来的脚本名、实验名与输出目录继续使用，直接读取原 `training.json` 的配方和完整latest。
+缺少新checkout的原冻结配置不会阻止已经存在且有training.json的实验接续。
 
-先在原训练终端按一次 Ctrl+C，等待训练保存并退出，确认原任务所有训练/评估进程已经结束。
-从最近完整 latest 接续；突然强制结束时，最后未提交的更新可能需要重算。无需重新训练基座、
-重建环境或准备数据。新代码放在独立 checkout，原 DPO 目录保留：
+先正常停止正在运行的训练/评估并等待保存退出，再更新代码；同一个输出同时只运行一个任务。
+首次部署用下方clone；目录已克隆时仅执行pull：
 
 ```bash
-bash <<'BASH'
-set -eo pipefail
+# 首次克隆
 SCD_BATCH_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume
 git clone --single-branch --branch exp/sft-batch-resume-20261104 \
   https://github.com/hypocritica/DPO.git "$SCD_BATCH_REPO"
@@ -21,36 +19,53 @@ SCD_OLD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.
 if [[ -f "$SCD_OLD_RESOURCES" ]]; then
   cp "$SCD_OLD_RESOURCES" "$SCD_BATCH_REPO/configs/resources.local.json"
 fi
-git -C "$SCD_BATCH_REPO" rev-parse HEAD
-BASH
+
+# 已经克隆过时更新
+git -C /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume pull --ff-only
 ```
 
-上面的 clone 仅首次执行。仍在原先已分配的双卡容器中运行：
+在原来已分配足够GPU的容器中，保留脚本相对路径，用 `SCD_TRAIN_BATCH_SIZE` 指定新B。
+例如原SD1.5单视图双卡实验改成B4，会自动使用累积48，仍为384pair/update：
 
 ```bash
-exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/02_sft.sh
+# MaPO：B4，继续原实验进度
+SCD_TRAIN_BATCH_SIZE=4 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/03_mapo.sh
+
+# DMPO：B4，继续原实验进度
+SCD_TRAIN_BATCH_SIZE=4 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/04_dmpo.sh
 ```
 
-该命令自动加载原 `dpo` 环境，从
-`$RUNS_ROOT/sd15-sft-k1-p384-2gpu-10000-slai-v1/checkpoints/latest.json` 恢复。
-输出应包含 `batch_size=8`、`gradient_accumulation_steps=24`、`effective_global_batch=384`，
-以及原 checkpoint 的 `step`；后续继续到原10000步，不从0开始。
-若原实验自定义了名字，用相同 `SCD_RUN_NAME=<原实验名>` 前缀；资源覆盖与原容器保持一致。
+同一方式适用于`01_kto.sh`、`02_sft.sh`、`05_dspo.sh`、`sd15/`、`sdxl/`、
+`sd15_final/`、`sdxl_final/`、`sd15_stagewise/`及ACP通用训练入口。
+每个命令在各自实验的容器运行。已有自定义实验名时保留原 `SCD_RUN_NAME` 和资源覆盖。
+除已发布的SFT入口仍默认B8，其余入口保留原默认B；需要增大时显式设置这个环境变量。
+SFT也建议显式设B4逐步测试，避免误用默认B8。显存/速度都需要在实际GPU上观察。
 
-默认每卡B=8。显存允许可在退出当前训练后用 `SCD_TRAIN_BATCH_SIZE=16 exec bash <同一脚本>`
-改为B16（自动累积12），若OOM则用同一环境变量改回8或2后重启同一入口，
-从最近完整 checkpoint 继续。不同 B 的训练不要并发写同一输出。该入口没有自动性能测试，
-直接继续正式预算；比较预热后优化步的耗时，不能按累积次数比推算提速。
+不知道原启动脚本时，可以直接指定旧输出目录名，脚本自动加载原dpo环境和资源：
 
-原 `training.json` 和冻结配置不改写，权重、Adam、scheduler、步数、曝光统计和各 rank RNG
-从完整 checkpoint 恢复；每次接续写 `batch-resume-*.json` 保存实际配置和源码，逐步日志新增
-`per_device_batch_size`、`gradient_accumulation_steps`。原基座及历史评估复用，后续评估计划保留。
-随机数分配和浮点累加顺序可能变化，恢复进度不等于复现原 batch 的数值轨迹。
+```bash
+SCD_TRAIN_BATCH_SIZE=4 bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/acp_resume_batch.sh \
+  原实验目录名
+```
 
-`--config-only` 只生成/检查新batch配置；`--check-only` 沿用CPU模型/数据预检；
-`--stop-after-step N` 仍是绝对优化步数。此分支的 `02_sft.sh` 与 `02_sft_large_batch.sh`
-指向同一个续训流程；main和其他基线的入口继续严格检查。
-当前验证使用CPU小模型与真实保存恢复流程，未连接SLAI GPU或测量加速。
+自动换算使用原 `B × accumulation`，保留原GPU数、K、pair和pair-view全局预算；不能整除会报错，
+不通过取整改变实验预算。模型、数据、算法、学习率、总步数、验证面板及完整checkpoint仍核对。
+原 `training.json`、历史评估和原冻结配置不改写；每次接续另存 `batch-resume-*.json`，
+记录实际配置、源码与行为差异，逐步JSONL包含实际B/累积。完整状态恢复权重、Adam、scheduler、
+步数、曝光计数和每rank RNG，沿用原保存和评估计划。突然强制结束可能重算最后未提交的更新。
+
+KTO和DSPO也允许接续：KTO的KL基准按global microbatch估计；DSPO的`official_sdxl`阈值按
+global microbatch预测gap均值判断，因此改变B会改变这些统计量，日志和审计会明确记录。
+SD1.5 DSPO的`score_residual`配方不使用这个阈值。其他方法也会有随机数分配与浮点累加差异，
+不保证复现旧B的逐步数值轨迹；非balanced采样还可能改变后续样本序列。
+
+`--stop-after-step N`仍是绝对优化步数，`--resume latest`/`--resume_from_checkpoint latest`
+可显式选择恢复；通用脚本的`--config-only`只生成配置、`--check-only`沿用CPU模型/数据预检。
+直接`python train.py --config ... --resume latest --batch-size B`也自动保留原全局batch，
+不用手算累积；已明确传入累积时按显式值核对。
 
 ## main统一部署：后续实验使用远程DPO目录
 

@@ -5,6 +5,7 @@ Budget counts pair groups or pair-views, not FLOPs (SFT uses only winners).
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -47,7 +48,8 @@ def main():
     k = a.views if a.views is not None else (1 if a.method == 'dpo' else 2)
     if (a.method == 'dpo' and k != 1) or (a.method != 'dpo' and k == 1):
         p.error('Use K=1 for single view and K=2/4/6 for Gaussian multiview')
-    batch = a.batch_size if a.batch_size is not None else (2 if a.family == 'sd15' and k <= 2 else 1)
+    batch = a.batch_size if a.batch_size is not None else int(os.environ.get(
+        'SCD_TRAIN_BATCH_SIZE', 2 if a.family == 'sd15' and k <= 2 else 1))
     if batch < 1 or (a.stop_after_step is not None and a.stop_after_step < 1):
         p.error('Batch size and stop step must be positive')
     budget = 384 if a.family == 'sd15' else 192
@@ -56,6 +58,20 @@ def main():
         p.error('run-name must be a simple directory name')
     registry = load_resources(a.resources)
     output = (a.runs_root or Path(registry['RUNS_ROOT'])) / name
+    if (output / 'training.json').is_file():
+        resume_command = [sys.executable, '-u', str(ROOT / 'scripts/resume_batch.py'),
+                          '--run', str(output), '--batch-size', str(batch),
+                          '--expected-objective', a.objective]
+        for flag, enabled in (('--config-only', a.config_only), ('--check-only', a.check_only)):
+            if enabled:
+                resume_command.append(flag)
+        for flag, value in (('--stop-after-step', a.stop_after_step),
+                            ('--resume', a.resume_from_checkpoint), ('--resources', a.resources)):
+            if value is not None:
+                resume_command += [flag, str(value)]
+        from self_correct_dpo.evaluation.runner import run_command
+        run_command(resume_command)
+        return
     a.config_dir.mkdir(parents=True, exist_ok=True)
     frozen = a.config_dir / f'local-{name}.json'
     if output.exists() and not frozen.is_file():

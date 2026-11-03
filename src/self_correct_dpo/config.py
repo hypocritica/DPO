@@ -146,9 +146,9 @@ def training_config(args):
                 'checkpoint_every', 'lora_rank', 'lora_alpha', 'beta', 'resolution', 'noise_views', 'world_size', 'launcher'):
         if getattr(args, key, None) is not None:
             t[key] = getattr(args, key)
-    # Changing GPU count alone preserves the default global pair batch.
-    if args.world_size is not None and args.gradient_accumulation_steps is None:
-        unit = t['batch_size'] * t['world_size']
+    # Repartition the same global batch when changing B or GPU count alone.
+    if (args.world_size is not None or args.batch_size is not None) and args.gradient_accumulation_steps is None:
+        unit = t['batch_size'] * t.get('world_size', 1)
         if unit < 1 or original_effective % unit:
             raise ValueError('Global batch must divide batch_size * world_size; set --gradient_accumulation_steps explicitly')
         t['gradient_accumulation_steps'] = original_effective // unit

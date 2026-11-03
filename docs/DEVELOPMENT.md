@@ -1,5 +1,20 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-04 用户要求同一batch-resume分支开放全部方法。默认所有resume允许保持全局batch的
+B/累积变更，移除SFT/canonical/K1限制；其余配置、模型数据、验证和checkpoint完整性继续检查。
+源码兼容放行本分支training.py/config.py钩子，并在每次接续记录完整实际源码与配置。
+统一scripts/resume_batch.py从原training.json加载配方，旧SFT入口兼容保留；各基线、SD15/SDXL
+分组、final、stagewise、ACP及train.sh从原输出恢复，不要求新checkout复制原冻结配置。
+各分组不再把环境变量B覆盖回固定值，三个历史ACP启动器改为从自身位置加载共享入口。
+KTO和official_sdxl DSPO允许改B，但分别记录KL估计/阈值随microbatch改变的事实。
+main和本机其他worktree未修改；运行命令见command.md首节。以下SFT首版记录保留供追溯。
+
+本轮44项CPU检查通过：batch恢复9、配置19、baseline6、存储兼容9及原暂停/连续恢复1。
+包含七种目标/模型配方的改B及再次恢复、分组/ACP脚本实际Bash路由、原输出/命令参数传递、
+无旧冻结文件的compare接管、CLI自动换算，以及双rank Gloo的optimizer/scheduler/两rank RNG。
+三个旧ACP脚本的硬编码目录问题已由入口检查发现并修复。Python/Bash语法及diff空白通过；
+未运行完整GPU模型或测量吞吐，KTO/阈值版DSPO不承诺与旧B数学等价。
+
 2026-11-04 用户明确授权独立分支支持增大B后续训现有SFT。分支
 `exp/sft-batch-resume-20261104` 新增 `02_sft_large_batch.sh`，从原training.json取配方，
 默认双卡B8/累积24/全局384，恢复原latest及optimizer/scheduler/各rank RNG/步数。

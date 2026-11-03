@@ -379,10 +379,9 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         raise ValueError('stop_after_step must be an integer between 1 and configured max_steps')
     if resume and extend_from:
         raise ValueError("Choose resume or extend_from")
-    from self_correct_dpo.runtime.batch_resume import ENVIRONMENT_FLAG
-    batch_resize = os.environ.get(ENVIRONMENT_FLAG) == '1'
-    if batch_resize and not resume:
-        raise ValueError('SFT batch resizing requires an existing run and a complete resume checkpoint')
+    # This experimental branch allows fixed-global-batch repartitioning on
+    # every resume; it still validates model/data and all other settings.
+    batch_resize = bool(resume)
     parent = None
     if extend_from:
         extend_from = resolve_checkpoint(extend_from)
@@ -465,11 +464,11 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         if newer:
             raise ValueError("Resume the latest checkpoint; use a new run for branching")
         if rank == 0:
+            if compatible_sources(recorded['code'], observed_code):
+                record_compatibility(out, recorded['code'], observed_code)
             if batch_resize:
                 from self_correct_dpo.runtime.batch_resume import record_batch_resume
                 record_batch_resume(out, recorded, config, observed_code, resume)
-            else:
-                record_compatibility(out, recorded['code'], observed_code)
     elif rank == 0 and out.exists():
         raise FileExistsError(f"Use a fresh output directory: {out}")
     np.random.seed(config["seed"])

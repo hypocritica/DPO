@@ -20,5 +20,5 @@ if [[ ! "$SCD_RUN_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ||
 fi
 source "$(dirname -- "${BASH_SOURCE[0]}")/../acp_common.sh"
 scd_log "${SCD_RUN_NAME}-resume-b${SCD_TRAIN_BATCH_SIZE}"
-exec python -u scripts/resume_sft_batch.py --run "$RUNS_ROOT/$SCD_RUN_NAME" \
-  --batch-size "$SCD_TRAIN_BATCH_SIZE" "$@"
+exec python -u scripts/resume_batch.py --run "$RUNS_ROOT/$SCD_RUN_NAME" \
+  --batch-size "$SCD_TRAIN_BATCH_SIZE" --expected-objective sft "$@"

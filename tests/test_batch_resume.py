@@ -1,10 +1,12 @@
 import copy
+import argparse
 from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,9 +19,9 @@ sys.path.insert(0, str(ROOT / 'src'))
 
 import torch
 from self_correct_dpo.common import read_json, sha256
-from self_correct_dpo.config import load_config
+from self_correct_dpo.config import load_config, add_training_arguments, training_config
 from self_correct_dpo.runtime.batch_resume import (
-    ENVIRONMENT_FLAG, compatible_batch_sources, validate_batch_change)
+    ENVIRONMENT_FLAG, compatible_batch_sources, validate_batch_change, batch_behavior_notes)
 from self_correct_dpo.runtime.checkpoints import resolve_checkpoint
 from self_correct_dpo.training import sample_batch, train
 from tests.test_stage_pause import ToyBackend
@@ -53,6 +55,27 @@ class DistributedSFTToy(SFTToy):
         targets = torch.tensor([int(p[0]) / 10 for p in prompts]) + torch.rand(len(prompts), generator=generator)
         prediction = self.distributed_model(torch.ones(len(prompts), 1)).flatten()
         return {'policy_errors': (prediction - targets).square()[:, None, None], 'reference_errors': None}
+
+
+class ObjectiveToy(SFTToy):
+    def __init__(self, model, training, device):
+        super().__init__(model, training, device)
+        self.settings = training
+
+    def score_errors(self, images, prompts, generator):
+        k = self.settings['noise_views']
+        prepared = torch.rand(len(prompts), k, 2, generator=generator)
+        values = {'policy_errors': (prepared + self.weight).square(), 'reference_errors': prepared.square()}
+        objective = self.settings['objective']
+        if objective == 'dspo':
+            values['winner_prediction_gaps'] = (self.weight + 1).square().expand(len(prompts), k)
+        if objective in ('sft', 'mapo'):
+            values['reference_errors'] = None
+        if objective == 'sft':
+            values['policy_errors'] = values['policy_errors'][..., :1]
+        if 'stagewise' in self.settings:
+            values['prepared'] = {'low_stage': torch.arange(len(prompts)) % 2 == 0}
+        return values
 
 
 class BatchResume(unittest.TestCase):
@@ -89,8 +112,10 @@ class BatchResume(unittest.TestCase):
             with patch('self_correct_dpo.training.sha256', side_effect=original_source):
                 self.run_training(old, rows, out, stop_after_step=2)
             original_metadata = (out / 'training.json').read_bytes()
-            with self.assertRaisesRegex(ValueError, 'Resume configuration'):
-                self.run_training(new, rows, out, resume=out / 'checkpoints/latest.json')
+            invalid = copy.deepcopy(new)
+            invalid['training']['learning_rate'] *= 2
+            with self.assertRaisesRegex(ValueError, 'only batch_size'):
+                self.run_training(invalid, rows, out, resume=out / 'checkpoints/latest.json')
             with patch.dict(os.environ, {ENVIRONMENT_FLAG: '1'}):
                 with self.assertRaisesRegex(ValueError, 'model, data, validation'):
                     self.run_training(new, list(reversed(rows)), out, resume=out / 'checkpoints/latest.json')
@@ -156,7 +181,7 @@ class BatchResume(unittest.TestCase):
                 self.assertEqual(selected, baseline)
 
     def test_config_only_reuses_recorded_recipe_and_keeps_original_file(self):
-        spec = importlib.util.spec_from_file_location('resume_sft_batch', ROOT / 'scripts/resume_sft_batch.py')
+        spec = importlib.util.spec_from_file_location('resume_batch', ROOT / 'scripts/resume_batch.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as directory:
@@ -177,6 +202,122 @@ class BatchResume(unittest.TestCase):
                 self.assertEqual(active['training']['gradient_accumulation_steps'], accumulation)
                 self.assertEqual(active['evaluation'], config['evaluation'])
             self.assertEqual(read_json(out / 'training.json'), recorded)
+
+    def test_direct_cli_batch_override_preserves_saved_global_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'saved.json'
+            config = load_config(ROOT / 'configs/sft.json')
+            config['training'].update(batch_size=2, gradient_accumulation_steps=96, world_size=2)
+            path.write_text(json.dumps(config))
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--config')
+            add_training_arguments(parser)
+            for batch, accumulation in [(4, 48), (8, 24), (16, 12)]:
+                args = parser.parse_args(['--config', str(path), '--batch-size', str(batch)])
+                resolved = training_config(args)
+                self.assertEqual(resolved['training']['gradient_accumulation_steps'], accumulation)
+                self.assertEqual(resolved['training']['world_size'], 2)
+
+    def test_comparison_entry_resumes_without_old_checkout_frozen_file(self):
+        spec = importlib.util.spec_from_file_location('compare_objectives', ROOT / 'scripts/compare_objectives.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out = root / 'existing'
+            out.mkdir()
+            (out / 'training.json').write_text('{}')
+            argv = ['compare', '--family', 'sd15', '--objective', 'dmpo', '--views', '6',
+                    '--method', 'stagewise-C-gaussian', '--batch-size', '4', '--run-name', 'existing',
+                    '--runs-root', str(root), '--config-dir', str(root / 'new-configs'), '--config-only']
+            with patch.object(sys, 'argv', argv), patch('self_correct_dpo.evaluation.runner.run_command') as run:
+                module.main()
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--run') + 1], str(out))
+            self.assertEqual(command[command.index('--batch-size') + 1], '4')
+            self.assertEqual(command[command.index('--expected-objective') + 1], 'dmpo')
+            self.assertIn('--config-only', command)
+
+
+    def test_every_objective_and_multiview_recipe_resumes_with_new_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows, template = self.fixture(root)
+            profiles = [('dpo', 6, 'sd15', None), ('sft', 1, 'sd15', None),
+                        ('kto', 1, 'sd15', None), ('mapo', 1, 'sd15', None),
+                        ('dmpo', 6, 'sd15', None), ('dspo', 6, 'sd15', 'score_residual'),
+                        ('dspo', 6, 'sdxl', 'official_sdxl')]
+            for index, (objective, k, family, recipe) in enumerate(profiles):
+                with self.subTest(objective=objective, family=family):
+                    config = copy.deepcopy(template)
+                    config['model']['family'] = family
+                    config['training'].update(objective=objective, noise_views=k, formal_arm='C')
+                    if recipe:
+                        config['training']['dspo_recipe'] = recipe
+                    if k > 1:
+                        config['training']['stagewise'] = {'objective': 'dpo', 'target_margin': 1.,
+                                                           'huber_delta': 1., 'huber_weight': .5}
+                    out = root / str(index)
+                    def run(endpoint, resume=False):
+                        with redirect_stdout(io.StringIO()), patch('self_correct_dpo.training.image_batch',
+                                return_value=torch.zeros(1, 2, 3, 1, 1)):
+                            return train(config, rows, out, backend_factory=ObjectiveToy, device='cpu',
+                                         stop_after_step=endpoint,
+                                         resume=out / 'checkpoints/latest.json' if resume else None)
+                    run(2)
+                    metadata = (out / 'training.json').read_bytes()
+                    config['training'].update(batch_size=4, gradient_accumulation_steps=2)
+                    run(4, resume=True)
+                    result = run(6, resume=True)
+                    self.assertEqual(result['cost']['pairs_seen'], 48)
+                    self.assertEqual(result['cost']['prompt_pair_evaluations'], 48 * k)
+                    self.assertEqual((out / 'training.json').read_bytes(), metadata)
+                    state = torch.load(resolve_checkpoint(out / 'checkpoints/latest.json') / 'state.pt', weights_only=True)
+                    self.assertEqual(int(state['optimizer']['state'][0]['step']), 6)
+                    self.assertEqual(state['scheduler']['last_epoch'], 6)
+                    audits = [read_json(p) for p in out.glob('batch-resume-*.json')]
+                    self.assertTrue(all(a['active_batch']['batch_size'] == 4 for a in audits))
+                    notes = batch_behavior_notes(config)
+                    self.assertEqual(any('KTO' in note for note in notes), objective == 'kto')
+                    self.assertEqual(any('DSPO' in note for note in notes), recipe == 'official_sdxl')
+
+    def test_all_launcher_families_route_to_original_output_and_honor_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / 'launchers', root / 'launchers')
+            (root / 'scripts').mkdir()
+            runs = root / 'runs'
+            (runs / 'existing').mkdir(parents=True)
+            (runs / 'existing/training.json').write_text('{}')
+            # Keep the real launcher functions, replacing only remote environment setup and logging.
+            source = (ROOT / 'launchers/acp_common.sh').read_text()
+            functions = source[source.index('scd_resume_if_exists()'):]
+            setup = 'SCD_REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"\ncd "$SCD_REPO_ROOT"\nscd_log() { :; }\n'
+            (root / 'launchers/acp_common.sh').write_text(setup + functions)
+            (root / 'scripts/resume_batch.py').write_text(
+                'import json,os,sys\nfrom pathlib import Path\n'
+                'Path(os.environ["SCD_TEST_RESULT"]).write_text(json.dumps(sys.argv[1:]))\n')
+            leaves = []
+            for family in ('sd15', 'sdxl', 'sd15_final', 'sdxl_final', 'sd15_stagewise', 'sd15_baselines'):
+                leaves.extend(p.relative_to(ROOT) for p in (ROOT / 'launchers' / family).glob('*.sh')
+                              if p.name not in ('common.sh', '05_evaluate.sh'))
+            leaves.extend(Path('launchers') / name for name in (
+                'acp_sdxl.sh', 'acp_multiview_gaussian_2gpu.sh', 'acp_sd15_dpo_2gpu.sh',
+                'acp_sd15_dpo_8gpu.sh', 'acp_sd15_c_k2_2gpu.sh', 'acp_sd15_c_k2_4gpu.sh'))
+            for leaf in leaves:
+                with self.subTest(launcher=str(leaf)):
+                    result_path = root / 'result.json'
+                    environment = dict(os.environ, RUNS_ROOT=str(runs), SCD_RUN_NAME='existing',
+                                       SCD_TRAIN_BATCH_SIZE='4', SCD_TEST_RESULT=str(result_path),
+                                       PICKAPIC_SD15_PREPARED='/not-used', PICKAPIC_SDXL_PREPARED='/not-used')
+                    result = subprocess.run(['bash', str(root / leaf), '--stop-after-step', '1234'],
+                                            env=environment, text=True, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT, timeout=15)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    arguments = json.loads(result_path.read_text())
+                    self.assertEqual(arguments[arguments.index('--run') + 1], str(runs / 'existing'))
+                    self.assertEqual(arguments[arguments.index('--batch-size') + 1], '4')
+                    self.assertEqual(arguments[arguments.index('--stop-after-step') + 1], '1234')
 
 
     def test_two_rank_gloo_resume_keeps_optimizer_and_both_rng_streams(self):

@@ -22,6 +22,7 @@ case "$SCD_FINAL_VIEWS" in
   6) SCD_FINAL_METHOD=stagewise-C-gaussian; SCD_FINAL_PROFILE=k6-stage; SCD_FINAL_BATCH=1 ;;
   *) echo 'Views must be 1 or 6'; exit 1 ;;
 esac
+SCD_FINAL_BATCH="${SCD_TRAIN_BATCH_SIZE:-$SCD_FINAL_BATCH}"
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   cat <<'HELP'
 Final DSPO/DMPO baselines and DSPO/DMPO/DPO K=6 Stagewise-C comparisons.
@@ -33,6 +34,7 @@ Train: 10000 updates, BF16, LoRA rank/alpha16, frozen configuration.
 Stage: each pair samples one shared stage, then six independent views within it.
        Preserves the selected base loss; no Huber or low-3/high-3 variant.
 Environment: SCD_MODE=train|smoke (default train); SCD_RUN_NAME selects a new run.
+SCD_TRAIN_BATCH_SIZE overrides B; existing runs preserve their saved global batch.
 Smoke: two updates, accumulation=1, no generation evaluation, separate output.
        The pv384/pv192 name identifies the formal recipe; smoke uses a small budget.
 Options: --config-only, --check-only, --stop-after-step N,
@@ -76,6 +78,7 @@ if [[ ! "$SCD_RUN_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
 fi
 source "$(dirname -- "${BASH_SOURCE[0]}")/acp_common.sh"
 scd_log "$SCD_RUN_NAME"
+scd_resume_if_exists "$RUNS_ROOT/$SCD_RUN_NAME" "${SCD_FINAL_ARGS[@]}"
 if [[ "$SCD_FINAL_FAMILY" == sd15 ]]; then
   SCD_FINAL_PREPARED="$PICKAPIC_SD15_PREPARED"
 else

@@ -185,7 +185,8 @@ class SourceCompatibility(unittest.TestCase):
             latest = out / 'checkpoints/latest.json'
             self.assertEqual(read_json(resolve_checkpoint(latest) / 'checkpoint.json')['step'], 200)
             def unreviewed_sha(path):
-                return 'unreviewed' if Path(path).resolve() == source_file('training.py').resolve() else fixed_sha(path)
+                # This branch permits its training/config hooks; model changes remain rejected.
+                return 'unreviewed' if Path(path).resolve() == source_file('models.py').resolve() else fixed_sha(path)
             with patch('self_correct_dpo.training.sha256', side_effect=unreviewed_sha):
                 with self.assertRaisesRegex(ValueError, 'training code changed'):
                     train(config, rows, out, resume=latest, backend_factory=ToyBackend, device='cpu')

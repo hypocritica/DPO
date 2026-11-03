@@ -7,6 +7,7 @@ case "$SCD_STAGE_OBJECTIVE" in dpo|phase|constant|reverse) ;; *) exit 1 ;; esac
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo 'Stagewise SD1.5: 10000 updates, K=2, 192 pairs / 384 pair-views per update.'
   echo 'Use allocated 2/4/8 GPUs (SCD_WORLD_SIZE, default 2); SCD_RUN_NAME creates a new run.'
+  echo 'SCD_TRAIN_BATCH_SIZE changes B; existing runs retain their recorded global batch.'
   echo 'Runtime options only: --stop-after-step N, --resume_from_checkpoint PATH, --resume PATH.'
   exit 0
 fi
@@ -32,6 +33,8 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/../acp_common.sh"
 scd_log "$SCD_RUN_NAME"
 SCD_CONFIG="configs/local-${SCD_RUN_NAME}.json"
 SCD_OUT="${RUNS_ROOT}/${SCD_RUN_NAME}"
+SCD_TRAIN_BATCH_SIZE="${SCD_TRAIN_BATCH_SIZE:-2}"
+scd_resume_if_exists "$SCD_OUT" "${SCD_RUNTIME_ARGS[@]}"
 if [[ ! -f "$PICKAPIC_SD15_PREPARED/ready.json" || ! -f "$PICKAPIC_SD15_PREPARED/pairs.jsonl" ]]; then
   echo 'Prepare Pick-a-Pic first: bash launchers/acp_prepare_data.sh pickapic sd15'; exit 1
 fi
@@ -43,7 +46,7 @@ fi
 SCD_STAGE_TMP="$(mktemp -d)"
 trap 'rm -rf -- "$SCD_STAGE_TMP"' EXIT
 python -u scripts/make_config.py --family sd15 --method stagewise-C-gaussian \
-  --views 2 --world-size "$SCD_WORLD_SIZE" --train_batch_size 2 \
+  --views 2 --world-size "$SCD_WORLD_SIZE" --train_batch_size "$SCD_TRAIN_BATCH_SIZE" \
   --budget-unit pair_views --budget-per-update 384 --max_train_steps 10000 --mixed_precision bf16 \
   --checkpointing_steps 200 --report_to tensorboard --launcher accelerate \
   --set "training.stagewise.objective=$SCD_STAGE_OBJECTIVE" \
@@ -65,7 +68,7 @@ c = json.loads(frozen.read_text())
 t = c['training']
 assert t['batch_size'] * t['world_size'] * t['gradient_accumulation_steps'] == 192
 print(f"Frozen stagewise config: {frozen}; objective={t['stagewise']['objective']}; "
-      f"GPUs={t['world_size']}, B=2, accumulation={t['gradient_accumulation_steps']}, "
+      f"GPUs={t['world_size']}, B={t['batch_size']}, accumulation={t['gradient_accumulation_steps']}, "
       'K=2, global pairs=192, pair-views=384, steps=10000')
 PY
 rm -rf -- "$SCD_STAGE_TMP"

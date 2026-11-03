@@ -14,5 +14,13 @@ if [[ -n "${SLURM_JOB_ID:-}" ]]; then
 else
   SCD_EXECUTION=standalone
 fi
+if [[ -f "$SCD_OUT/training.json" ]]; then
+  exec "$SCD_PYTHON" "$SCD_ROOT/scripts/resume_batch.py" --run "$SCD_OUT" \
+    --execution "$SCD_EXECUTION" "$@"
+fi
+SCD_BATCH_ARGS=()
+if [[ -n "${SCD_TRAIN_BATCH_SIZE:-}" ]]; then
+  SCD_BATCH_ARGS=(--train_batch_size "$SCD_TRAIN_BATCH_SIZE")
+fi
 exec "$SCD_PYTHON" "$SCD_ROOT/train.py" --config "$SCD_CONFIG" --out "$SCD_OUT" \
-  --execution "$SCD_EXECUTION" --run-label "${SCD_RUN_LABEL:-$(basename -- "$SCD_OUT")}" "$@"
+  --execution "$SCD_EXECUTION" --run-label "${SCD_RUN_LABEL:-$(basename -- "$SCD_OUT")}" "${SCD_BATCH_ARGS[@]}" "$@"

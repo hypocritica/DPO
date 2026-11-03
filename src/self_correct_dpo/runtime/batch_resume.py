@@ -1,4 +1,4 @@
-"""Opt-in SFT batch repartitioning while retaining the original run identity."""
+"""Fixed-global-batch resume for every objective on the batch-resume branch."""
 import copy
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from self_correct_dpo.common import digest, read_json, sha256
 from self_correct_dpo.runtime.storage_compat import compatible_sources
 
 
-ENVIRONMENT_FLAG = 'SCD_ALLOW_SFT_BATCH_RESIZE'
+ENVIRONMENT_FLAG = 'SCD_ALLOW_BATCH_RESIZE'
 
 
 def batch_settings(config):
@@ -19,9 +19,6 @@ def validate_batch_change(original, current):
     old, new = copy.deepcopy(original), copy.deepcopy(current)
     for config in (old, new):
         t = config['training']
-        if (t.get('objective') != 'sft' or t.get('sampling') != 'balanced'
-                or t.get('noise_views') != 1 or t.get('prompt_mode', 'canonical') != 'canonical'):
-            raise ValueError('Batch resizing supports only balanced, canonical, single-view SFT')
         for key in ('batch_size', 'gradient_accumulation_steps'):
             if type(t.get(key)) is not int or t[key] < 1:
                 raise ValueError(f'{key} must be a positive integer')
@@ -37,40 +34,58 @@ def validate_batch_change(original, current):
 
 
 def compatible_batch_sources(recorded, current):
-    # This branch changes only training.py among the fingerprinted sources.
+    # This branch changes the training hook and CLI batch repartitioning.
     # All model, algorithm, data, evaluation and checkpoint code stays checked.
     if not isinstance(recorded, dict) or not isinstance(current, dict) or recorded.keys() != current.keys():
         return False
     adjusted = dict(current)
-    if 'training.py' in recorded:
-        adjusted['training.py'] = recorded['training.py']
+    for name in ('training.py', 'config.py'):
+        if name in recorded:
+            adjusted[name] = recorded[name]
     return compatible_sources(recorded, adjusted)
 
 
 def resume_identity(recorded, current):
     validate_batch_change(recorded['config'], current['config'])
     if not compatible_batch_sources(recorded['code'], current['code']):
-        raise ValueError('Source changed beyond the SFT batch-resume training hook')
+        raise ValueError('Resume training code changed beyond the batch-resume training/config hooks')
     identity = dict(current, config=recorded['config'], code=recorded['code'])
     if digest(identity) != recorded['run_id']:
         raise ValueError('Batch resume changed model, data, validation or other run identity')
     return identity
 
 
+def batch_behavior_notes(config):
+    t = config['training']
+    notes = ['Random-number assignment and floating-point accumulation may change.']
+    if t.get('sampling') != 'balanced':
+        notes.append('Non-balanced sampling may select different future samples after repartitioning.')
+    if t.get('objective') == 'kto':
+        notes.append('KTO estimates its KL baseline per global microbatch; changing B changes this estimate.')
+    if t.get('objective') == 'dspo' and t.get('dspo_recipe') == 'official_sdxl':
+        notes.append('DSPO official_sdxl thresholds depend on the global microbatch prediction-gap mean.')
+    return notes
+
+
 def record_batch_resume(out, recorded, config, code, checkpoint):
     from self_correct_dpo.runtime.checkpoints import atomic_json
     info = read_json(Path(checkpoint) / 'checkpoint.json')
-    report = {'policy': 'sft-fixed-global-batch-v1', 'run_id': recorded['run_id'],
+    report = {'policy': 'all-objectives-fixed-global-batch-v2', 'run_id': recorded['run_id'],
               'checkpoint_id': info['checkpoint_id'], 'start_step': info['step'],
               'original_batch': batch_settings(recorded['config']),
               'active_batch': batch_settings(config), 'active_config': config,
               'original_code': recorded['code'], 'active_code': code,
               'policy_sha256': sha256(__file__),
-              'reproduces_original_random_trajectory': False}
+              'reproduces_original_random_trajectory': False,
+              'behavior_notes': batch_behavior_notes(config)}
     path = Path(out) / ('batch-resume-' + digest(report)[:16] + '.json')
     if path.exists():
         if read_json(path) != report:
             raise ValueError('Batch resume audit changed')
     else:
         atomic_json(path, report)
-    print(f'SFT batch resume: {report["active_batch"]}, step={info["step"]}; audit: {path}', flush=True)
+    print(f'Batch resume ({config["training"]["objective"]}): {report["active_batch"]}, '
+          f'step={info["step"]}; audit: {path}', flush=True)
+    if report['original_batch'] != report['active_batch']:
+        for note in report['behavior_notes']:
+            print(f'Batch change: {note}', flush=True)
