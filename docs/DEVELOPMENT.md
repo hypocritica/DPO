@@ -1,5 +1,18 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-04 用户明确授权独立分支支持增大B后续训现有SFT。分支
+`exp/sft-batch-resume-20261104` 新增 `02_sft_large_batch.sh`，从原training.json取配方，
+默认双卡B8/累积24/全局384，恢复原latest及optimizer/scheduler/各rank RNG/步数。
+只放行balanced canonical K1 SFT的B/累积变化及training.py续训钩子，其余源码、模型、数据、
+验证、卡数、学习率与预算仍检查。原身份和历史评估不重写，另存batch-resume审计和实际B日志。
+原main、严格入口和本机其他worktree未改动。命令见command.md首节。
+
+本轮40项CPU检查通过：新增batch恢复5项、原baseline6项、config19项、storage9项及原连续/
+暂停恢复1项。新增检查覆盖旧training源码身份接续、B2到B4及再次恢复、Adam/scheduler/RNG/
+曝光/原training.json保留、双卡B2/8/16在非零step的全局样本顺序、384预算配置及其他变更拒绝。
+其中双rank CPU/Gloo生产训练流程实际完成2→4→6步，核对两个rank的RNG、Adam步数和学习率
+进度；未加载完整模型、运行GPU训练或测量吞吐。Bash/Python语法和diff空白检查通过。
+
 这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-25。
 
 ## 两台服务器的职责

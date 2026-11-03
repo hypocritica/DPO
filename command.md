@@ -1,3 +1,55 @@
+## 已运行 SFT：中断后提高每卡 B 并继续原进度
+
+专用分支 `exp/sft-batch-resume-20261104` 从已发布 main 创建，保留原 main 启动器。
+新入口显式放行 SFT 的 batch 拆分变更：默认双卡 B=8、累积24，仍为全局384。
+模型、数据、验证面板、算法设置、学习率、总步数和卡数继续按原实验检查；仅允许
+`batch_size`、`gradient_accumulation_steps` 变化，以及本分支的 `training.py` 续训钩子。
+适用原来的 balanced、canonical、K1 SFT，不套用到依赖 microbatch 统计量的 KTO/DSPO。
+
+先在原训练终端按一次 Ctrl+C，等待训练保存并退出，确认原任务所有训练/评估进程已经结束。
+从最近完整 latest 接续；突然强制结束时，最后未提交的更新可能需要重算。无需重新训练基座、
+重建环境或准备数据。新代码放在独立 checkout，原 DPO 目录保留：
+
+```bash
+bash <<'BASH'
+set -eo pipefail
+SCD_BATCH_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume
+git clone --single-branch --branch exp/sft-batch-resume-20261104 \
+  https://github.com/hypocritica/DPO.git "$SCD_BATCH_REPO"
+SCD_OLD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO/configs/resources.local.json
+if [[ -f "$SCD_OLD_RESOURCES" ]]; then
+  cp "$SCD_OLD_RESOURCES" "$SCD_BATCH_REPO/configs/resources.local.json"
+fi
+git -C "$SCD_BATCH_REPO" rev-parse HEAD
+BASH
+```
+
+上面的 clone 仅首次执行。仍在原先已分配的双卡容器中运行：
+
+```bash
+SCD_TRAIN_BATCH_SIZE=8 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/02_sft_large_batch.sh
+```
+
+该命令自动加载原 `dpo` 环境，从
+`$RUNS_ROOT/sd15-sft-k1-p384-2gpu-10000-slai-v1/checkpoints/latest.json` 恢复。
+输出应包含 `batch_size=8`、`gradient_accumulation_steps=24`、`effective_global_batch=384`，
+以及原 checkpoint 的 `step`；后续继续到原10000步，不从0开始。
+若原实验自定义了名字，用相同 `SCD_RUN_NAME=<原实验名>` 前缀；资源覆盖与原容器保持一致。
+
+显存允许可在退出当前训练后将 B 改为16（自动累积12），若OOM则改回8或2后重启同一入口，
+从最近完整 checkpoint 继续。不同 B 的训练不要并发写同一输出。该入口没有自动性能测试，
+直接继续正式预算；比较预热后优化步的耗时，不能按累积次数比推算提速。
+
+原 `training.json` 和冻结配置不改写，权重、Adam、scheduler、步数、曝光统计和各 rank RNG
+从完整 checkpoint 恢复；每次接续写 `batch-resume-*.json` 保存实际配置和源码，逐步日志新增
+`per_device_batch_size`、`gradient_accumulation_steps`。原基座及历史评估复用，后续评估计划保留。
+随机数分配和浮点累加顺序可能变化，恢复进度不等于复现原 batch 的数值轨迹。
+
+`--config-only` 只生成/检查新batch配置；`--check-only` 沿用CPU模型/数据预检；
+`--stop-after-step N` 仍是绝对优化步数。此分支只有专用入口主动开启放行，原入口继续严格检查。
+当前验证使用CPU小模型与真实保存恢复流程，未连接SLAI GPU或测量加速。
+
 ## main统一部署：后续实验使用远程DPO目录
 
 `main`已整合`exp/sd15-baselines-20261102`的SFT/KTO/MaPO/DMPO/DSPO与`exp/stagewise-k6-20261103`的SD1.5双5090、SDXL四5090 K6 Stage-C启动器。后续新实验统一使用`/mnt/afs/L202500030/xietianyu/workspace/DPO`。下方独立exp目录的部署记录保留供旧实验追溯；新实验可把对应命令的checkout前缀换成本节DPO路径，脚本参数与预算相同。
