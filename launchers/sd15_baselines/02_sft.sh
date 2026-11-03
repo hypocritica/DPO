@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# SLAI: SD1.5 winner-only SFT, two allocated RTX 5090 GPUs.
+# Batch-resume branch: retain the original script name when changing checkouts.
 set -eo pipefail
-exec bash "$(dirname -- "${BASH_SOURCE[0]}")/common.sh" sft "$@"
+exec bash "$(dirname -- "${BASH_SOURCE[0]}")/02_sft_large_batch.sh" "$@"

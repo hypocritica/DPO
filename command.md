@@ -1,6 +1,7 @@
 ## 已运行 SFT：中断后提高每卡 B 并继续原进度
 
-专用分支 `exp/sft-batch-resume-20261104` 从已发布 main 创建，保留原 main 启动器。
+专用分支 `exp/sft-batch-resume-20261104` 从已发布 main 创建。本分支的原名
+`launchers/sd15_baselines/02_sft.sh` 直接转到大batch续训入口，只换checkout目录即可。
 新入口显式放行 SFT 的 batch 拆分变更：默认双卡 B=8、累积24，仍为全局384。
 模型、数据、验证面板、算法设置、学习率、总步数和卡数继续按原实验检查；仅允许
 `batch_size`、`gradient_accumulation_steps` 变化，以及本分支的 `training.py` 续训钩子。
@@ -27,8 +28,7 @@ BASH
 上面的 clone 仅首次执行。仍在原先已分配的双卡容器中运行：
 
 ```bash
-SCD_TRAIN_BATCH_SIZE=8 exec bash \
-  /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/02_sft_large_batch.sh
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume/launchers/sd15_baselines/02_sft.sh
 ```
 
 该命令自动加载原 `dpo` 环境，从
@@ -37,7 +37,8 @@ SCD_TRAIN_BATCH_SIZE=8 exec bash \
 以及原 checkpoint 的 `step`；后续继续到原10000步，不从0开始。
 若原实验自定义了名字，用相同 `SCD_RUN_NAME=<原实验名>` 前缀；资源覆盖与原容器保持一致。
 
-显存允许可在退出当前训练后将 B 改为16（自动累积12），若OOM则改回8或2后重启同一入口，
+默认每卡B=8。显存允许可在退出当前训练后用 `SCD_TRAIN_BATCH_SIZE=16 exec bash <同一脚本>`
+改为B16（自动累积12），若OOM则用同一环境变量改回8或2后重启同一入口，
 从最近完整 checkpoint 继续。不同 B 的训练不要并发写同一输出。该入口没有自动性能测试，
 直接继续正式预算；比较预热后优化步的耗时，不能按累积次数比推算提速。
 
@@ -47,7 +48,8 @@ SCD_TRAIN_BATCH_SIZE=8 exec bash \
 随机数分配和浮点累加顺序可能变化，恢复进度不等于复现原 batch 的数值轨迹。
 
 `--config-only` 只生成/检查新batch配置；`--check-only` 沿用CPU模型/数据预检；
-`--stop-after-step N` 仍是绝对优化步数。此分支只有专用入口主动开启放行，原入口继续严格检查。
+`--stop-after-step N` 仍是绝对优化步数。此分支的 `02_sft.sh` 与 `02_sft_large_batch.sh`
+指向同一个续训流程；main和其他基线的入口继续严格检查。
 当前验证使用CPU小模型与真实保存恢复流程，未连接SLAI GPU或测量加速。
 
 ## main统一部署：后续实验使用远程DPO目录

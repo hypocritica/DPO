@@ -5,7 +5,8 @@
 默认双卡B8/累积24/全局384，恢复原latest及optimizer/scheduler/各rank RNG/步数。
 只放行balanced canonical K1 SFT的B/累积变化及training.py续训钩子，其余源码、模型、数据、
 验证、卡数、学习率与预算仍检查。原身份和历史评估不重写，另存batch-resume审计和实际B日志。
-原main、严格入口和本机其他worktree未改动。命令见command.md首节。
+main、其他基线入口和本机其他worktree未改动。本分支的原名`02_sft.sh`也转到大batch续训
+流程，用户仅更换checkout目录即可从原输出latest恢复，默认B8。命令见command.md首节。
 
 本轮40项CPU检查通过：新增batch恢复5项、原baseline6项、config19项、storage9项及原连续/
 暂停恢复1项。新增检查覆盖旧training源码身份接续、B2到B4及再次恢复、Adam/scheduler/RNG/
