@@ -32,6 +32,26 @@ def training_lock(out):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def load_startup_pairs(config, out, *, resume=None, check_only=False, extend_from=None):
+    """On resume, compare saved split fingerprints instead of repeating data audits."""
+    from self_correct_dpo.data.validation import load_training_pairs, load_resume_pairs
+    from self_correct_dpo.runtime.batch_resume import validate_batch_change
+    flag = os.environ.get('SCD_FAST_RESUME', '1')
+    if flag not in ('0', '1'):
+        raise ValueError('SCD_FAST_RESUME must be 0 or 1')
+    data = config['data']
+    fast = bool(resume) and not (check_only or extend_from) and flag == '1' and data.get('validation', 'auto') == 'auto'
+    if fast:
+        recorded = read_json(Path(out).resolve() / 'training.json')
+        validate_batch_change(recorded['config'], config)
+        rows = load_resume_pairs(data['pairs'], pairs_id=recorded.get('pairs_id'),
+                                 validation_pairs_id=recorded.get('validation_pairs_id'))
+    else:
+        rows = load_training_pairs(data['pairs'], mode=data.get('validation', 'auto'),
+            workers=data.get('validation_workers', 8), samples=data.get('validation_samples', 8))
+    return rows, fast
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=str(CONFIG_DIR / 'multiview-C.json'))
@@ -51,15 +71,12 @@ def main():
     if args.print_config:
         print(json.dumps(config, indent=2))
         return
-    from self_correct_dpo.data.validation import load_training_pairs
     with ThreadPoolExecutor(max_workers=2) as executor:
         config_check = executor.submit(validate_config, config)
-        data_check = executor.submit(load_training_pairs, config['data']['pairs'],
-            mode=config['data'].get('validation', 'auto'),
-            workers=config['data'].get('validation_workers', 8),
-            samples=config['data'].get('validation_samples', 8))
+        data_check = executor.submit(load_startup_pairs, config, args.out,
+            resume=args.resume, check_only=args.check_only, extend_from=args.extend_from)
         config = config_check.result()
-        all_rows = data_check.result()
+        all_rows, fast_resume = data_check.result()
     if args.resume == 'latest':
         args.resume = str(Path(args.out).resolve() / 'checkpoints/latest.json')
     if args.stop_after_step is not None and not 1 <= args.stop_after_step <= config["training"]["max_steps"]:
@@ -123,7 +140,9 @@ def main():
     from self_correct_dpo.runtime.distributed import cleanup
     try:
         with training_lock(args.out):
-            result = train(config, rows, args.out, resume=args.resume, extend_from=args.extend_from, execution=execution, validation_rows=validation_rows, stop_after_step=args.stop_after_step)
+            result = train(config, rows, args.out, resume=args.resume, extend_from=args.extend_from,
+                execution=execution, validation_rows=validation_rows, stop_after_step=args.stop_after_step,
+                fast_resume=fast_resume)
     finally:
         cleanup()
     if int(os.environ.get("RANK", "0")) == 0:

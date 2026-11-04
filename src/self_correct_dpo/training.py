@@ -364,7 +364,7 @@ def save_checkpoint(path, backend, optimizer, scheduler, generator, step, run_id
     return info
 
 
-def train(config, rows, out, *, resume=None, extend_from=None, execution=None, backend_factory=None, device="cuda", validation_rows=None, stop_after_step=None):
+def train(config, rows, out, *, resume=None, extend_from=None, execution=None, backend_factory=None, device="cuda", validation_rows=None, stop_after_step=None, fast_resume=False):
     import torch
     import numpy as np
     from self_correct_dpo.algorithms.losses import preference_loss
@@ -379,6 +379,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         raise ValueError('stop_after_step must be an integer between 1 and configured max_steps')
     if resume and extend_from:
         raise ValueError("Choose resume or extend_from")
+    if fast_resume and not resume:
+        raise ValueError('Fast data loading requires an existing run and resume checkpoint')
     # This experimental branch allows fixed-global-batch repartitioning on
     # every resume; it still validates model/data and all other settings.
     batch_resize = bool(resume)
@@ -394,7 +396,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         if world > 1:
             dist.barrier()
         resume = resolve_checkpoint(resume)
-    check_rows(rows, config)
+    if not fast_resume:
+        check_rows(rows, config)
     out = Path(out).resolve()
     if t.get("world_size", world) != world:
         raise ValueError("Launched world size differs from the training configuration")
@@ -468,7 +471,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                 record_compatibility(out, recorded['code'], observed_code)
             if batch_resize:
                 from self_correct_dpo.runtime.batch_resume import record_batch_resume
-                record_batch_resume(out, recorded, config, observed_code, resume)
+                record_batch_resume(out, recorded, config, observed_code, resume, fast_resume=fast_resume)
     elif rank == 0 and out.exists():
         raise FileExistsError(f"Use a fresh output directory: {out}")
     np.random.seed(config["seed"])

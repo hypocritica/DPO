@@ -1,5 +1,18 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-04 按用户要求创建独立 `exp/fast-data-resume-20261104` 分支与工作目录，旧 main 和
+batch-resume checkout 不修改。已有实验默认用训练/验证行的原始运行指纹代替重复数据预检，
+仍需读取清单并规范化路径；严格匹配原 pairs_id/validation_pairs_id 后才略过 schema、来源、
+split 巡检和启动抽图，训练消费图片的校验及完整恢复保持。test-only 改动不属于快速路径覆盖。
+运行时 SCD_FAST_RESUME=0 恢复原流程，首次/check-only/extend/显式full不启用快速路径；
+不改冻结配置或旧 training.json。入口和loader源码仅允许精确旧SHA到本版SHA的迁移，
+审计记录实际源码和 startup_data_checks。独立部署及续训命令见 command.md 首节。
+
+本轮53项CPU测试通过：数据加载17、batch恢复10、baseline6、配置19、暂停/连续恢复1。
+包含零启动图片/完整schema检查、数据变更拒绝、Arrow/符号链接规范化、入口模式选择、
+精确源码版本兼容、改B续训和双rank Gloo状态恢复；Python语法与diff空白检查通过。
+未提交GPU作业，未测量远端清单加载耗时或训练吞吐。
+
 2026-11-04 用户要求同一batch-resume分支开放全部方法。默认所有resume允许保持全局batch的
 B/累积变更，移除SFT/canonical/K1限制；其余配置、模型数据、验证和checkpoint完整性继续检查。
 源码兼容放行本分支training.py/config.py钩子，并在每次接续记录完整实际源码与配置。

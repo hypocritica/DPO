@@ -1,4 +1,52 @@
-## 当前 batch-resume 分支：所有方法都允许改 B 接续原训练
+## 独立 fast-data-resume 分支：续训跳过重复数据预检
+
+分支 `exp/fast-data-resume-20261104` 从 batch-resume 分支独立创建，保留所有方法改 B 接续的能力。
+部署到新目录 `DPO-fast-data-resume`，不要在正在运行的 `DPO` 或 `DPO-sft-batch-resume` 目录切换分支。
+
+```bash
+SCD_FAST_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO-fast-data-resume
+git clone --single-branch --branch exp/fast-data-resume-20261104 \
+  https://github.com/hypocritica/DPO.git "$SCD_FAST_REPO"
+# 私有资源配置沿用当前运行所用的那一份；有自定义 SCD_RESOURCES 时继续保留。
+# 填当前实验正在使用的代码目录；KTO 的 B4 续训可填 DPO-sft-batch-resume。
+SCD_PREVIOUS_REPO=/mnt/afs/L202500030/xietianyu/workspace/DPO
+if [[ -f "$SCD_PREVIOUS_REPO/configs/resources.local.json" ]]; then
+  cp "$SCD_PREVIOUS_REPO/configs/resources.local.json" "$SCD_FAST_REPO/configs/resources.local.json"
+fi
+```
+
+复制源码不影响旧进程。真正接续同一实验前，先让旧训练/评估正常保存退出；保留原实验名、
+`RUNS_ROOT`、GPU 数和资源覆盖。下面每条分别在该实验原来已分配的容器中执行：
+
+```bash
+# DMPO K1：从原 sd15_final 实验 latest 恢复，B8，累积自动换算。
+SCD_TRAIN_BATCH_SIZE=8 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-fast-data-resume/launchers/sd15_final/03_dmpo.sh
+
+# DSPO K1：对应原 sd15_final 实验。
+SCD_TRAIN_BATCH_SIZE=8 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-fast-data-resume/launchers/sd15_final/01_dspo.sh
+
+# KTO：保留已使用的 B4。
+SCD_TRAIN_BATCH_SIZE=4 exec bash \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-fast-data-resume/launchers/sd15_baselines/01_kto.sh
+```
+
+所有原启动器都可用，只替换 checkout 前缀，保留脚本的分组与文件名。已有 `training.json`
+和完整 checkpoint 时默认启用快速数据加载：仍读取 JSONL 并按旧规则规范化训练/验证行，
+其顺序和全部字段的 SHA256 必须与原 `pairs_id` / `validation_pairs_id` 完全一致，然后跳过
+重复 schema、来源、split 巡检和启动图片抽查。日志显示 `data_resume_load` 和
+`data_resume_identity`；读取清单是训练所必需的，不会变成零加载时间。test split 不参与续训，
+快速路径不重新审查 test-only 改动。实际训练读取图片时仍校验内容 SHA256 / Arrow shard 身份。
+配置、模型、源码、依赖、checkpoint、优化器、scheduler、各 rank RNG 及评估流程继续核对。
+
+首次训练、`--check-only`、extend 和原配方显式指定 `data.validation=full` 时保留原检查。
+若旧清单缺少指纹或需要重新审计，在原启动命令前加 `SCD_FAST_RESUME=0` 即可，不改变训练
+配方或已有 `training.json`。快速续训状态写入 `batch-resume-*.json` 的 `startup_data_checks`。
+
+以下为继承的 batch-resume 及历史部署说明；使用本功能时以本节的新 checkout 为准。
+
+## batch-resume：所有方法都允许改 B 接续原训练
 
 分支仍为 `exp/sft-batch-resume-20261104`，远程代码目录仍使用
 `/mnt/afs/L202500030/xietianyu/workspace/DPO-sft-batch-resume`；目录名字保留，但功能已覆盖

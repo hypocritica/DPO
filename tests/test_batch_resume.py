@@ -21,7 +21,7 @@ import torch
 from self_correct_dpo.common import read_json, sha256
 from self_correct_dpo.config import load_config, add_training_arguments, training_config
 from self_correct_dpo.runtime.batch_resume import (
-    ENVIRONMENT_FLAG, compatible_batch_sources, validate_batch_change, batch_behavior_notes)
+    ENVIRONMENT_FLAG, FAST_RESUME_SOURCES, compatible_batch_sources, validate_batch_change, batch_behavior_notes)
 from self_correct_dpo.runtime.checkpoints import resolve_checkpoint
 from self_correct_dpo.training import sample_batch, train
 from tests.test_stage_pause import ToyBackend
@@ -108,7 +108,10 @@ class BatchResume(unittest.TestCase):
             # Simulate the published source identity before this training hook.
             real_sha256 = sha256
             def original_source(path):
-                return 'published-training-source' if Path(path).name == 'training.py' else real_sha256(path)
+                name = Path(path).name
+                if name == 'training.py':
+                    return 'published-training-source'
+                return FAST_RESUME_SOURCES[name][0] if name in FAST_RESUME_SOURCES else real_sha256(path)
             with patch('self_correct_dpo.training.sha256', side_effect=original_source):
                 self.run_training(old, rows, out, stop_after_step=2)
             original_metadata = (out / 'training.json').read_bytes()
@@ -117,9 +120,12 @@ class BatchResume(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'only batch_size'):
                 self.run_training(invalid, rows, out, resume=out / 'checkpoints/latest.json')
             with patch.dict(os.environ, {ENVIRONMENT_FLAG: '1'}):
-                with self.assertRaisesRegex(ValueError, 'model, data, validation'):
-                    self.run_training(new, list(reversed(rows)), out, resume=out / 'checkpoints/latest.json')
-                first = self.run_training(new, rows, out, resume=out / 'checkpoints/latest.json', stop_after_step=4)
+                with patch('self_correct_dpo.training.check_rows', side_effect=AssertionError('Repeated row audit')):
+                    with self.assertRaisesRegex(ValueError, 'model, data, validation'):
+                        self.run_training(new, list(reversed(rows)), out,
+                                          resume=out / 'checkpoints/latest.json', fast_resume=True)
+                    first = self.run_training(new, rows, out, resume=out / 'checkpoints/latest.json',
+                                              stop_after_step=4, fast_resume=True)
                 resumed = self.run_training(new, rows, out, resume=out / 'checkpoints/latest.json')
             reference = self.run_training(old, rows, root / 'reference')
             self.assertEqual((first['step'], resumed['step']), (4, 6))
@@ -137,6 +143,8 @@ class BatchResume(unittest.TestCase):
                                            b['optimizer']['state'][0][key], rtol=1e-5, atol=1e-8)
             audits = [read_json(path) for path in out.glob('batch-resume-*.json')]
             self.assertEqual(sorted(a['start_step'] for a in audits), [2, 4])
+            self.assertEqual(next(a for a in audits if a['start_step'] == 2)['startup_data_checks'],
+                             'saved-train-validation-fingerprints')
             self.assertTrue(all(a['active_batch']['batch_size'] == 4 for a in audits))
             records = [json.loads(line) for path in out.glob('metrics-*.jsonl')
                        for line in path.read_text().splitlines()]
@@ -163,6 +171,18 @@ class BatchResume(unittest.TestCase):
         old_code = {'training.py': 'old', 'models.py': 'model'}
         self.assertTrue(compatible_batch_sources(old_code, dict(old_code, **{'training.py': 'new'})))
         self.assertFalse(compatible_batch_sources(old_code, {'training.py': 'new', 'models.py': 'changed'}))
+
+    def test_fast_loader_compatibility_accepts_only_reviewed_source_hashes(self):
+        from self_correct_dpo.common import source_file
+        old = {name: versions[0] for name, versions in FAST_RESUME_SOURCES.items()}
+        current = {name: sha256(source_file(name)) for name in old}
+        self.assertEqual(current, {name: versions[1] for name, versions in FAST_RESUME_SOURCES.items()})
+        self.assertTrue(compatible_batch_sources(old, current))
+        self.assertTrue(compatible_batch_sources(current, current))
+        for name in old:
+            with self.subTest(name=name):
+                self.assertFalse(compatible_batch_sources(old, dict(current, **{name: 'unreviewed-source'})))
+                self.assertFalse(compatible_batch_sources(dict(old, **{name: 'unreviewed-source'}), current))
 
     def test_balanced_global_samples_match_after_nonzero_step(self):
         rows = [{'pair_id': str(i), 'prompts': [{'variant_id': 'canonical', 'prompt': str(i)}]}

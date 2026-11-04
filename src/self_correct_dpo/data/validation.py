@@ -8,12 +8,84 @@ from pathlib import Path
 import random
 import time
 
-from self_correct_dpo.common import sha256
-from self_correct_dpo.data.pairs import validate_pair_rows, validate_split_disjointness
+from self_correct_dpo.common import digest, sha256
+from self_correct_dpo.data.pairs import semantic_scene_key, validate_pair_rows, validate_split_disjointness
 
 
 def _valid_sha(value):
     return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+
+
+def load_resume_pairs(path, *, pairs_id, validation_pairs_id):
+    """Reload normalized train/validation rows with the saved identities.
+
+    This still reads the whole manifest, but does not repeat schema/source/split
+    audits or read image bytes. Test rows are ignored; consumed images retain
+    their normal checksum checks. Only use identities from the original run.
+    """
+    if not _valid_sha(pairs_id) or not _valid_sha(validation_pairs_id):
+        raise ValueError('Resume requires valid pairs_id and validation_pairs_id')
+    path = Path(path).expanduser().resolve()
+    if (path.name == 'pairs.jsonl' and (path.parent / 'preparing.json').is_file()
+            and not (path.parent / 'ready.json').is_file()):
+        raise ValueError('Data preparation is incomplete: ready.json is missing; finish preparation first')
+    started = time.monotonic()
+    last_log = started
+    rank = os.environ.get('RANK', 'coordinator')
+
+    def progress(count, *, force=False):
+        nonlocal last_log
+        now = time.monotonic()
+        if force or now - last_log >= 10:
+            print(json.dumps({'phase': 'data_resume_load', 'read_rows': count,
+                              'rank': rank, 'elapsed_seconds': round(now-started, 1)}), flush=True)
+            last_log = now
+
+    progress(0, force=True)
+    before = path.stat()
+    rows, train_rows, validation_rows = [], [], []
+    count, skipped_test = 0, 0
+    with path.open('rb') as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            count += 1
+            split = row.get('split')
+            if split not in ('train', 'validation', 'test'):
+                raise ValueError(f'Invalid split: {split!r}')
+            if split == 'test':
+                skipped_test += 1
+            else:
+                storage = row.get('storage', {})
+                if storage.get('kind') == 'arrow':
+                    shard = Path(storage['shard']).expanduser().absolute()
+                    for side in ('winner', 'loser'):
+                        expected = f"{shard}#row={storage['row']}:{storage[side + '_column']}"
+                        if row[side] != expected:
+                            raise ValueError('Arrow image identity does not match storage descriptor')
+                else:
+                    for side in ('winner', 'loser'):
+                        image = Path(row[side]).expanduser()
+                        row[side] = os.path.abspath(path.parent / image)
+                row['semantic_scene_key'] = semantic_scene_key(row)
+                rows.append(row)
+                (train_rows if split == 'train' else validation_rows).append(row)
+            if count % 10000 == 0:
+                progress(count)
+    after = path.stat()
+    fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    if any(getattr(before, key) != getattr(after, key) for key in fields):
+        raise ValueError('Pair manifest changed while reading')
+    if digest(train_rows) != pairs_id:
+        raise ValueError('Resume training pairs identity mismatch')
+    if digest(validation_rows) != validation_pairs_id:
+        raise ValueError('Resume validation pairs identity mismatch')
+    print(json.dumps({'phase': 'data_resume_identity', 'train_pairs': len(train_rows),
+                      'validation_pairs': len(validation_rows), 'skipped_test_pairs': skipped_test,
+                      'checked_images': 0, 'rank': rank,
+                      'elapsed_seconds': round(time.monotonic()-started, 1)}), flush=True)
+    return rows
 
 
 def _parallel_check(images, workers, progress):
