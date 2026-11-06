@@ -1,3 +1,188 @@
+# SLAI Flow paper-v2 部署
+
+本轮完整 clone、独立环境、SLAI 路径核对、HPDv3 准备/一次审计与20个编号训练入口见 [docs/FLOW_SLAI.md](docs/FLOW_SLAI.md)。发布分支为 `feat/flow-stagewise-slai-20261107`；默认使用 `configs/resources-slai-flow.json`，SD3.5 路径为 `/mnt/aoss/xietianyu/models/sd3.5-medium`。编号入口在 SLAI 自动加载独立 `mvpo-flow` 环境，复用 `reports/slai/` 的远程一次模型验证报告。此前本地处理中数据快照不能用作远程 passed 凭据。
+
+## 新实验：Flow Stagewise / Global 论文对照
+
+本轮新实验使用独立源码目录 `/irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo-flow-stagewise`。
+正在准备数据和已提交作业继续使用旧 `self_correct_dpo-flow`，下方旧记录供追溯。
+
+- [实验矩阵、分段与硬件选项](docs/FLOW_STAGEWISE.md)：`launchers/sd35/` 默认四卡5090，`launchers/zimage/` 默认双A800；可选双H100/A800。
+- [本地资源配置与启动命令](docs/LOCAL_STAGEWISE.md)：复用现有资产，新实验使用独立输出。
+- [HPDv3一次性审计及可复用凭据](docs/FLOW_DATA_AUDIT.md)：数据准备完成后认证一次，后续训练只读passed报告及少量身份绑定。
+- 模型验证入口为 `scripts/validate_flow_model.py`；本地静态报告为 `reports/sd35-model-validation.json` 与 `reports/zimage-model-validation.json`。
+
+新入口统一使用 `paper-v2`，每400步永久保留完整checkpoint用于eval，每200步维护最新完整恢复状态。
+不额外启用policy EMA；Linear-DPO保留算法reference EMA。ZImage四5090必须显式选择BF16权重变体，不能直接续训FP32实验。
+数据处理中快照 `reports/hpdv3-review-20261107.json` 不是passed训练凭据；新脚本不会绕过尚未完成的数据准备。
+
+## 本地双A800：Z-Image DPO / MVPO / LinearDPO
+
+2026-11-07更新：环境已完成；数据准备从manager串行进程交接至CPU作业 **65774**（compute-1、4 CPU、16GB、无GPU）。旧提取及其cat/控制进程确认退出后才开启交接标记，已提取图片保留。当前看 `logs/local-a800/prepare-parallel-65774.log`；成功后由此作业释放65766/65767，65770依赖不变。加速实现和再次交接命令见本文末尾；下面保留先前部署记录。
+
+交接后实测：compute-1上的两块数据盘为本地块设备挂载，绕过manager的NFS路径；38646张已有图片全部复用。新任务扫描到39000→42000张用时39.6秒，此段3000张均为新增落盘，平均约75.8张/秒（各1000张窗口63.6～99.4张/秒）；这是迁移节点与并行I/O的合计效果，不是单独线程数的对照实验。此时仍在提取，后续全量校验和GPU训练尚未完成。
+
+2026-11-06用户确认每组两张、共四张A800并行。环境与数据均在manager tmux准备：`flow-env-a800`安装环境，`flow-data-a800`并行处理数据。DPO作业65766、MVPO作业65767各申请cluster-1、2×A800、8 CPU、96GB RAM、4天。DPO/MVPO暂时hold，由数据tmux在环境和数据都成功后自动release。LinearDPO作业65770已提交（相同资源），依赖after:65766：DPO启动后即可调度，不等DPO训练完成；实际开始时间由Slurm决定。
+
+本地配置在`configs/local-a800-resources.json`，复用已下载Z-Image和PickScore，独立环境`.venv-flow-a800`由现有code环境克隆，保留torch2.6/cu124/torchvision0.21；旧环境不改。数据只从现有HPDv3分卷提取五来源子集及官方test隔离所需图像，输出`data/hpdv3-sub-v1`，两组共用64条validation面板。计算节点离线安装所需wheel保存在`.cache/flow-wheels`。Conda也设置`CONDA_OFFLINE=true`，复用现有包缓存。原65760因Conda联网代理失败，65761/65762随依赖失败取消，未开始训练；按用户要求，环境安装改在登录节点tmux会话`flow-env-a800`执行，日志为`logs/local-a800/environment-tmux-65768.log`；原65765已取消。用户进一步要求数据也在manager tmux执行，65768已取消。`flow-data-a800`使用只读code环境并行提取和筛选，日志为`logs/local-a800/data-tmux.log`。独立入口为`launchers/flow/local/setup_a800_env.sh`与`launchers/flow/local/prepare_a800_data.sh`。
+
+```bash
+# 查看本人队列与共用准备日志
+squeue -u "$USER"
+tail -f logs/local-a800/environment-tmux-65768.log
+# 另一个终端查看数据进度
+tail -f logs/local-a800/data-tmux.log
+# 训练开始后
+# tail -f logs/local-a800/train-65766.log
+# tail -f logs/local-a800/train-65767.log
+# tail -f logs/local-a800/train-65770.log
+```
+
+两组3200步、B2/累积32/global128 pairs；DPO K1，MVPO K2。每200步更新最新完整恢复状态，每400步永久保留完整checkpoint（含optimizer/RNG），固定点不随latest清理。八点评估不变，其他评估点继续保留LoRA；评估分段结束也保存latest以衔接训练。`checkpoints/latest.json`可指向固定完整`step-*`目录，也可指向临时滚动`resume-*`目录。
+
+如果作业时限到达或中断，重新提交对应脚本会自动latest续训；尚在运行/排队时不要重复提交：
+
+```bash
+sbatch --job-name=zimage-dpo launchers/flow/local/train_zimage_a800.sbatch dpo
+sbatch --job-name=zimage-mvpo launchers/flow/local/train_zimage_a800.sbatch mvpo
+```
+
+## 当前优先：直接做效果验证
+
+按 [正式训练入口](docs/FLOW_QUICKSTART.md) 执行：独立 `mvpo-flow` 环境、两骨干各DPO/MVPO/Linear/SFT共八组配方，**默认跑满3200步**；评估200/400/800/1300/1800/2300/2800/3200及基座。双H100默认SD35 B4、ZImage B2，四5090 SD35 B1，均全局128对；首次预检后复用，关闭重复扫描与热循环诊断。环境一键安装见 `scripts/bootstrap_flow_env.sh`；双H100用 `launchers/flow/01_sd35_dpo.sh` 至 `08_zimage_sft.sh`，四5090用 `launchers/flow/sd35_4x5090.sh <dpo|mvpo|linear_dpo|sft>`。不要求先完成下方smoke矩阵。
+
+新增SFT从各自基座独立训练，仅学习winner的flow速度MSE，每步128张winner，评估日程不变。Z-Image是否从HPDv3-sub获益的判断见[分析说明](docs/ZIMAGE_HPDV3_ASSESSMENT.md)。已有实验保持原checkout；新包v4用于新实验。
+
+```bash
+# 已分配的双H100容器中，每行一个独立实验
+bash launchers/flow/07_sd35_sft.sh
+bash launchers/flow/08_zimage_sft.sh
+# 四5090，仅SD3.5M
+bash launchers/flow/sd35_4x5090.sh sft
+# 一个骨干的四方法配对比较；读取已有评估，无额外生成
+python scripts/summarize_flow_runs.py "$SFT_RUN" "$DPO_RUN" "$MVPO_RUN" "$LINEAR_RUN" \
+  --reference-run "$DPO_RUN" --out logs/flow-four-methods-v1.csv
+```
+
+下方保留通用配置与可选排障命令；其中手工环境名 `dpo-flow` 仍可使用，但当前快捷入口默认新环境名为 `mvpo-flow`。
+
+## Flow：SD3.5 Medium / Z-Image Base（独立开发 worktree）
+
+实现、公式、依赖来源与验证边界见 [docs/FLOW.md](docs/FLOW.md)。旧实验继续用原 checkout 和环境恢复；新flow目录为 `/irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo-flow`。以下训练/生成命令只在**已经分配的Slurm计算节点或SLAI容器**执行，本轮没有提交训练或安装依赖。
+
+远程先克隆独立环境，保留已验证的torch/CUDA/NCCL。检查磁盘后才克隆（可能写入超过1GB）；此段由用户在目标服务器执行：
+
+```bash
+source /mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh
+# 先核实实际挂载及空间，目标环境应位于本人可写卷。
+df -h /mnt/afs/L202500030/xietianyu/miniconda3 /mnt/aoss/xietianyu
+conda create --name dpo-flow --clone dpo
+conda activate dpo-flow
+python -m pip freeze | rg -i '^(torch|torchvision|torchaudio|nvidia[-_])' > flow-gpu-runtime.constraints.txt
+python -m pip install -r requirements-flow.txt -c flow-gpu-runtime.constraints.txt
+# 在克隆环境更新本项目editable元数据/路径，不重新解析GPU依赖。
+python -m pip install --no-deps -e .
+python -m pip check
+python scripts/check_flow_environment.py --family zimage
+python -m pip freeze > flow-environment.freeze.txt
+```
+
+本地已有模型复用路径如下。把同名值写入本人 `configs/resources.local.json`；远程应按实际挂载覆盖，公共AOSS ZImage目录尚未核实。不要下载第二份模型。
+
+```json
+{
+  "SD35_MODEL": "/irip_16t_0/xietianyu_2024/model/stabilityai/stable-diffusion-3.5-medium",
+  "ZIMAGE_MODEL": "/irip/xietianyu_2024/workspace/sources/models/Z-Image",
+  "HPDV3_RAW": "/irip_16t_0/xietianyu_2024/datasets/hpdv3",
+  "HPDV3_SUB_PREPARED": "/irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo-flow/data/hpdv3-sub-v1",
+  "MONITOR_PROMPTS_FLOW": "/irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo-flow/data/flow-monitor-v1.jsonl"
+}
+```
+
+数据全量扫描/校验放计算资源。`HPDV3_REVISION`和`MODEL_REVISION`分别填实际可追溯的dataset/model源版本；模型存在完整下载receipt时可省略`--model-revision`。
+
+```bash
+# metadata-only只生成筛选记录/统计/哈希，不可用于训练；不是必需的重复预处理。
+python scripts/prepare_hpdv3_sub.py --raw "$HPDV3_RAW" --out data/hpdv3-sub-selection-v1 --revision "$HPDV3_REVISION" --metadata-only
+# 真正训练清单；保留原路径与path1优选标签，不按原图1024额外过滤。
+python scripts/prepare_hpdv3_sub.py --raw "$HPDV3_RAW" --out data/hpdv3-sub-v1 --revision "$HPDV3_REVISION"
+python scripts/prepare_flow_monitor.py --pairs data/hpdv3-sub-v1/pairs.jsonl --out data/flow-monitor-v1.jsonl --count 128 --seed 17
+```
+
+先单卡两步smoke验证真实模型加载、forward/backward和checkpoint，再在双卡新smoke run中暂停/恢复。`--smoke`保留1024分辨率但将累积降为1、每步保存、关闭评估，不能据此宣称正式预算性能已验证。
+
+```bash
+# 只生成/检查CPU配置，可在登录节点做；不加载模型。
+bash launchers/flow/train.sh --family sd35_medium --algorithm mvpo --profile h100 --world-size 4 --run-tag inspect-v1 --config-only
+
+# 以下必须在已分配GPU资源中。Slurm默认--execution slurm。
+bash launchers/flow/train.sh --family sd35_medium --algorithm dpo --profile h100 --world-size 1 --smoke --run-tag sd35-single-v1 --model-revision "$MODEL_REVISION"
+bash launchers/flow/train.sh --family zimage --algorithm linear_dpo --profile h100 --world-size 1 --smoke --run-tag zimage-single-v1 --model-revision "$ZIMAGE_REVISION"
+
+# 双卡smoke暂停于step1；随后同命令/同tag去掉stop参数，自动latest恢复至step2。
+bash launchers/flow/train.sh --family sd35_medium --algorithm linear_dpo --profile h100 --world-size 2 --smoke --run-tag sd35-resume-v1 --model-revision "$MODEL_REVISION" --stop-after-step 1
+bash launchers/flow/train.sh --family sd35_medium --algorithm linear_dpo --profile h100 --world-size 2 --smoke --run-tag sd35-resume-v1 --model-revision "$MODEL_REVISION"
+```
+
+SLAI在上述命令末尾显式加 `--execution standalone --run-label <本次已分配资源标签>`；这不申请资源，也不绕过本集群Slurm规则。启动器默认使用当前Python；需要自动激活独立环境可设置 `SCD_FLOW_CONDA_SH=/mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh`、`SCD_FLOW_ENV=dpo-flow`，或设置`SCD_FLOW_PYTHON`。
+
+正式pilot均默认3200更新、B1、lr5e-6、warmup200、每200完整保存、周期生成评估；首次正式运行前应完成上述GPU检查。以下只给运行入口，本轮未执行：
+
+```bash
+# 等pair-view：DPO/Linear global128 pairs；MVPO K2 global64 pairs。
+bash launchers/flow/train.sh --family sd35_medium --algorithm dpo --profile 5090 --world-size 2 --beta 500 --run-tag dpo-b500-v1 --model-revision "$MODEL_REVISION"
+bash launchers/flow/train.sh --family sd35_medium --algorithm mvpo --profile h100 --world-size 4 --views 2 --beta 2000 --run-tag mvpo-b2000-v1 --model-revision "$MODEL_REVISION"
+bash launchers/flow/train.sh --family zimage --algorithm linear_dpo --profile h100 --world-size 2 --beta 500 --ema-decay .995 --linear-eta .01 --run-tag linear-b500-v1 --model-revision "$ZIMAGE_REVISION"
+# 等pair对照global128，MVPO K2时pair-view=256。
+bash launchers/flow/train.sh --family sd35_medium --algorithm mvpo --profile h100 --world-size 2 --budget-unit pairs --budget 128 --run-tag mvpo-pairs128-v1 --model-revision "$MODEL_REVISION"
+# 原定义stagewise：每pair选段、K个view段内独立；index边界不是sigma=.5。
+bash launchers/flow/train.sh --family sd35_medium --algorithm mvpo --profile h100 --world-size 2 --views 2 --stagewise --stage-boundary 500 --run-tag mvpo-stage-v1 --model-revision "$MODEL_REVISION"
+```
+
+LR/seed可在新run用`--learning-rate 1e-6 --seed 29`覆盖；调试可`--no-evaluation`。同tag任何配置改变都会拒绝，续训保持相同卡数、配置、源码、依赖与路径/模型身份。每服务器用独立run/tag。外部驱逐后重新申请到资源，再执行原命令即自动latest；没有完整checkpoint的旧尝试会保留为interrupted目录。源码更新后不拿新代码续旧实验。
+
+固定生成入口（在已分配GPU上；`FROZEN_CONFIG`指run_flow输出的实际config路径，`ADAPTER_DIR`指完整checkpoint或独立快照内部的`adapter`目录）：
+
+```bash
+python scripts/generate_flow.py --training-config "$FROZEN_CONFIG" --prompts data/flow-monitor-v1.jsonl --out runs/flow-base-eval-v1 --seed 17
+python scripts/generate_flow.py --training-config "$FROZEN_CONFIG" --adapter "$ADAPTER_DIR" --prompts data/flow-monitor-v1.jsonl --out runs/flow-aligned-eval-v1 --seed 17
+# 中断后同参数加--resume。支持--steps、--guidance-scale以及CPU --check-only。
+```
+
+生成输出沿用原manifest/journal/AOSS原子发布与恢复；Linear生成只加载policy LoRA，不使用EMA reference。训练自动评估默认使用同面板PickScore，1000步保留图；实际评分模型兼容性仍需新环境GPU验证。
+
+
+## SDXL：双H100分别直接训练及中断恢复
+
+三个独立入口，每次在一个已分配两张H100的容器中选择一条；脚本自动激活原来的`dpo` Conda环境并加载资源表。DMPO K6沿用前述K6 Stage-C。直接正式训练，不自动运行smoke、部署自检或启动图片抽查；按用户要求关闭基座生成评估，保留200、500、1000……步及最终步的生成评估。清单加载、配置/恢复身份和实际消费图片时的校验仍保留；这不是一次完整图片审计。
+
+```bash
+# SDXL DMPO K1，两张H100。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sdxl_h100/01_dmpo.sh
+```
+
+```bash
+# SDXL DMPO + K6 Stage-C，两张H100。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sdxl_h100/02_dmpo_k6_stage.sh
+```
+
+```bash
+# SDXL DSPO K1，两张H100。
+exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO/launchers/sdxl_h100/03_dspo.sh
+```
+
+| 方法 | 每卡B | 累积 | 每步pairs | 每步pair-views | 输出目录名 |
+|---|---:|---:|---:|---:|---|
+| DMPO K1 | 1 | 96 | 192 | 192 | `sdxl-dmpo-pv192-2h100-10000-v1` |
+| DMPO K6 Stage-C | 1 | 16 | 32 | 192 | `sdxl-dmpo-k6-stage-pv192-2h100-10000-v1` |
+| DSPO K1 | 1 | 96 | 192 | 192 | `sdxl-dspo-pv192-2h100-10000-v1` |
+
+三组均1024、BF16、seed17、10000优化步、LR1e-5、LoRA rank/alpha16；沿用DMPO beta6000/alpha.01及DSPO official_sdxl/beta2000/阈值.1。每200步原子保存完整状态（LoRA、optimizer、scheduler、各rank RNG），每1000步额外保留LoRA。输出位于资源表的`RUNS_ROOT`，默认`/mnt/aoss/xietianyu/self_correct/runs`；冻结配置在checkout的`configs/local-<输出目录名>.json`，控制台日志在`logs/sdxl-h100-<方法>.txt`。
+
+**中断或断电后重新分配两张H100，直接重跑同一条命令。** 自动恢复未完成的checkpoint提交事务，再从`checkpoints/latest.json`继续。训练已完成、最终评估未完成时继续补评估；全部完成则退出。首个完整checkpoint之前断电时无法恢复尚未保存的更新，脚本保留原尝试为`.interrupted-时间戳-随机标识`目录并从基座重新开始，不覆盖原产物。TERM/INT沿启动链转发给子进程；平台立即强杀或断电仍只能恢复最近完整保存点，常规最多重算不足200步，checkpoint写入期间被打断可能回到前一个保存点。
+
+启动新重复实验用`--run-tag v2`（恢复时继续带相同tag）；计划暂停可追加`--stop-after-step 2`，恢复时去掉。`--config-only`只生成冻结配置，不加载模型训练。H100入口使用新名字，不能承接原四卡5090实验；同一实验固定双卡、代码、环境和资源身份。新代码需部署到远程DPO目录后才能使用本节命令，不更新仍需恢复的旧实验checkout。
+
 ## main统一部署：后续实验使用远程DPO目录
 
 `main`已整合`exp/sd15-baselines-20261102`的SFT/KTO/MaPO/DMPO/DSPO与`exp/stagewise-k6-20261103`的SD1.5双5090、SDXL四5090 K6 Stage-C启动器。后续新实验统一使用`/mnt/afs/L202500030/xietianyu/workspace/DPO`。下方独立exp目录的部署记录保留供旧实验追溯；新实验可把对应命令的checkout前缀换成本节DPO路径，脚本参数与预算相同。
@@ -1446,3 +1631,18 @@ python scripts/make_config.py --family sd15 --objective dmpo --method dpo \
 沿用 `evaluate.py --run <训练输出> --step <保留步数>`，SD1.5使用 `configs/evaluate.json`，SDXL使用 `configs/evaluate-sdxl.json`。`--benchmarks hpdv2 pickapic partiprompts`、`--metrics pickscore hpsv2 image_reward`可选择同一评估集合，实际可用键以 `python evaluate.py --help` 和评分配置为准。固定生成seed、prompt、scheduler和CFG；单独保存每个方法的结果。新目标使用相同LoRA保存格式，不需要另写生成器。
 
 本节代码检查仅在CPU完成；不代表真实大模型训练、生成评估或性能已验证，也未自动启动正式实验。
+
+# 本地 HPDv3 数据准备加速（2026-11-07）
+
+`extract_hpdv3_sub.py --workers 4` 单路读取拼接 gzip，使用 1MiB tar 缓冲、最多 64MiB/16 个待写任务和4个写入线程；已完成且大小匹配的图片复用，目录只创建一次，最终凭据在所有写入成功后原子保存。`prepare_hpdv3_sub.py --workers 4` 对唯一图片分批并行校验，一次读取完成格式验证和 SHA256；筛选、标签和 seed17 划分不变。每1000张或30秒记录进度及近期速度。gzip 恢复仍需要从头扫描，不会从压缩分片直接跳转。
+
+计算节点接管已有串行提取的入口（4 CPU、16GB、无GPU、4天）：
+
+```bash
+cd /irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo-flow
+sbatch launchers/flow/local/prepare_parallel_a800.sbatch 65766 65767
+# 仅在新作业 RUNNING、旧提取及其 cat 子进程均已退出后创建交接标记：
+# touch logs/local-a800/handoff-<新作业ID>.ready
+```
+
+新作业最多等待交接10分钟；未获得交接标记不会写数据。成功完成提取、筛选及64条评估面板后，核实环境已就绪且训练作业仍属于本账号并处于hold，再释放参数指定的训练作业。LinearDPO继续沿用已有的DPO启动依赖。旧日志保留；新日志为 `logs/local-a800/prepare-parallel-<jobid>.log`。重复运行前检查是否已有准备任务，不能与旧版无锁提取器同时写同一目录。

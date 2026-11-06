@@ -1,0 +1,9 @@
+{
+  "training": {
+    "objective": "linear_dpo",
+    "reference_mode": "ema",
+    "ema_decay": 0.995,
+    "linear_eta": 0.01,
+    "diagnostic": null
+  }
+}

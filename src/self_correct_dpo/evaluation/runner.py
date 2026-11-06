@@ -100,17 +100,20 @@ def prune_images(out):
 
 def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampling, out, *, step=None,
                         keep_images=True, execution=None, expected_prompts=None, check_only=False,
-                        command_runner=run_command):
-    inputs=validate_evaluation(prompts,scorers_config,metrics,expected_prompts=expected_prompts)
-    model_id=model_artifact_identity(model)
+                        command_runner=run_command, preflight=None):
+    inputs=preflight['inputs'] if preflight else validate_evaluation(prompts,scorers_config,metrics,expected_prompts=expected_prompts)
+    model_id=preflight['base_identity'] if preflight else model_artifact_identity(model)
     config={'model':model,'sampling':sampling}
     arm='base'
     if adapter:
         adapter=Path(adapter).resolve()
         arm='aligned'
-        config['aligned']={'kind':'peft','path':str(adapter),'revision':digest(artifact_identity(adapter))}
+        config['aligned']={'kind':'peft','path':str(adapter),'revision':
+            f'checkpoint-step-{step}' if preflight else digest(artifact_identity(adapter))}
+    if preflight:
+        config['preflight']=preflight
     identity={'inputs':inputs,'config':config,'base_identity':model_id,'step':step,
-              'keep_images':keep_images,'code_sha256':{name:sha256(source_file(name))
+              'keep_images':keep_images,'code_sha256':preflight['code_sha256'] if preflight else {name:sha256(source_file(name))
               for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py')}}
     meta={'identity':identity,'evaluation_id':digest(identity)}
     out=Path(out).resolve()
@@ -146,8 +149,10 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
     for metric in metrics:
         target=out/'scores'/metric
         spec=inputs.get('scorers',{}).get(metric,{}).get('spec',{})
-        command_runner([spec.get('python') or sys.executable,'-m','self_correct_dpo.evaluation.metrics','--run',str(render),
-            '--out',str(target),'--scorers-config',str(Path(scorers_config).resolve()),'--metric',metric,*extra])
+        command=[spec.get('python') or sys.executable,'-m','self_correct_dpo.evaluation.metrics','--run',str(render),
+            '--out',str(target),'--scorers-config',str(Path(scorers_config).resolve()),'--metric',metric,*extra]
+        if preflight:command+=['--preflight',str(out/'render-config.json')]
+        command_runner(command)
         scores[metric]=read_json(target/'summary.json')
     summary={'evaluation_id':meta['evaluation_id'],'step':step,'prompts':inputs['prompts'],
              'images':inputs['prompts']*len(sampling['seeds']),'metrics':scores,'images_retained':keep_images}

@@ -20,4 +20,6 @@ checkpoints/
 configs/local*.json
 configs/local*.jsonl
 configs/resources.local.json
+configs/resources-*.local.json
+/reports/
 wandb/

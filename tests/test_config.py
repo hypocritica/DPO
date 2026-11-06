@@ -25,6 +25,21 @@ def compose(*arguments, template='multiview-C.json'):
 
 
 class GaussianConfigTests(unittest.TestCase):
+    def test_flow_objective_switch_clears_reference_and_diagnostics(self):
+        for family in ('sd35_medium', 'zimage'):
+            for objective,old in (('dpo','linear_dpo'),('linear_dpo','dpo')):
+                c=compose('--objective',objective,template=f'flow/{family}-{old}.json')
+                validate_config(c,files=False)
+                self.assertFalse(c['training']['diagnostic'])
+                if objective=='dpo':
+                    self.assertEqual(c['training'].get('reference_mode','base'),'base')
+                    self.assertNotIn('ema_decay',c['training'])
+                    self.assertNotIn('linear_eta',c['training'])
+                else:
+                    self.assertEqual(c['training']['reference_mode'],'ema')
+                    self.assertEqual(c['training']['ema_decay'],.995)
+                    self.assertEqual(c['training']['linear_eta'],.01)
+
     def test_sdxl_all_methods_keep_resolution_and_global_batch_on_2_4_8_gpus(self):
         for method in ('dpo', 'multiview-B', 'multiview-C',
                        'multiview-B-gaussian', 'multiview-C-gaussian'):
@@ -68,7 +83,10 @@ class GaussianConfigTests(unittest.TestCase):
         self.assertEqual(config['data']['validation_workers'], 4)
         self.assertEqual(config['data']['validation_samples'], 16)
         validate_config(config, files=False)
-        for key, value in (('validation', 'none'), ('validation_workers', 0), ('validation_samples', False)):
+        no_images = compose('--data-validation', 'none')
+        self.assertEqual(no_images['data']['validation'], 'none')
+        validate_config(no_images, files=False)
+        for key, value in (('validation', 'unknown'), ('validation_workers', 0), ('validation_samples', False)):
             invalid = copy.deepcopy(config)
             invalid['data'][key] = value
             with self.assertRaises(ValueError):

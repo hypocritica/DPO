@@ -1,0 +1,11 @@
+# Targeted model API lock for a CLONED dpo-flow environment, Python>=3.10.
+# Keep verified torch2.14.1/cu130, torchvision, CUDA and NCCL runtime.
+# Metadata compatibility checked; GPU/import integration not yet validated.
+diffusers==0.37.1
+transformers==4.57.1
+peft==0.17.1
+accelerate==1.14.0
+huggingface-hub==0.36.0
+safetensors==0.7.0
+sentencepiece==0.2.1
+tokenizers==0.22.2

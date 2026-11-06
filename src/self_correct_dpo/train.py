@@ -51,21 +51,27 @@ def main():
     if args.print_config:
         print(json.dumps(config, indent=2))
         return
-    from self_correct_dpo.data.validation import load_training_pairs
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        config_check = executor.submit(validate_config, config)
-        data_check = executor.submit(load_training_pairs, config['data']['pairs'],
-            mode=config['data'].get('validation', 'auto'),
-            workers=config['data'].get('validation_workers', 8),
-            samples=config['data'].get('validation_samples', 8))
-        config = config_check.result()
-        all_rows = data_check.result()
+    preflight = None
+    if config['training'].get('preflight') == 'once':
+        from self_correct_dpo.training import load_preflight
+        preflight = load_preflight(config, args.out)
+        all_rows = None
+    else:
+        from self_correct_dpo.data.validation import load_training_pairs
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            config_check = executor.submit(validate_config, config)
+            data_check = executor.submit(load_training_pairs, config['data']['pairs'],
+                mode=config['data'].get('validation', 'auto'),
+                workers=config['data'].get('validation_workers', 8),
+                samples=config['data'].get('validation_samples', 8))
+            config = config_check.result()
+            all_rows = data_check.result()
     if args.resume == 'latest':
         args.resume = str(Path(args.out).resolve() / 'checkpoints/latest.json')
     if args.stop_after_step is not None and not 1 <= args.stop_after_step <= config["training"]["max_steps"]:
         parser.error('--stop-after-step must be between 1 and configured max_steps')
-    rows = [r for r in all_rows if r["split"] == "train"]
-    validation_rows = [r for r in all_rows if r["split"] == "validation"]
+    rows = preflight['rows'] if preflight else [r for r in all_rows if r["split"] == "train"]
+    validation_rows = preflight['validation_rows'] if preflight else [r for r in all_rows if r["split"] == "validation"]
     if config["data"].get("require_human_preference") and not validation_rows:
         raise ValueError("Human baseline needs a nonempty independent validation split")
     monitored = config.get('evaluation',{}).get('enabled',False)
@@ -78,13 +84,14 @@ def main():
     monitor_identity=None
     if monitored and not args.internal_stage:
         from self_correct_dpo.runtime.pipeline import monitor_preflight
-        monitor_identity=monitor_preflight(config,rows)
+        monitor_identity=preflight['monitor_identity'] if preflight else monitor_preflight(config,rows)
     if Path(args.out).exists() and not args.resume:
         raise FileExistsError(args.out)
     print(json.dumps({"family": config["model"]["family"], "objective": config["training"]["objective"],
                      "training_pairs": len(rows), "steps": config["training"]["max_steps"], "seed": config["seed"]}))
     if args.check_only:
-        check_rows(rows, config)
+        if preflight is None:
+            check_rows(rows, config)
         return
     execution = {"mode": args.execution, "run_label": args.run_label}
     require_gpu_allocation(execution)
@@ -104,7 +111,7 @@ def main():
             atomic_json(config_path, config)
             result=run_pipeline(config,config_path,args.out,execution=execution,
                 resume=args.resume,extend_from=args.extend_from,stop_after_step=args.stop_after_step,
-                monitor_identity=monitor_identity)
+                monitor_identity=monitor_identity, preflight=preflight)
         print(json.dumps(result))
         if not result['complete'] and not result.get('planned_pause',False): raise SystemExit(75)
         return
@@ -123,7 +130,7 @@ def main():
     from self_correct_dpo.runtime.distributed import cleanup
     try:
         with training_lock(args.out):
-            result = train(config, rows, args.out, resume=args.resume, extend_from=args.extend_from, execution=execution, validation_rows=validation_rows, stop_after_step=args.stop_after_step)
+            result = train(config, rows, args.out, resume=args.resume, extend_from=args.extend_from, execution=execution, validation_rows=validation_rows, stop_after_step=args.stop_after_step, preflight=preflight)
     finally:
         cleanup()
     if int(os.environ.get("RANK", "0")) == 0:

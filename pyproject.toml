@@ -5,20 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "self-correct-dpo"
 version = "0.1.0"
-description = "Portable SD1.5/SDXL preference experiments with detached rollout and view averaging"
+description = "Portable diffusion/flow LoRA preference experiments with view averaging"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "torch>=2.14.1,<2.15", "diffusers>=0.33.1,<0.34", "transformers>=4.45.2,<4.54",
-  "peft>=0.10,<0.11", "numpy>=1.26,<2", "Pillow>=10.4,<11",
+  "torch>=2.3,<3", "diffusers>=0.33.1,<0.38", "transformers>=4.45.2,<4.58",
+  "peft>=0.10,<0.18", "numpy>=1.26,<2", "Pillow>=10.4,<11",
   "accelerate>=0.34,<2", "safetensors>=0.4", "tensorboard>=2.19,<2.20",
   "protobuf>=5.29,<6"
 ]
 
 [project.optional-dependencies]
+flow = ["diffusers==0.37.1", "transformers==4.57.1", "peft==0.17.1", "accelerate==1.14.0",
+        "huggingface-hub==0.36.0", "tokenizers==0.22.2", "safetensors==0.7.0", "sentencepiece==0.2.1"]
 tracking = ["wandb>=0.17,<1"]
 arrow = ["datasets>=3.3,<4", "pyarrow>=19"]
-evaluation = ["torchvision>=0.29.1,<0.30", "timm>=0.9", "ftfy", "regex", "einops", "webdataset", "matplotlib>=3.7,<4", "PyYAML>=6"]
+evaluation = ["torchvision>=0.18,<1", "timm>=0.9", "ftfy", "regex", "einops", "webdataset", "matplotlib>=3.7,<4", "PyYAML>=6"]
 
 [project.scripts]
 self-correct-train = "self_correct_dpo.train:main"

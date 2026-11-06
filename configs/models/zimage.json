@@ -1,0 +1,39 @@
+{
+  "model": {
+    "family": "zimage",
+    "path": "${ZIMAGE_MODEL}",
+    "revision": "FILL_VERIFIED_MODEL_REVISION",
+    "max_sequence_length": 256,
+    "transformer_dtype": "float32",
+    "prompt_truncation": "truncate"
+  },
+  "data": {
+    "pairs": "${HPDV3_SUB_PREPARED}/pairs.jsonl"
+  },
+  "training": {
+    "resolution": 1024,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 64,
+    "world_size": 2,
+    "max_steps": 3200,
+    "learning_rate": 5e-06,
+    "beta": 500,
+    "warmup_steps": 200,
+    "weight_decay": 0.01,
+    "diagnostic": null,
+    "offload_frozen": true,
+    "launcher": "torchrun"
+  },
+  "evaluation": {
+    "prompts": "${MONITOR_PROMPTS_FLOW}",
+    "sampling": {
+      "scheduler": "FlowMatchEulerDiscreteScheduler",
+      "height": 1024,
+      "width": 1024,
+      "num_inference_steps": 50,
+      "guidance_scale": 4.0,
+      "cpu_offload": true,
+      "max_sequence_length": 256
+    }
+  }
+}

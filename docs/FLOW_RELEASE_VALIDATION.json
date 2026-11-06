@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "kind": "implementation_validation_summary_not_asset_receipt",
+  "status": "cpu_verified_target_slai_gpu_not_run",
+  "branch": "feat/flow-stagewise-slai-20261107",
+  "baseline_commit": "c2cdb78c0403cc84d46b62f855750cd64b5ab83f",
+  "cpu_tests": [
+    {
+      "suite": "test_flow.py",
+      "passed": 10,
+      "scope": "flow math, actual tiny PEFT EMA, gradients, two-rank Gloo optimizer/RNG resume"
+    },
+    {
+      "suite": "test_flow_stagewise.py",
+      "passed": 2,
+      "scope": "actual Diffusers shift3/6, boundaries250/500/750, 24000 pairs x K4; marginal, joint sampling, replay, physical metric names"
+    },
+    {
+      "suite": "test_flow_model_validation.py",
+      "passed": 5,
+      "scope": "component/tokenizer completeness, safetensors headers/indexes, repeatable identity, inventory-stat startup refusal, failed revalidation revokes old passed report"
+    },
+    {
+      "suite": "test_flow_receipts.py",
+      "passed": 5,
+      "scope": "data/model schema/path/stat/config binding, hardware/budget/EMA/retention configuration"
+    },
+    {
+      "suite": "test_flow_data_audit.py",
+      "passed": 4,
+      "scope": "prepared source/split/label certificate, incomplete refusal and changed manifest refusal"
+    },
+    {
+      "suite": "test_preflight_once.py",
+      "passed": 5,
+      "scope": "first-preflight reuse, objective/restore equivalence, eight-point monitor, same-path reissued dataset/model identity drift refusal"
+    },
+    {
+      "suite": "test_fixed_full_checkpoints.py",
+      "passed": 2,
+      "scope": "400 permanent and 200 latest, interrupted transaction recovery and retention"
+    },
+    {
+      "suite": "test_flow_sft.py",
+      "passed": 3,
+      "scope": "winner-only flow encoding/loss/input reads/budget and resume"
+    }
+  ],
+  "distinct_core_cpu_tests_passed": 36,
+  "independent_final_review_tests_rerun_passed": 15,
+  "launcher_validation": {
+    "validation_tier": "CPU shell-to-real-run_flow config-only; no model/GPU execution",
+    "combinations": [
+      {
+        "file": "launchers/sd35/01_dpo_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/01_dpo_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/01_dpo_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/02_linear_dpo_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/02_linear_dpo_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/02_linear_dpo_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/03_sft_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/03_sft_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/03_sft_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/04_global_mvpo_k2_pairs128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/04_global_mvpo_k2_pairs128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/04_global_mvpo_k2_pairs128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/sd35/05_global_mvpo_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/05_global_mvpo_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/05_global_mvpo_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/06_global_mvpo_k4_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 4,
+        "accumulation": 8
+      },
+      {
+        "file": "launchers/sd35/06_global_mvpo_k4_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/06_global_mvpo_k4_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 4,
+        "accumulation": 8
+      },
+      {
+        "file": "launchers/sd35/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/09_global_mvpo_B_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/09_global_mvpo_B_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/09_global_mvpo_B_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/10_stagewise_mvpo_k2_boundary250.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/10_stagewise_mvpo_k2_boundary250.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/10_stagewise_mvpo_k2_boundary250.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/11_stagewise_mvpo_k2_boundary750.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/sd35/11_stagewise_mvpo_k2_boundary750.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/sd35/11_stagewise_mvpo_k2_boundary750.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/01_dpo_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/01_dpo_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/01_dpo_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/02_linear_dpo_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/02_linear_dpo_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/02_linear_dpo_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/03_sft_k1.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 1,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/03_sft_k1.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/03_sft_k1.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 1,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/04_global_mvpo_k2_pairs128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/04_global_mvpo_k2_pairs128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/04_global_mvpo_k2_pairs128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 64
+      },
+      {
+        "file": "launchers/zimage/05_global_mvpo_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/05_global_mvpo_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/05_global_mvpo_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/06_global_mvpo_k4_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 4,
+        "accumulation": 8
+      },
+      {
+        "file": "launchers/zimage/06_global_mvpo_k4_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/06_global_mvpo_k4_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/07_stagewise_mvpo_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 4,
+        "accumulation": 8
+      },
+      {
+        "file": "launchers/zimage/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/08_stagewise_mvpo_k4_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 4,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/09_global_mvpo_B_k2_views128.sh",
+        "profile": "5090",
+        "world_size": 4,
+        "views": 2,
+        "accumulation": 16
+      },
+      {
+        "file": "launchers/zimage/09_global_mvpo_B_k2_views128.sh",
+        "profile": "h100",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      },
+      {
+        "file": "launchers/zimage/09_global_mvpo_B_k2_views128.sh",
+        "profile": "a800",
+        "world_size": 2,
+        "views": 2,
+        "accumulation": 32
+      }
+    ],
+    "profile_defaults": 2,
+    "custom_resource_and_report_override": true,
+    "frozen_seed_mutation_rejected": true,
+    "invalid_cli_cases_rejected": 4,
+    "nounset_conda_hook_activation": true,
+    "slai_environment_installed": false,
+    "slai_assets_verified": false
+  },
+  "experiment_matrix": {
+    "families": [
+      "sd35_medium",
+      "zimage"
+    ],
+    "entries_per_family": 9,
+    "sd35_optional_boundary_entries": [
+      250,
+      750
+    ],
+    "defaults": {
+      "sd35_medium": {
+        "gpus": 4,
+        "profile": "5090",
+        "weights": "bfloat16"
+      },
+      "zimage": {
+        "gpus": 2,
+        "profile": "a800",
+        "weights": "float32"
+      }
+    },
+    "alternate_profiles": {
+      "5090": 4,
+      "h100": 2,
+      "a800": 2
+    },
+    "zimage_5090_requires_explicit_bfloat16": true,
+    "standard_pair_views": 128,
+    "fixed_pairs_mvpo_k2": {
+      "pairs": 128,
+      "pair_views": 256
+    },
+    "pairs_per_update_equal_views": {
+      "K1": 128,
+      "K2": 64,
+      "K4": 32
+    },
+    "microbatch_per_gpu": 1,
+    "steps": 3200
+  },
+  "stagewise": {
+    "axis": "static_flow_schedule_index",
+    "boundary": 500,
+    "stage_probabilities": [
+      0.5,
+      0.5
+    ],
+    "sampling": "one stage per pair, all views iid inside stage; winner/loser share each view time/noise",
+    "nonmedian_probability": "boundary / num_train_timesteps",
+    "loss": "softplus(-mean_K(preference_logits))",
+    "flow_metric_labels": [
+      "stage_high_noise_*",
+      "stage_low_noise_*"
+    ],
+    "legacy_low_stage_mask_preserved": true
+  },
+  "checkpointing": {
+    "rolling_full_every": 200,
+    "retained_full_every": 400,
+    "automatic_eval": [
+      0,
+      200,
+      400,
+      800,
+      1300,
+      1800,
+      2300,
+      2800,
+      3200
+    ],
+    "additional_eval_points_keep_adapter": true,
+    "all_400_points_automatic_eval": false,
+    "atomic_state_optimizer_scheduler_each_rank_rng": true
+  },
+  "ema": {
+    "extra_policy_ema": false,
+    "linear_dpo_algorithm_reference_ema": true,
+    "linear_reference_decay": 0.995
+  },
+  "startup": {
+    "data_certificate_required_for_paper_v2": true,
+    "model_certificate_required_for_paper_v2": true,
+    "no_implicit_rescan_on_receipt_failure": true,
+    "initial_manifest_parse_required_for_dataloader": true,
+    "repeated_schema_label_split_image_audits": false,
+    "manifest_identity_from_receipt": true,
+    "consume_time_image_sha256": true,
+    "run_preflight_reused_across_ranks_stages_resume": true,
+    "model_existing_inventory_stat_checked": true,
+    "failed_model_revalidation_revokes_passed_receipt": true,
+    "cached_preflight_identity_drift_refused": true
+  },
+  "target_server": {
+    "paths_from_user_directory_listing": true,
+    "connected_to_slai_container": false,
+    "environment_installed": false,
+    "real_assets_verified": false,
+    "gpu_training_run": false
+  },
+  "asset_receipts": "Generate model and data receipts once on the target server. This implementation summary does not authorize training and is not a passed asset receipt.",
+  "published_artifacts": "Source, launchers, configs, tests and documentation only; no weights, datasets, logs, checkpoints or local asset receipts.",
+  "limitations": [
+    "No GPU training, GPU memory, throughput, or generated quality validated.",
+    "ZImage BF16 on four 32GB 5090 cards is a separate precision variant and may still exceed memory.",
+    "Model validation reads headers/configs and file metadata, not all tensor payloads; SD35 upstream revision is unverified local inventory.",
+    "HPDv3 extraction/preparation was active; no passed dataset certificate was invented. Run one audit after ready/audit/extraction complete."
+  ]
+}

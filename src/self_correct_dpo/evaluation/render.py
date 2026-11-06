@@ -27,7 +27,8 @@ from self_correct_dpo.runtime.storage_compat import compatible_sources, record_c
 
 FAMILIES = {"sd15": ("StableDiffusionPipeline", "DDIMScheduler", "unet"),
             "sdxl": ("StableDiffusionXLPipeline", "EulerDiscreteScheduler", "unet"),
-            "sd35_medium": ("StableDiffusion3Pipeline", "FlowMatchEulerDiscreteScheduler", "transformer")}
+            "sd35_medium": ("StableDiffusion3Pipeline", "FlowMatchEulerDiscreteScheduler", "transformer"),
+            "zimage": ("ZImagePipeline", "FlowMatchEulerDiscreteScheduler", "transformer")}
 
 
 @contextmanager
@@ -51,6 +52,8 @@ def model_spec(config):
         result={"family": model.get("family", "sdxl"), "path": model["path"],
                 "revision": model["revision"]}
         if model.get('vae'):result['vae']=dict(model['vae'])
+        for key in ('transformer_dtype', 'max_sequence_length', 'prompt_truncation', 'validation_report'):
+            if key in model: result[key] = model[key]
         return result
     return {"family": "sdxl", "path": config["base_model"],
             "revision": config.get("base_revision")}
@@ -58,7 +61,7 @@ def model_spec(config):
 
 def effective_sampling(config):
     sampling = dict(config["sampling"])
-    if model_spec(config)["family"] == "sd35_medium":
+    if model_spec(config)["family"] in {"sd35_medium", "zimage"}:
         model_length = config.get("model", {}).get("max_sequence_length")
         if model_length is not None and "max_sequence_length" in sampling and model_length != sampling["max_sequence_length"]:
             raise ValueError("model and sampling max_sequence_length disagree")
@@ -92,9 +95,11 @@ def validate_adapter_backend(path, model, sampling, component):
     from self_correct_dpo.architecture import same_vae_revision
     if not same_vae_revision(trained,model):
         raise ValueError('Adapter/render VAE revision mismatch')
-    if model["family"] == "sd35_medium":
+    if model["family"] in {"sd35_medium", "zimage"}:
         if trained.get("max_sequence_length", 256) != sampling["max_sequence_length"]:
             raise ValueError("Adapter/render T5 max_sequence_length mismatch")
+        if trained.get('prompt_truncation','error') != sampling.get('prompt_truncation','error'):
+            raise ValueError('Adapter/render prompt truncation policies differ')
         if backend.get("error_parameterization") != "flow_velocity_mse_uniform_schedule_index":
             raise ValueError("SD3.5 adapter was not trained with the supported flow velocity parameterization")
     elif backend.get("error_parameterization") not in {"diffusion_epsilon_mse", "diffusion_v_prediction_mse"}:
@@ -115,7 +120,7 @@ def validate_config(config, arm):
         raise ValueError(f"Unsupported scheduler for {model['family']}: {sampling['scheduler']}")
     if sampling["dtype"] not in {"bfloat16", "float16", "float32"}:
         raise ValueError("Unsupported dtype")
-    multiple = 16 if model["family"] == "sd35_medium" else 8
+    multiple = 16 if model["family"] in {"sd35_medium", "zimage"} else 8
     for name in ("height", "width"):
         if type(sampling[name]) is not int or sampling[name] < 64 or sampling[name] % multiple:
             raise ValueError(f"Image dimensions must be at least 64 and multiples of {multiple}")
@@ -127,7 +132,7 @@ def validate_config(config, arm):
     if not isinstance(sampling["negative_prompt"], str):
         raise ValueError("negative_prompt must be a string")
     max_length = sampling.get("max_sequence_length", 256)
-    if model["family"] == "sd35_medium":
+    if model["family"] in {"sd35_medium", "zimage"}:
         if type(max_length) is not int or not 1 <= max_length <= 512:
             raise ValueError("SD3 max_sequence_length must be an integer in [1, 512]")
     elif "max_sequence_length" in sampling:
@@ -190,17 +195,33 @@ def select_shard(suite, index=0, count=1):
 
 def check_dependencies(family, peft=False):
     names = ["torch", "diffusers", "transformers", "safetensors"]
-    if family == "sd35_medium":
-        names += ["sentencepiece"]
+    if family in {"sd35_medium", "zimage"}:
+        names += ["sentencepiece", "accelerate", "huggingface-hub", "tokenizers"]
     if peft or importlib.util.find_spec("peft") is not None:
         names += ["peft"]
-    missing = [name for name in names if importlib.util.find_spec(name) is None]
+    missing = [name for name in names if importlib.util.find_spec(name.replace("-", "_")) is None]
     if missing:
         raise RuntimeError("Missing render dependencies: " + ", ".join(missing))
     return {name: importlib.metadata.version(name) for name in names}
 
 
 def check_prompt_lengths(pipe, suite, sampling, family):
+    if family == 'zimage':
+        policy=sampling.get('prompt_truncation','error')
+        if policy not in ('error','truncate'):
+            raise ValueError('prompt_truncation must be error or truncate')
+        records=[(f"{r['scene_id']} / {r['variant_id']}", r['prompt']) for r in suite]
+        records.append(('negative_prompt',sampling['negative_prompt']))
+        truncated=[]
+        limit=sampling.get('max_sequence_length',256)
+        for label,prompt in records:
+            text=pipe.tokenizer.apply_chat_template([{'role':'user','content':prompt}],
+                tokenize=False,add_generation_prompt=True,enable_thinking=True)
+            length=len(pipe.tokenizer(text,truncation=False).input_ids)
+            if length>limit:
+                if policy=='error':raise ValueError(f'Prompt truncation in Qwen3: {label} ({length} > {limit})')
+                truncated.append({'prompt':label,'tokenizer':'Qwen3_chat','tokens':length,'limit':limit})
+        return truncated
     tokenizers = [("CLIP-1", pipe.tokenizer, pipe.tokenizer.model_max_length)]
     if family != "sd15":
         tokenizers.append(("CLIP-2", pipe.tokenizer_2, pipe.tokenizer_2.model_max_length))
@@ -224,6 +245,15 @@ def check_prompt_lengths(pipe, suite, sampling, family):
     return truncated
 
 
+def cast_vae_decode_input(vae):
+    """SD3 pipeline does not cast its BF16 final latent before FP32 VAE decode."""
+    decode = vae.decode
+    def decode_in_vae_dtype(sample, *args, **kwargs):
+        return decode(sample.to(dtype=vae.dtype), *args, **kwargs)
+    vae.decode = decode_in_vae_dtype
+    return vae
+
+
 def load_pipeline(config, arm, torch, *, device='cuda'):
     import diffusers
     model = model_spec(config)
@@ -232,14 +262,23 @@ def load_pipeline(config, arm, torch, *, device='cuda'):
     if model['family']=='sd15' and config['sampling'].get('safety_checker')=='disabled':
         kwargs.update(safety_checker=None, requires_safety_checker=False)
     if arm == "aligned" and config["aligned"]["kind"] == component:
-        cls = diffusers.UNet2DConditionModel if component == "unet" else diffusers.SD3Transformer2DModel
+        cls = diffusers.UNet2DConditionModel if component == "unet" else (diffusers.ZImageTransformer2DModel if model["family"] == "zimage" else diffusers.SD3Transformer2DModel)
         kwargs[component] = cls.from_pretrained(config["aligned"]["path"], **kwargs)
     if model["family"] == "sdxl":
         kwargs["add_watermarker"] = False
         if model.get('vae'):
             kwargs['vae']=diffusers.AutoencoderKL.from_pretrained(model['vae']['path'],
                 local_files_only=True,torch_dtype=getattr(torch,config['sampling']['dtype']))
+    if model['family'] in ('sd35_medium', 'zimage'):
+        kwargs['vae'] = diffusers.AutoencoderKL.from_pretrained(model['path'], subfolder='vae',
+            local_files_only=True, torch_dtype=torch.float32)
+    if model['family'] == 'zimage' and component not in kwargs:
+        kwargs['transformer'] = diffusers.ZImageTransformer2DModel.from_pretrained(model['path'],
+            subfolder='transformer', local_files_only=True,
+            torch_dtype=getattr(torch, model.get('transformer_dtype', 'float32')))
     pipe = getattr(diffusers, pipeline_name).from_pretrained(model["path"], **kwargs)
+    if model['family'] == 'sd35_medium':
+        cast_vae_decode_input(pipe.vae)
     if arm == "aligned" and config["aligned"]["kind"] == "peft":
         from peft import PeftModel
         denoiser = PeftModel.from_pretrained(getattr(pipe, component), config["aligned"]["path"],
@@ -253,7 +292,10 @@ def load_pipeline(config, arm, torch, *, device='cuda'):
         module = getattr(pipe, name, None)
         if module is not None:
             module.eval()
-    pipe.to(device)
+    if config['sampling'].get('cpu_offload', False):
+        pipe.enable_model_cpu_offload(device=device)
+    else:
+        pipe.to(device)
     pipe.set_progress_bar_config(disable=True)
     return pipe
 
@@ -395,14 +437,14 @@ def commit_image(image, root, run, record, manifest):
     return record
 
 
-def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_identity, model_identity, suite_indices=None):
+def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_identity, model_identity, suite_indices=None, source_identity=None):
     run = read_json(root / "run.json")
     if run["run_id"] != digest({k: v for k, v in run.items() if k != "run_id"}):
         raise ValueError("Run metadata checksum mismatch")
     wanted = {"config": config, "arm": arm, "suite": suite, "suite_id": digest(suite),
               "full_suite_id": full_suite_id, "shard": shard, "suite_indices": suite_indices, "base_identity": base_identity,
-              "model_identity": model_identity, "render_sha256": sha256(__file__),
-              "common_sha256": sha256(source_file("common.py"))}
+              "model_identity": model_identity, "render_sha256": source_identity["render.py"] if source_identity else sha256(__file__),
+              "common_sha256": source_identity["common.py"] if source_identity else sha256(source_file("common.py"))}
     for key, value in wanted.items():
         if run.get(key) != value:
             if key == 'render_sha256' and compatible_sources({'render.py': run.get(key)}, {'render.py': value}):
@@ -427,7 +469,8 @@ def main():
     if args.execution == "standalone" and not args.run_label:
         parser.error("--execution standalone requires --run-label")
     config, full_suite = load_config(args.config), load_suite(args.prompts)
-    model = validate_config(config, args.arm)
+    preflight = config.get('preflight')
+    model = model_spec(config) if preflight else validate_config(config, args.arm)
     suite = select_shard(full_suite, args.shard_index, args.shard_count)
     selected_scenes = {row["scene_id"] for row in suite}
     suite_indices = [i for i, row in enumerate(full_suite) if row["scene_id"] in selected_scenes]
@@ -440,14 +483,16 @@ def main():
         raise FileNotFoundError(f"Resume directory does not exist: {out}")
     sampling = effective_sampling(config)
     expected = len(suite) * len(sampling["seeds"])
-    base_identity = model_artifact_identity(model)
-    model_identity = base_identity if args.arm == "base" else artifact_identity(config["aligned"]["path"])
+    base_identity = preflight['base_identity'] if preflight else model_artifact_identity(model)
+    model_identity = (base_identity if args.arm == 'base' else
+        config['aligned'] if preflight else artifact_identity(config['aligned']['path']))
     run = None
     records = []
     if args.resume:
         run = validate_resume_run(out, config=config, arm=args.arm, suite=suite,
                                   full_suite_id=digest(full_suite), shard=shard,
-                                  base_identity=base_identity, model_identity=model_identity, suite_indices=suite_indices)
+                                  base_identity=base_identity, model_identity=model_identity, suite_indices=suite_indices,
+                                  source_identity=preflight["code_sha256"] if preflight else None)
         records, _ = read_resume_manifest(out, run)
         if (out / "complete.json").exists():
             verify_images(out)
@@ -486,12 +531,13 @@ def main():
                "scheduler_config": scheduler_config, "versions": versions, "execution": execution,
                "truncated_prompts":truncated, "gpu": torch.cuda.get_device_name(), "hostname": socket.gethostname(),
                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "expected_images": expected,
-               "render_sha256": sha256(__file__), "common_sha256": sha256(source_file("common.py"))}
+               "render_sha256": preflight["code_sha256"]["render.py"] if preflight else sha256(__file__),
+               "common_sha256": preflight["code_sha256"]["common.py"] if preflight else sha256(source_file("common.py"))}
         run["run_id"] = digest(run)
         out.mkdir(parents=True, exist_ok=False)
         write_json(out / "run.json", run)
     with render_lock(out):
-        if args.resume:
+        if args.resume and not preflight:
             record_compatibility(out, {'render.py': run['render_sha256']}, {'render.py': sha256(__file__)})
         if (out / "complete.json").exists():
             verify_images(out)
@@ -523,7 +569,7 @@ def main():
                               "num_inference_steps": sampling["num_inference_steps"],
                               "guidance_scale": sampling["guidance_scale"],
                               "generator": torch.Generator("cuda").manual_seed(seed)}
-                    if model["family"] == "sd35_medium":
+                    if model["family"] in {"sd35_medium", "zimage"}:
                         kwargs["max_sequence_length"] = sampling.get("max_sequence_length", 256)
                     torch.cuda.synchronize()
                     image_started = time.perf_counter()

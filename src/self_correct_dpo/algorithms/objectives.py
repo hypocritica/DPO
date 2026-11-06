@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 
 
-BASELINE_OBJECTIVES = frozenset({'sft', 'mapo', 'kto', 'dmpo', 'dspo'})
+BASELINE_OBJECTIVES = frozenset({'sft', 'mapo', 'kto', 'dmpo', 'dspo', 'linear_dpo'})
 
 
 def _positive(name, value, allow_zero=False):
@@ -117,7 +117,7 @@ def dspo_loss(values, beta, *, aggregation='B', recipe=None, sdxl_threshold=0.1,
 def baseline_loss(values, objective, beta, *, aggregation='B', dmpo_alpha=0.01,
                   mapo_beta=0.1, mapo_snr=0.5, num_train_timesteps=1000,
                   kto_desirable_weight=1.0, kto_undesirable_weight=1.0, kto_kl=None,
-                  dspo_recipe=None, dspo_sdxl_threshold=0.1, dspo_gap_mean=None):
+                  dspo_recipe=None, dspo_sdxl_threshold=0.1, dspo_gap_mean=None, linear_eta=.1):
     """Return scalar loss and detached metrics from [B,K,winner/loser] errors.
 
     DMPO and DSPO support K>1: B averages per-view losses; C uses the mean
@@ -131,7 +131,7 @@ def baseline_loss(values, objective, beta, *, aggregation='B', dmpo_alpha=0.01,
         raise ValueError(f'Unknown baseline objective: {objective}')
     if aggregation not in ('B', 'C'):
         raise ValueError('aggregation must be B or C')
-    errors, refs = _errors(values, reference=objective in ('kto', 'dmpo', 'dspo'))
+    errors, refs = _errors(values, reference=objective in ('kto', 'dmpo', 'dspo', 'linear_dpo'))
     if objective not in ('dmpo', 'dspo') and errors.shape[1] != 1:
         raise ValueError('SFT, MaPO and KTO baseline require K=1')
     metrics = {'policy_error': errors.mean().detach(), 'winner_error': errors[..., 0].mean().detach()}
@@ -142,7 +142,19 @@ def baseline_loss(values, objective, beta, *, aggregation='B', dmpo_alpha=0.01,
         metrics['reference_error'] = refs.mean().detach()
         metrics['loss'] = loss.detach()
         return loss, metrics
-    if objective == 'sft':
+    if objective == 'linear_dpo':
+        _positive('beta', beta)
+        if not 0 <= float(linear_eta) < .5 or errors.shape[-1] != 2:
+            raise ValueError('Linear-DPO requires pair errors and linear_eta in [0,.5)')
+        policy_gap = errors[..., 0] - errors[..., 1]
+        reference_gap = refs[..., 0] - refs[..., 1]
+        relative_gap = policy_gap - reference_gap
+        # Official Linear-DPO code convention, including upper clamp 1-eta.
+        weight = (.2 * float(beta) * relative_gap + .5).clamp(float(linear_eta), 1-float(linear_eta)).detach()
+        loss = (weight * policy_gap).mean()
+        metrics.update(linear_weight=weight.mean(), reference_error=refs.mean().detach(),
+                       margin_mean=(-.5 * float(beta) * relative_gap).mean().detach())
+    elif objective == 'sft':
         loss = errors[..., 0].mean()
     else:
         if errors.shape[-1] != 2:

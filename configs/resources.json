@@ -7,7 +7,7 @@
   "SDXL_MODEL": "${MODELS_ROOT}/stable_diffusion/sdxl",
   "SDXL_VAE": "${MODELS_ROOT}/stable_diffusion/sdxl-vae",
   "SD3_MODEL": "${MODELS_ROOT}/stable_diffusion/sd3",
-  "SD35_MODEL": "${MODELS_ROOT}/stable_diffusion/sd35",
+  "SD35_MODEL": "${MODELS_ROOT}/sd3.5-medium",
   "PICKAPIC_RAW": "${DATASETS_ROOT}/pickapicv2/data",
   "PICKAPIC_IMAGES": "${DATASETS_ROOT}/pickapicv2/images",
   "PICKAPIC_SD15_PREPARED": "${DATASETS_ROOT}/pickapicv2/prepared-sd15",
@@ -41,5 +41,11 @@
   "PICKAPIC_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/pickapic-test-remaining.jsonl",
   "PARTIPROMPTS_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/partiprompts.jsonl",
   "HPDV3_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/hpdv3-test.jsonl",
-  "IMAGEREWARD_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/imagereward-test.jsonl"
+  "IMAGEREWARD_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/imagereward-test.jsonl",
+  "ZIMAGE_MODEL": "${MODELS_ROOT}/Z-Image",
+  "HPDV3_SUB_PREPARED": "${DATASETS_ROOT}/hpdv3/prepared-sub",
+  "HPDV3_SD35_MEDIUM_PREPARED": "${HPDV3_SUB_PREPARED}",
+  "HPDV3_ZIMAGE_PREPARED": "${HPDV3_SUB_PREPARED}",
+  "MONITOR_PROMPTS_FLOW": "${BENCHMARKS_ROOT}/flow/hpdv3-monitor.jsonl",
+  "MONITOR_PROMPTS_FLOW_PILOT": "${BENCHMARKS_ROOT}/flow/hpdv3-pilot-64.jsonl"
 }

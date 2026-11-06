@@ -8,7 +8,7 @@ Real model execution still requires the project's GPU integration checks.
 """
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 from functools import partial
 import json
 import math
@@ -62,15 +62,20 @@ def scale_vae_latents(latents, scaling_factor, shift_factor=0.0):
     return (latents - shift) * scale
 
 
-def check_prompt_lengths(tokenizer, prompts, max_length, label):
+def check_prompt_lengths(tokenizer, prompts, max_length, label, policy='error', weights=None):
     """Fail rather than silently change semantics through token truncation."""
+    if policy not in ('error', 'truncate'):
+        raise ValueError('prompt_truncation must be error or truncate')
     if tokenizer is None:
         raise ValueError(f"Required tokenizer missing: {label}")
     tokenized = tokenizer(prompts, padding=False, truncation=False, add_special_tokens=True)
     ids = tokenized["input_ids"]
-    if any(len(row) > int(max_length) for row in ids):
+    count = sum((weights[i] if weights is not None else 1)
+                for i, row in enumerate(ids) if len(row) > int(max_length))
+    if count and policy == 'error':
         lengths = [len(row) for row in ids]
         raise ValueError(f"{label} truncation would occur: lengths={lengths}, limit={max_length}")
+    return count
 
 
 def validate_sd35_medium_config(config):
@@ -109,7 +114,7 @@ class PreferenceBackend:
         self.model_config = dict(model_config)
         self.training_config = dict(training_config)
         self.family = model_config["family"]
-        if self.family not in {"sd15", "sdxl", "sd35_medium"}:
+        if self.family not in {"sd15", "sdxl", "sd35_medium", "zimage"}:
             raise ValueError(f"Unsupported model family: {self.family}")
         self.device = torch.device(device)
         if self.device.type != "cuda" or not torch.cuda.is_available():
@@ -155,8 +160,31 @@ class PreferenceBackend:
             component = "unet"
             targets = ["to_q", "to_k", "to_v", "to_out.0"]
             self.error_parameterization = f"diffusion_{self.scheduler.config.prediction_type}_mse"
+        elif self.family == 'zimage':
+            from diffusers import ZImagePipeline
+            # Official Flow-Factory adapter uses FP32 transformer weights. Keep
+            # that choice explicit and separate from BF16 activation autocast.
+            denoiser_dtype = model_config.get('transformer_dtype', 'float32')
+            if denoiser_dtype not in ('float32', 'bfloat16'):
+                raise ValueError('ZImage transformer_dtype must be float32 or bfloat16')
+            from diffusers import ZImageTransformer2DModel
+            transformer = ZImageTransformer2DModel.from_pretrained(str(model_path),
+                subfolder='transformer', local_files_only=True, torch_dtype=getattr(torch, denoiser_dtype))
+            vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
+                local_files_only=True, torch_dtype=torch.float32)
+            self.pipe = ZImagePipeline.from_pretrained(str(model_path), transformer=transformer, vae=vae, **kwargs)
+            self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                str(model_path), subfolder='scheduler', local_files_only=True)
+            if getattr(self.scheduler.config, 'use_dynamic_shifting', False):
+                raise ValueError('ZImage training currently requires a static flow shift')
+            component = 'transformer'
+            targets = ['attention.to_q', 'attention.to_k', 'attention.to_v', 'attention.to_out.0',
+                       'feed_forward.w1', 'feed_forward.w2', 'feed_forward.w3']
+            self.error_parameterization = 'flow_velocity_mse_uniform_schedule_index'
         else:
-            self.pipe = StableDiffusion3Pipeline.from_pretrained(str(model_path), **kwargs)
+            vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
+                local_files_only=True, torch_dtype=torch.float32)
+            self.pipe = StableDiffusion3Pipeline.from_pretrained(str(model_path), vae=vae, **kwargs)
             if self.pipe.text_encoder_3 is None or self.pipe.tokenizer_3 is None:
                 raise ValueError("SD3.5 Medium requires the complete T5 conditioning branch")
             validate_sd35_medium_config(self.pipe.transformer.config)
@@ -170,10 +198,12 @@ class PreferenceBackend:
                        "attn.add_q_proj", "attn.add_k_proj", "attn.add_v_proj", "attn.to_add_out"]
             self.error_parameterization = "flow_velocity_mse_uniform_schedule_index"
         self.component_name = component
-        self.pipe.to(self.device)
+        self.offload_frozen = bool(training_config.get('offload_frozen', False))
+        if not self.offload_frozen:
+            self.pipe.to(self.device)
         self.pipe.set_progress_bar_config(disable=True)
         self.frozen_modules = [self.pipe.vae, self.pipe.text_encoder]
-        if self.family != "sd15":
+        if self.family in {"sdxl", "sd35_medium"}:
             self.frozen_modules.append(self.pipe.text_encoder_2)
         if self.family == "sd35_medium":
             self.frozen_modules.append(self.pipe.text_encoder_3)
@@ -184,6 +214,7 @@ class PreferenceBackend:
         # Both official LoRA examples keep VAE arithmetic in float32.
         self.pipe.vae.to(dtype=torch.float32)
         base = getattr(self.pipe, component)
+        base.to(self.device)
         base.requires_grad_(False)
         rank = int(training_config.get("lora_rank", 16))
         alpha = float(training_config.get("lora_alpha", rank))
@@ -203,7 +234,38 @@ class PreferenceBackend:
             raise RuntimeError("No LoRA parameters were attached")
         if training_config.get("gradient_checkpointing", True):
             self.model.enable_gradient_checkpointing(gradient_checkpointing_func=partial(torch.utils.checkpoint.checkpoint, use_reentrant=False))
+        self.ema = None
+        if training_config.get('reference_mode', 'base') == 'ema':
+            from self_correct_dpo.algorithms.adapter_ema import AdapterEMA
+            self.ema = AdapterEMA(self.model, float(training_config.get('ema_decay', .9999)))
         self.train()
+
+    @contextmanager
+    def reference_context(self):
+        was_training = self.model.training
+        self.model.eval()
+        self._using_ema_reference = getattr(self, 'ema', None) is not None
+        try:
+            with torch.no_grad(), (nullcontext() if self._using_ema_reference else self.model.disable_adapter()):
+                yield
+        finally:
+            self._using_ema_reference = False
+            self.model.train(was_training)
+
+    def after_optimizer_step(self):
+        if getattr(self, 'ema', None) is not None:
+            self.ema.update(self.model)
+
+    def reference_state_dict(self):
+        return self.ema.state_dict() if getattr(self, 'ema', None) is not None else None
+
+    def load_reference_state_dict(self, state, step):
+        if getattr(self, 'ema', None) is not None:
+            self.ema.load_state_dict(state, self.model)
+            if self.ema.updates != step:
+                raise ValueError('EMA update count differs from optimizer step')
+        elif state is not None:
+            raise ValueError('Checkpoint reference state differs from base reference configuration')
 
     def trainable_parameters(self):
         return [parameter for parameter in self.model.parameters() if parameter.requires_grad]
@@ -224,31 +286,86 @@ class PreferenceBackend:
         return (torch.autocast(device_type=self.device.type, dtype=self.dtype)
                 if self.dtype == torch.bfloat16 else nullcontext())
 
+    @contextmanager
+    def frozen_on_device(self, modules):
+        if getattr(self, 'offload_frozen', False):
+            for module in modules:
+                module.to(self.device)
+        try:
+            yield
+        finally:
+            if getattr(self, 'offload_frozen', False):
+                for module in modules:
+                    module.to('cpu')
+
     @torch.no_grad()
     def _encode_images(self, images, generator):
+        with self.frozen_on_device([self.pipe.vae]):
+            return self._encode_images_on_device(images, generator)
+
+    def _encode_images_on_device(self, images, generator):
         flat = images.flatten(0, 1).to(device=self.device, dtype=torch.float32)
         # Encode once so every expression uses the same VAE posterior sample.
         chunk_size = int(self.training_config.get("vae_batch_size", 4))
         latent = torch.cat([self.pipe.vae.encode(chunk).latent_dist.sample(generator=generator)
                             for chunk in flat.split(chunk_size)], dim=0)
-        shift = self.pipe.vae.config.shift_factor if self.family == "sd35_medium" else 0.0
+        shift = self.pipe.vae.config.shift_factor if self.family in {"sd35_medium", "zimage"} else 0.0
         latent = scale_vae_latents(latent, self.pipe.vae.config.scaling_factor, shift)
-        return latent.to(self.dtype).reshape(images.shape[0], 2, *latent.shape[1:])
+        return latent.to(self.dtype).reshape(images.shape[0], images.shape[1], *latent.shape[1:])
 
     @torch.no_grad()
     def _condition(self, prompts):
+        with self.frozen_on_device([m for m in self.frozen_modules if m is not self.pipe.vae]):
+            if self.family not in ('sd35_medium', 'zimage'):
+                return self._condition_on_device(prompts)
+            # Winner and loser share a prompt. Encode each distinct caption
+            # once, then restore the exact pair order for the denoiser.
+            unique = list(dict.fromkeys(prompts))
+            lookup = {prompt: i for i, prompt in enumerate(unique)}
+            indices = [lookup[prompt] for prompt in prompts]
+            counts = [0] * len(unique)
+            for i in indices: counts[i] += 1
+            condition = self._condition_on_device(unique, prompt_weights=counts)
+            def expand(value):
+                if isinstance(value, dict): return {k: expand(v) for k, v in value.items()}
+                if isinstance(value, list): return [value[i] for i in indices]
+                return value.index_select(0, torch.tensor(indices, device=value.device))
+            return expand(condition)
+
+    def _condition_on_device(self, prompts, prompt_weights=None):
+        self.last_prompt_truncations = {}
+        policy = self.model_config.get('prompt_truncation', 'error') if self.family in ('sd35_medium', 'zimage') else 'error'
+        def check_lengths(tokenizer, texts, length, label):
+            count = check_prompt_lengths(tokenizer, texts, length, label, policy, weights=prompt_weights)
+            self.last_prompt_truncations[label] = count
+        if self.family == 'zimage':
+            # The official pipeline applies Qwen chat template with thinking,
+            # selects hidden_states[-2] and removes attention-mask padding.
+            texts = [self.pipe.tokenizer.apply_chat_template(
+                [{'role': 'user', 'content': p}], tokenize=False,
+                add_generation_prompt=True, enable_thinking=True) for p in prompts]
+            check_lengths(self.pipe.tokenizer, texts, self.max_sequence_length, 'Qwen3_chat')
+            tokens = self.pipe.tokenizer(texts, padding='max_length', max_length=self.max_sequence_length,
+                truncation=policy == 'truncate', return_tensors='pt')
+            if tokens.input_ids.shape[1] > self.max_sequence_length:
+                raise ValueError('ZImage Qwen chat prompt would be truncated')
+            output = self.pipe.text_encoder(tokens.input_ids.to(self.device),
+                attention_mask=tokens.attention_mask.to(self.device), output_hidden_states=True)
+            hidden = output.hidden_states[-2]
+            masks = tokens.attention_mask.to(self.device).bool()
+            return {'cap_feats': [hidden[i][masks[i]].to(self.dtype) for i in range(len(prompts))]}
         if self.family == "sd15":
-            check_prompt_lengths(self.pipe.tokenizer, prompts, self.pipe.tokenizer.model_max_length, "CLIP")
+            check_lengths(self.pipe.tokenizer, prompts, self.pipe.tokenizer.model_max_length, "CLIP")
             embeds, _ = self.pipe.encode_prompt(prompt=prompts, device=self.device,
                 num_images_per_prompt=1, do_classifier_free_guidance=False)
             return {"encoder_hidden_states": embeds.to(self.dtype)}
         for index, tokenizer in enumerate([self.pipe.tokenizer, self.pipe.tokenizer_2]):
             limit = self.pipe.tokenizer_max_length if self.family == "sd35_medium" else tokenizer.model_max_length
-            check_prompt_lengths(tokenizer, prompts, limit, f"CLIP-{index + 1}")
+            check_lengths(tokenizer, prompts, limit, f"CLIP-{index + 1}")
         kwargs = dict(prompt=prompts, prompt_2=prompts, device=self.device,
                       num_images_per_prompt=1, do_classifier_free_guidance=False)
         if self.family == "sd35_medium":
-            check_prompt_lengths(self.pipe.tokenizer_3, prompts, self.max_sequence_length, "T5")
+            check_lengths(self.pipe.tokenizer_3, prompts, self.max_sequence_length, "T5")
             kwargs.update(prompt_3=prompts, max_sequence_length=self.max_sequence_length)
         embeds, _, pooled, _ = self.pipe.encode_prompt(**kwargs)
         embeds, pooled = embeds.to(self.dtype), pooled.to(self.dtype)
@@ -271,10 +388,22 @@ class PreferenceBackend:
 
     def _predict(self, noisy, timesteps, condition):
         model = self.distributed_model if torch.is_grad_enabled() and hasattr(self, "distributed_model") else self.model
-        if self.family in {"sd15", "sdxl"}:
-            return model(noisy, timesteps, **condition, return_dict=False)[0]
-        return model(hidden_states=noisy, timestep=timesteps,
-                          **condition, return_dict=False)[0]
+        if self.family in {'sd15', 'sdxl'}:
+            args, kwargs = (noisy, timesteps), {**condition, 'return_dict': False}
+        elif self.family == 'zimage':
+            args, kwargs = (), {'x': list(noisy.unsqueeze(2).unbind(0)),
+                't': (1000 - timesteps.float()) / 1000, **condition, 'return_dict': False}
+        else:
+            args, kwargs = (), {'hidden_states': noisy, 'timestep': timesteps,
+                               **condition, 'return_dict': False}
+        if getattr(self, '_using_ema_reference', False):
+            prediction = self.ema.forward(self.model, args, kwargs)[0]
+        else:
+            prediction = model(*args, **kwargs)[0]
+        if self.family == 'zimage':
+            # Native ZImage predicts x-noise; our common target is noise-x.
+            prediction = -torch.stack(prediction, dim=0).squeeze(2)
+        return prediction
 
     def pair_errors(self, images, prompts, generator, reference=True):
         if images.ndim != 5 or images.shape[1:3] != (2, 3):
@@ -316,7 +445,7 @@ class PreferenceBackend:
                 was_training = self.model.training
                 self.model.eval()
                 try:
-                    with torch.no_grad(), self.model.disable_adapter(), self._autocast():
+                    with self.reference_context(), self._autocast():
                         ref_prediction = self._predict(noisy, timesteps, condition)
                         ref_error = (ref_prediction.float() - target.float()).square().flatten(1).mean(1)
                         references.append(ref_error.reshape(batch_size, 2).detach())

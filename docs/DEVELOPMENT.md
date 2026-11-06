@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 HPDv3本地准备加速：提取采用单路gzip读取、1MiB缓冲和4线程有界写入（最多64MiB、16个任务），每个目录只初始化一次，输出加锁，全部写入成功后原子生成extraction.json；已有同大小图片和旧日志保留。HPDv3完整准备对唯一图片分批并行校验，一次读取完成PIL verify与SHA256，原始标签、顺序、筛选和seed17划分不变。3项CPU检查通过，覆盖串并行pairs/excluded逐字节一致、跨分片gzip、旧图片复用、partial恢复、独占锁与写入失败不生成完成凭据。计算作业65773因继承Conda环境的deactivate hook遇到nounset失败；仅在Conda激活期间关闭nounset后，65774以4CPU/16GB/无GPU/4天启动在compute-1。确认旧manager提取及cat/释放控制进程退出，再开启handoff-65774.ready；由新作业完成准备并释放既有65766/65767，65770依赖保持原样。此处不代表GPU训练已启动。
+
+2026-11-03 双H100独立入口：按用户要求新增`launchers/sdxl_h100/`的DMPO K1、DMPO K6 Stage-C、DSPO K1三个独立训练脚本，自动加载原ACP Conda及资源路径。固定双卡B1、192 pair-views，K1累积96/K6累积16，均10000步；跳过smoke、部署自检、启动图片抽查及基座生成评估，保留定期生成评估。`data.validation=none`仅关闭启动图片读取，清单/ready身份和消费时SHA仍保留，默认auto不变。运行入口增加TERM/INT转发；专用启动器恢复checkpoint事务，自动latest续训、补完最终评估、跳过完成实验；无完整状态的中断尝试保留后重新开始。原子checkpoint、200步完整保存、1000步LoRA及恢复身份保护继续沿用；新配置使用独立H100实验名。更改训练来源身份的源码后，旧实验须继续保留原checkout恢复。
+
+本轮37项CPU检查通过（validation11、H100入口3、config19、stage_pause3、baseline恢复1）。覆盖三配方预算与冻结保护、无启动图片读取、消费时损坏拒绝、latest指针丢失恢复、首存前断电产物保留、200步恢复/1000步LoRA及目标梯度恢复。两rank CPU/Gloo生产训练流程验证关闭base后在评估中断处恢复，调用顺序为1/1/2/3且保存两个rank的RNG；生成和评分使用fixture，不代表真实PickScore/GPU。另验证TERM转发及75退出码，Bash语法/help、Python语法和diff检查通过。未安装依赖、提交GPU作业、推送main或部署远程。
+
 这份约定适用于 `self_correct_dpo`，以用户的双服务器工作流为准。更新日期：2026-10-25。
 
 ## 两台服务器的职责
@@ -27,10 +33,10 @@
 | SD1.5 | `SD15_MODEL` | 沿用先前下载脚本路径 `${MODELS_ROOT}/stable_diffusion/sd15` |
 | SDXL / 可选 VAE | `SDXL_MODEL` / `SDXL_VAE` | 预留原规划路径；用户尚未下载 SDXL |
 | SD3 | `SD3_MODEL` | 预留 `${MODELS_ROOT}/stable_diffusion/sd3`；用户尚未下载 |
-| SD3.5 | `SD35_MODEL` | 保留现有下载工具的资源项，独立于 SD3 |
+| SD3.5 / Z-Image Base | `SD35_MODEL` / `ZIMAGE_MODEL` | 本地已有模型可复用；远程以resources.local.json覆盖，独立于旧SD3 |
 | Pick-a-Pic 原始文件 | `PICKAPIC_RAW` | `${DATASETS_ROOT}/pickapicv2/data` |
 | Pick-a-Pic 图片和清单 | `PICKAPIC_IMAGES` / `PICKAPIC_SD15_PREPARED` / `PICKAPIC_SDXL_PREPARED` | 放在同一数据集目录下；这些是规划的处理输出位置，不代表已生成 |
-| HPDv3 数据集 | `HPDV3_RAW` / `HPDV3_SD3_PREPARED` | 为后续 SD3 训练预留；用户尚未下载 HPDv3 |
+| HPDv3 数据集 | `HPDV3_RAW` / `HPDV3_SUB_PREPARED` | 本地已有原始数据；flow子集准备与审计见FLOW.md，处理输出需单独生成 |
 | 评分模型 | `PICKSCORE_*` / `HPSV2_*` / `HPSV3_*` / `IMAGE_REWARD_*` 等 | 沿用先前下载脚本的分类目录 |
 | 固定评估面板 | `BENCHMARKS_ROOT` / `MONITOR_PROMPTS_SD15` / `MONITOR_PROMPTS_SDXL` 等 | 按模型系列保存处理后的 JSONL |
 | 训练输出 | `RUNS_ROOT` | `/mnt/aoss/xietianyu/self_correct/runs`，须确认属于远程持久存储 |
@@ -41,7 +47,7 @@
 
 商汤大装置首次部署按根目录 `command.md` 的顺序，先验证纯 DPO 的实际训练、暂停及恢复，再开始正式基线和多视图比较。`scripts/check_deployment.py` 默认只检查 CPU 元数据，只有 `--gpu` 才实际运行 CUDA；数据处理只需要 CPU。平台申请及容器挂载通过用户实际使用的商汤入口完成，不套用本机 Slurm 命令。
 
-HPDv3 是偏好数据集，HPSv3 是评分模型，分别记录。当前训练入口支持 **SD1.5/SDXL**；预留 SD3 路径及下载选项不等于已实现 SD3 训练。SDXL 下载后从 `.scd-download.json` 自动读取 revision；手动下载时用 `--model-revision` 指明可追溯的版本。
+HPDv3 是偏好数据集，HPSv3 是评分模型，分别记录。当前训练入口保留 **SD1.5/SDXL**，新增 **SD3.5 Medium/Z-Image Base** 的flow入口见[FLOW.md](FLOW.md)；预留SD3路径不等于已实现旧SD3训练。SDXL 下载后从 `.scd-download.json` 自动读取 revision；手动下载时用 `--model-revision` 指明可追溯的版本。
 
 原始 Parquet 目录不能直接用作 `--data_path`：训练需要处理后的 `pairs.jsonl`。大规模处理放在远程已分配资源上，命令见根目录 `command.md`。
 
@@ -154,3 +160,10 @@ B/C 默认 K=2，`--views 3`、`--views 4` 或其他正整数均可。增大 K �
 2026-11-03 最终K6 Stage对比入口：新增`launchers/final_stagewise.sh`与`sd15_final/`、`sdxl_final/`各五个包装脚本，分别运行DSPO/DMPO K1及DSPO/DMPO/DPO K6 Stage-C。SD1.5固定双RTX5090、384 pair_views；SDXL固定四RTX5090、192 pair_views。K1每步384/192 pairs，K6每步64/32 pairs，均10000步。复用已有compare配置冻结、独立smoke及自动恢复，不修改算法、默认配置或旧启动器。Stage沿用每pair随机选段后段内六视图，没有Huber/phase或3+3改动。独立发布分支`exp/stagewise-k6-20261103`，命令集中在command.md首节，论文表格与消融安排记录于COMPARISONS.md。
 
 本轮19项既有配置测试通过；临时checkout的48项实际shell/配置生命周期检查通过（10正式、10smoke、18恢复/冻结/参数/数据边界、10help），另11个新脚本的Bash语法和可执行权限通过。保留真实Bash→compare→make_config/validate_config，仅替代远程ACP环境加载、日志与最终train调用；核对卡数、batch、累积、预算、目标参数及Stage设置，并检查自动/显式恢复、暂停、smoke/正式同名冲突、缺失冻结配置、配置篡改和训练覆盖拒绝。只修改启动脚本及文档，未安装依赖或启动GPU训练；实际完整模型的显存、速度与效果仍需远程smoke和正式实验确认。
+
+2026-11-06 Flow开发位于独立worktree，保留源树14份未提交基线（`flow-baseline.json`）。SD3.5 Medium/ZImage Base接入既有LoRA训练循环，新增DPO/MVPO/Linear-DPO adapter-factor EMA、2/4卡预算与单卡smoke、HPDv3-sub准备及共享验证面板。数学、精度、时间采样、依赖锁和GPU未测边界详见[FLOW.md](FLOW.md)，命令统一见根command.md。旧运行checkout/环境和AOSS恢复白名单不更新。
+
+
+2026-11-07 Flow Stagewise论文配方在独立self_correct_dpo-flow-stagewise checkout维护；训练入口按sd35/zimage分组，paper-v2消费一次性数据/模型审查凭据。默认4x5090/2xA800，ZImage5090仅显式BF16变体；200步滚动完整恢复、400步永久完整状态及旧八点评估并行保留。无额外policy EMA，Linear-DPO算法EMA reference保留。方法、预算、验证范围与命令见[FLOW_STAGEWISE.md](FLOW_STAGEWISE.md)，旧运行checkout及作业源码不修改。
+
+SLAI paper-v2 部署使用独立资源表 `configs/resources-slai-flow.json` 与 `launchers/flow/slai_common.sh`；明确 SD35 为 `models/sd3.5-medium`。编号入口在旧 SLAI Conda 存在时激活独立 mvpo-flow，其他机器允许当前 Python/显式资源覆盖。模型报告保存在 AFS checkout 的 reports/slai，远程数据须独立准备并生成 passed 审计报告。完整 clone/env/prepare/run 命令见 [FLOW_SLAI.md](FLOW_SLAI.md)，不会复用本机绝对路径报告。

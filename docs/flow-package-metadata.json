@@ -1,0 +1,107 @@
+{
+  "checked": "2026-11-06",
+  "python": "3.10.22",
+  "preserved_torch": "2.14.1",
+  "validation": "official PyPI metadata consistency only; no installation/import/GPU validation",
+  "packages": {
+    "diffusers": {
+      "version": "0.37.1",
+      "requires_python": ">=3.10.0",
+      "requires_dist": [
+        "importlib-metadata",
+        "filelock",
+        "httpx<1.0.0",
+        "huggingface-hub<2.0,>=0.34.0",
+        "numpy",
+        "regex!=2019.12.17",
+        "requests",
+        "safetensors>=0.3.1",
+        "Pillow"
+      ],
+      "source": "https://pypi.org/pypi/diffusers/0.37.1/json"
+    },
+    "transformers": {
+      "version": "4.57.1",
+      "requires_python": ">=3.9.0",
+      "requires_dist": [
+        "filelock",
+        "huggingface-hub<1.0,>=0.34.0",
+        "numpy>=1.17",
+        "packaging>=20.0",
+        "pyyaml>=5.1",
+        "regex!=2019.12.17",
+        "requests",
+        "tokenizers<=0.23.0,>=0.22.0",
+        "safetensors>=0.4.3",
+        "tqdm>=4.27"
+      ],
+      "source": "https://pypi.org/pypi/transformers/4.57.1/json"
+    },
+    "peft": {
+      "version": "0.17.1",
+      "requires_python": ">=3.9.0",
+      "requires_dist": [
+        "numpy>=1.17",
+        "packaging>=20.0",
+        "psutil",
+        "pyyaml",
+        "torch>=1.13.0",
+        "transformers",
+        "tqdm",
+        "accelerate>=0.21.0",
+        "safetensors",
+        "huggingface_hub>=0.25.0"
+      ],
+      "source": "https://pypi.org/pypi/peft/0.17.1/json"
+    },
+    "accelerate": {
+      "version": "1.14.0",
+      "requires_python": ">=3.10.0",
+      "requires_dist": [
+        "numpy>=1.17",
+        "packaging>=20.0",
+        "psutil",
+        "pyyaml",
+        "torch>=2.0.0",
+        "huggingface_hub>=0.21.0",
+        "safetensors>=0.4.3"
+      ],
+      "source": "https://pypi.org/pypi/accelerate/1.14.0/json"
+    },
+    "huggingface-hub": {
+      "version": "0.36.0",
+      "requires_python": ">=3.8.0",
+      "requires_dist": [
+        "filelock",
+        "fsspec>=2023.5.0",
+        "packaging>=20.9",
+        "pyyaml>=5.1",
+        "requests",
+        "tqdm>=4.42.1",
+        "typing-extensions>=3.7.4.3",
+        "hf-xet<2.0.0,>=1.1.3; platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\""
+      ],
+      "source": "https://pypi.org/pypi/huggingface-hub/0.36.0/json"
+    },
+    "safetensors": {
+      "version": "0.7.0",
+      "requires_python": ">=3.9",
+      "requires_dist": [],
+      "source": "https://pypi.org/pypi/safetensors/0.7.0/json"
+    },
+    "sentencepiece": {
+      "version": "0.2.1",
+      "requires_python": ">=3.9",
+      "requires_dist": [],
+      "source": "https://pypi.org/pypi/sentencepiece/0.2.1/json"
+    },
+    "tokenizers": {
+      "version": "0.22.2",
+      "requires_python": ">=3.9",
+      "requires_dist": [
+        "huggingface-hub<2.0,>=0.16.4"
+      ],
+      "source": "https://pypi.org/pypi/tokenizers/0.22.2/json"
+    }
+  }
+}

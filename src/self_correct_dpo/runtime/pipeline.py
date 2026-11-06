@@ -17,11 +17,19 @@ from self_correct_dpo.evaluation.runner import checkpoint_adapter, evaluate_chec
 
 
 def evaluation_steps(max_steps, settings):
-    first, every = settings.get('first_step',200),settings.get('every',500)
-    if any(type(v) is not int or v<1 for v in (max_steps,first,every)):
-        raise ValueError('Evaluation schedule requires positive integer steps')
-    steps=set(range(every,max_steps+1,every)) | {max_steps}
-    if first<=max_steps: steps.add(first)
+    if type(max_steps) is not int or max_steps < 1:
+        raise ValueError('Evaluation schedule requires positive integer max_steps')
+    if 'steps' in settings:
+        explicit = settings['steps']
+        if not isinstance(explicit, list) or any(type(v) is not int or v < 1 for v in explicit):
+            raise ValueError('evaluation.steps must be a list of positive integer steps')
+        steps = {v for v in explicit if v <= max_steps} | {max_steps}
+    else:
+        first, every = settings.get('first_step',200),settings.get('every',500)
+        if any(type(v) is not int or v<1 for v in (first,every)):
+            raise ValueError('Evaluation schedule requires positive integer steps')
+        steps=set(range(every,max_steps+1,every)) | {max_steps}
+        if first<=max_steps: steps.add(first)
     if settings.get('include_base',True): steps.add(0)
     return sorted(steps)
 
@@ -136,8 +144,13 @@ def update_curve(out):
 
 def run_pipeline(config, config_path, out, *, execution, resume=None, extend_from=None,
                  stop_after_step=None, command_runner=run_command, evaluator=evaluate_checkpoint,
-                 monitor_identity=None):
+                 monitor_identity=None, preflight=None):
     settings=config['evaluation'];out=Path(out).resolve()
+    once=config['training'].get('preflight') == 'once'
+    if once:
+        from self_correct_dpo.training import load_preflight
+        preflight=preflight or load_preflight(config,out)
+        monitor_identity=preflight['monitor_identity']
     budget=config['training']['max_steps']
     end=stop_after_step if stop_after_step is not None else budget
     planned=evaluation_steps(budget,settings)
@@ -172,9 +185,16 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
             verify_complete(path)
             return
         model,adapter=checkpoint_adapter(out,step)
+        options={}
+        if once:
+            code=preflight['identity']['code']
+            options['preflight']={'inputs':frozen['inputs'],
+                'base_identity':preflight['identity']['base_identity'],
+                'code_sha256':{name:code['runner.py' if name=='evaluation.py' else name]
+                    for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py')}}
         evaluator(model,adapter,settings['prompts'],settings['scorers_config'],['pickscore'],
             settings['sampling'],path,step=step,keep_images=keep_images(step,budget,settings),
-            execution=execution,expected_prompts=settings.get('expected_prompts',128))
+            execution=execution,expected_prompts=settings.get('expected_prompts',128),**options)
         if config['training'].get('logging', 'jsonl') not in ('none', 'jsonl'):
             from self_correct_dpo.runtime.tracking import log_evaluation
             log_evaluation(config, out, step, verify_complete(path))

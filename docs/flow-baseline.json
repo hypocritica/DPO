@@ -1,0 +1,63 @@
+{
+  "source": "/irip_16t_0/xietianyu_2024/SemancticDPO/LMDPO/self_correct_dpo",
+  "head": "c2cdb78c0403cc84d46b62f855750cd64b5ab83f",
+  "note": "Existing uncommitted baseline copied unchanged; these changes predate flow development.",
+  "files": [
+    {
+      "path": "launchers/sdxl_h100/01_dmpo.sh",
+      "sha256": "98efe61229d9c2d6fcf476cc1090e2354258c15723ea147967deeaf4a825d318"
+    },
+    {
+      "path": "launchers/sdxl_h100/02_dmpo_k6_stage.sh",
+      "sha256": "356c67cff0f5cda91ce77bf7894839ba6989fb0a5947280d23444b17605a710b"
+    },
+    {
+      "path": "launchers/sdxl_h100/03_dspo.sh",
+      "sha256": "52bc501075899908bfbda77621109113ec5dfefe08ad868c847e7eec80664442"
+    },
+    {
+      "path": "launchers/sdxl_h100/common.sh",
+      "sha256": "251251457d093ab659f1a0759aca2d0516570ce5969e23477137cadf19058f4a"
+    },
+    {
+      "path": "scripts/run_sdxl_h100.py",
+      "sha256": "1894899e45816a69a4e72c6fbd18bf7394977880564e0db733278e4ed51a3d03"
+    },
+    {
+      "path": "tests/test_h100_launchers.py",
+      "sha256": "88ff82b8d787129b55a08b1753685e20145368759ec4995872b2d2c3cdef3603"
+    },
+    {
+      "path": "command.md",
+      "sha256": "5254f424a899bcd2f7f1b253ef230165af209c4e1e1c0cfb05873da7df6778e7"
+    },
+    {
+      "path": "docs/DEVELOPMENT.md",
+      "sha256": "a97e43f28ef2b712cad15654dc23d8fb36da2d03a6d2e3e5845435b6d14f6228"
+    },
+    {
+      "path": "scripts/compare_objectives.py",
+      "sha256": "becc4e9b8a598638889c41c5bfc6a9acd9b1698308e8213a6d8465a66fa80f4e"
+    },
+    {
+      "path": "src/self_correct_dpo/config.py",
+      "sha256": "5861bcbdc2537a0677c3587f31b58d0e7a25ae43fbcd420c8fd52cf31fd7f3c0"
+    },
+    {
+      "path": "src/self_correct_dpo/data/validation.py",
+      "sha256": "7ac537bcb42b0d77f3cbef996efeb2785eb9f930a13e442c96e0c78994604fb5"
+    },
+    {
+      "path": "src/self_correct_dpo/training.py",
+      "sha256": "6a745a055ff3869152a7fb483165f6e560df0a567365d530cea350d916a6cb46"
+    },
+    {
+      "path": "tests/test_config.py",
+      "sha256": "52cf2664a9c3ed0cbd31bb1ff4f630c5a2dbb7047fbb405e7ae6f57e7eb0b433"
+    },
+    {
+      "path": "tests/test_validation.py",
+      "sha256": "1fb1a2c33de63125e7b44b9a59915e2afc8881634d83170180eb4b2c7507cd26"
+    }
+  ]
+}

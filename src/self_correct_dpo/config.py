@@ -62,8 +62,8 @@ def load_config(path, *, scorers=None, benchmarks=None, resources=None, _parents
 
 
 def add_training_arguments(parser):
-    parser.add_argument('--family', choices=['sd15', 'sdxl'])
-    parser.add_argument('--objective', choices=['dpo', 'sft', 'kto', 'mapo', 'dmpo', 'dspo'])
+    parser.add_argument('--family', choices=['sd15', 'sdxl', 'sd35_medium', 'zimage'])
+    parser.add_argument('--objective', choices=['dpo', 'linear_dpo', 'sft', 'kto', 'mapo', 'dmpo', 'dspo'])
     parser.add_argument('--resources', help='Resource registry; default configs/resources.json')
     parser.add_argument('--method', choices=['dpo', 'multiview-B', 'multiview-C',
                                            'multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian'])
@@ -86,7 +86,7 @@ def add_training_arguments(parser):
         parser.add_argument(*flags, dest=key, type=kind)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--dataloader_num_workers', type=int)
-    parser.add_argument('--data-validation', choices=['auto', 'full'])
+    parser.add_argument('--data-validation', choices=['auto', 'full', 'none'])
     parser.add_argument('--validation-workers', type=int)
     parser.add_argument('--validation-samples', type=int)
     parser.add_argument('--report_to', choices=['tensorboard', 'wandb', 'all', 'none', 'jsonl'])
@@ -120,12 +120,13 @@ def training_config(args):
     if getattr(args, 'objective', None):
         previous_objective = t.get('objective', 'dpo')
         for key in ('dmpo_alpha', 'mapo_beta', 'mapo_snr', 'dspo_recipe', 'dspo_sdxl_threshold',
-                    'kto_desirable_weight', 'kto_undesirable_weight'):
+                    'kto_desirable_weight', 'kto_undesirable_weight', 'reference_mode', 'ema_decay', 'linear_eta'):
             t.pop(key, None)
         t['objective'] = args.objective
         if args.objective == 'dpo' and previous_objective != 'dpo':
             t['beta'] = load_config(CONFIG_DIR / 'models' / f'{family}.json', resources=args.resources)['training']['beta']
-            t['diagnostic'] = read_json(CONFIG_DIR / 'defaults.json')['training'].get('diagnostic')
+            t['diagnostic'] = (None if family in ('sd35_medium', 'zimage') else
+                               read_json(CONFIG_DIR / 'defaults.json')['training'].get('diagnostic'))
         if args.objective != 'dpo':
             # Only objective-specific fields, never inherited model/batch defaults.
             t.update(read_json(CONFIG_DIR / f'{args.objective}.json')['training'])

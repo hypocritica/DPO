@@ -90,6 +90,21 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(any(x.get('mode') == 'full' for x in logs))
         self.assertFalse(self.cache.exists())
 
+    def test_none_skips_startup_image_reads_and_keeps_integrity_checks(self):
+        self.ready()
+        (self.root / self.rows[0]['winner']).write_bytes(b'changed after preparation')
+        with patch('self_correct_dpo.data.validation._parallel_check',
+                   side_effect=AssertionError('Startup must not read images')):
+            rows, logs = self.run_validation(mode='none')
+        self.assertEqual(rows, load_pairs(self.manifest, verify_files=False))
+        self.assertEqual(logs[-1]['selected_images'], 0)
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            image_source(rows[0], 'winner', verify_files=True)
+        self.rows[0]['prompts'][0]['prompt'] += ' changed'
+        self.save_manifest()
+        with self.assertRaisesRegex(ValueError, 'ready.json'):
+            self.run_validation(mode='none')
+
     def test_unsampled_corruption_is_rejected_when_image_is_consumed(self):
         self.ready()
         self.run_validation(samples=1)

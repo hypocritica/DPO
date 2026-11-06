@@ -93,6 +93,12 @@ class ImagePublication(unittest.TestCase):
             self.assertFalse((root / 'new.png').exists())
 
 
+def historical_fixed_sha256(path):
+    """These migration tests target historical fixed code, never today's code."""
+    known={source_file(name).resolve():values['fixed'] for name,values in SOURCE_HASHES.items()}
+    return known.get(Path(path).resolve()) or sha256(path)
+
+
 class SourceCompatibility(unittest.TestCase):
     def test_exact_allowlist_and_all_other_identity_fields(self):
         old = {name: value['original'] for name, value in SOURCE_HASHES.items()}
@@ -109,6 +115,7 @@ class SourceCompatibility(unittest.TestCase):
         self.assertTrue(compatible_identity(a, b))
         self.assertFalse(compatible_identity(a, {**b, 'settings': {'every': 200}}))
 
+    @patch.object(render, 'sha256', historical_fixed_sha256)
     def test_legacy_render_identity_and_pending_records_remain_valid(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -123,6 +130,7 @@ class SourceCompatibility(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'config changed'):
                 render.validate_resume_run(root, **{**arguments, 'config': {'sampling': 'changed'}})
 
+    @patch('self_correct_dpo.evaluation.runner.sha256', historical_fixed_sha256)
     def test_legacy_evaluation_identity_is_kept_without_rewriting_metadata(self):
         from self_correct_dpo.evaluation import runner
         with tempfile.TemporaryDirectory() as directory:
@@ -206,6 +214,7 @@ class SourceCompatibility(unittest.TestCase):
             for key in ('exp_avg', 'exp_avg_sq', 'step'):
                 torch.testing.assert_close(a['optimizer']['state'][0][key], b['optimizer']['state'][0][key], rtol=0, atol=0)
 
+    @patch('self_correct_dpo.runtime.pipeline.sha256', historical_fixed_sha256)
     def test_legacy_monitor_resumes_200_evaluation_before_training_to_500(self):
         from self_correct_dpo.runtime import pipeline
         with tempfile.TemporaryDirectory() as directory:
@@ -217,7 +226,7 @@ class SourceCompatibility(unittest.TestCase):
             inputs = {'prompts': 128}
             names = ('pipeline.py', 'evaluation.py', 'metrics.py', 'scorers.py', 'render.py', 'benchmarks.py')
             current = {'settings': settings, 'inputs': inputs,
-                       'code_sha256': {name: sha256(source_file(name)) for name in names}}
+                       'code_sha256': {name: historical_fixed_sha256(source_file(name)) for name in names}}
             previous = {**current, 'code_sha256': {name: SOURCE_HASHES[name]['original'] if name in SOURCE_HASHES
                                                   else current['code_sha256'][name] for name in names}}
             write_json(out / 'monitor-inputs.json', previous)

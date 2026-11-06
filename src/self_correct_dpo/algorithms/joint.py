@@ -73,24 +73,29 @@ class BaselineGaussianBackend(MultiViewBackend):
     def score_errors(self, images, prompts, generator):
         objective = self.training_config['objective']
         if objective == 'sft':
-            from self_correct_dpo.models import scale_vae_latents
+            from self_correct_dpo.models import flow_inputs
             # No loser VAE encoding, conditioning, UNet pass, or reference pass.
             with torch.no_grad():
-                flat = images[:, 0].to(device=self.device, dtype=torch.float32)
-                chunks = flat.split(int(self.training_config.get('vae_batch_size', 4)))
-                latents = torch.cat([self.pipe.vae.encode(chunk).latent_dist.sample(generator=generator)
-                                     for chunk in chunks])
-                latents = scale_vae_latents(latents, self.pipe.vae.config.scaling_factor).to(self.dtype)
+                # The shared encoder handles FP32 VAE arithmetic, model scale/
+                # shift and frozen-component placement, with one image per row.
+                latents = self._encode_images(images[:, :1], generator).flatten(0, 1)
                 condition = self._condition([p[0] for p in prompts])
                 noise = torch.randn(latents.shape, device=latents.device, dtype=latents.dtype, generator=generator)
                 times = torch.randint(self.scheduler.config.num_train_timesteps,
                                       (len(prompts),), device=latents.device, generator=generator)
-                noisy = self.scheduler.add_noise(latents, noise, times)
-                target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(latents, noise, times)
+                if self.family in ('sd35_medium', 'zimage'):
+                    indices = times
+                    times = self.scheduler.timesteps.to(self.device)[indices]
+                    sigmas = self.scheduler.sigmas.to(device=self.device, dtype=self.dtype)[indices]
+                    noisy, target = flow_inputs(latents, noise, sigmas)
+                else:
+                    noisy = self.scheduler.add_noise(latents, noise, times)
+                    target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(latents, noise, times)
             with self._autocast():
                 prediction = self._predict(noisy, times, condition)
             errors = (prediction.float() - target.float()).square().flatten(1).mean(1)
-            return {'policy_errors': errors[:, None, None], 'reference_errors': None}
+            return {'policy_errors': errors[:, None, None], 'reference_errors': None,
+                    'prepared': {'conditioning_diagnostics': dict(getattr(self, 'last_prompt_truncations', {}))}}
         if objective != 'mapo':
             return super().score_errors(images, prompts, generator)
         prepared = self.prepare_views(images, prompts, generator)

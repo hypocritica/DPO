@@ -35,6 +35,10 @@ def main():
     p.add_argument('--mode', choices=['train', 'smoke', 'benchmark'], default='train')
     p.add_argument('--config-only', action='store_true', help='Freeze/print config without checking data or launching')
     p.add_argument('--check-only', action='store_true', help='Run the existing CPU training preflight only')
+    p.add_argument('--skip-startup-image-checks', action='store_true',
+                   help='Skip startup image sampling; retain manifest and consumed-image checks')
+    p.add_argument('--no-base-evaluation', action='store_true',
+                   help='Keep periodic generation evaluation without evaluating the base')
     p.add_argument('--stop-after-step', type=int)
     p.add_argument('--resume', dest='resume_from_checkpoint')
     a = p.parse_args()
@@ -73,6 +77,10 @@ def main():
         command += ['--set', f'training.dspo_sdxl_threshold={a.dspo_sdxl_threshold}']
     if a.resources:
         command += ['--resources', a.resources]
+    if a.skip_startup_image_checks:
+        command += ['--data-validation', 'none']
+    if a.no_base_evaluation:
+        command += ['--set', 'evaluation.include_base=false']
     # Smoke keeps one accumulation/update; benchmark/train preserve the declared budget.
     if a.mode == 'smoke':
         command += ['--smoke', '--max_train_steps', '2']
@@ -105,8 +113,12 @@ def main():
             train += ['--resume_from_checkpoint', resume]
         if a.stop_after_step:
             train += ['--stop-after-step', str(a.stop_after_step)]
-    subprocess.run(train, cwd=ROOT, check=True)
+    from self_correct_dpo.evaluation.runner import run_command
+    run_command(train)
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(exc.returncode if exc.returncode > 0 else 128 - exc.returncode)

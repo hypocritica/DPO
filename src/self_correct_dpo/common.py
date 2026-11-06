@@ -95,6 +95,9 @@ def artifact_identity(path):
 
 
 def model_artifact_identity(model):
+    if model.get('validation_report'):
+        from self_correct_dpo.flow_receipts import model_receipt
+        return model_receipt(model['validation_report'], model)['artifact_identity']
     base=artifact_identity(model['path'])
     if model.get('vae'):
         return {'pipeline':base,'vae':artifact_identity(model['vae']['path'])}

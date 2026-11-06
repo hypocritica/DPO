@@ -1,0 +1,47 @@
+{
+  "extends": [
+    "../defaults.json",
+    "../models/sd35_medium.json"
+  ],
+  "method": "dpo",
+  "training": {
+    "objective": "sft",
+    "formal_arm": "C",
+    "noise_views": 1,
+    "batch_views": false,
+    "gradient_accumulation_steps": 64,
+    "comparison_budget": {
+      "unit": "pairs",
+      "per_update": 128
+    },
+    "reference_mode": "none",
+    "diagnostic": null,
+    "preflight": "once",
+    "lora_checkpoint_steps": [
+      200,
+      400,
+      800,
+      1300,
+      1800,
+      2300,
+      2800,
+      3200
+    ]
+  },
+  "experiment_note": "Winner-only flow LoRA SFT pilot; 128 winner images/update, no loser/reference/EMA. Not equal compute to DPO.",
+  "evaluation": {
+    "steps": [
+      200,
+      400,
+      800,
+      1300,
+      1800,
+      2300,
+      2800,
+      3200
+    ],
+    "include_base": true,
+    "expected_prompts": 64,
+    "prompts": "${MONITOR_PROMPTS_FLOW_PILOT}"
+  }
+}

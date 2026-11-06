@@ -117,10 +117,12 @@ def main():
     p.add_argument('--batch-size',type=int,help='Override scorer batch_size (default 8; optional large scorers use 1)')
     p.add_argument('--execution',choices=['slurm','standalone'],default='slurm')
     p.add_argument('--run-label')
+    p.add_argument('--preflight',help=argparse.SUPPRESS)
     a=p.parse_args()
     spec=load_config(a.scorers_config,scorers=[a.metric])['scorers'][a.metric]
     print(json.dumps(score_panel(a.run,a.out,a.metric,spec,batch_size=a.batch_size if a.batch_size is not None else spec.get('batch_size',8),
-        execution={'mode':a.execution,'run_label':a.run_label})))
+        execution={'mode':a.execution,'run_label':a.run_label},
+        asset_id=read_json(a.preflight)['preflight']['inputs']['scorers'][a.metric] if a.preflight else None)))
 
 
 if __name__=='__main__': main()

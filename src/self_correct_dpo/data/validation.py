@@ -58,10 +58,11 @@ def load_training_pairs(path, *, mode='auto', workers=8, samples=8):
     """Read/check the manifest once, then sample images in parallel.
 
     Auto never upgrades to a full image scan or writes validation receipts.
-    Training verifies every image when consumed. Full is an explicit audit.
+    None skips startup image reads. Manifest checks and verification of each
+    image when consumed remain enabled. Full is an explicit audit.
     """
-    if mode not in ('auto', 'full'):
-        raise ValueError('data.validation must be auto or full')
+    if mode not in ('auto', 'full', 'none'):
+        raise ValueError('data.validation must be auto, full or none')
     if type(workers) is not int or workers < 1 or type(samples) is not int or samples < 1:
         raise ValueError('validation_workers and validation_samples must be positive integers')
     path = Path(path).expanduser().resolve()
@@ -121,7 +122,7 @@ def load_training_pairs(path, *, mode='auto', workers=8, samples=8):
                 has_hashes = False
             elif not _valid_sha(expected):
                 raise ValueError(f'Invalid {side} checksum: {row["pair_id"]}')
-            if mode == 'full' or first_in_split or 2 * index + offset in indices:
+            if mode != 'none' and (mode == 'full' or first_in_split or 2 * index + offset in indices):
                 image = row[side]
                 if image in selected:
                     previous, previous_side = selected[image]
@@ -131,9 +132,14 @@ def load_training_pairs(path, *, mode='auto', workers=8, samples=8):
                     if previous_hash is not None and expected is None:
                         continue
                 selected[image] = row, side
-    if mode == 'auto' and not has_hashes:
+    if mode in ('auto', 'none') and not has_hashes:
         raise ValueError('Image checksums are required for sampled startup; prepare the manifest with SHA256 '
                          'or explicitly use --data-validation full. No automatic full audit is performed.')
+    if mode == 'none':
+        print(json.dumps({'phase': 'data_ready', 'mode': 'none', 'selected_images': 0,
+                          'rank': os.environ.get('RANK', 'coordinator'),
+                          'rows': len(rows)}), flush=True)
+        return rows
     print(json.dumps({'phase': 'data_validation', 'mode': 'sampled' if mode == 'auto' else 'full',
                       'rank': os.environ.get('RANK', 'coordinator'), 'selected_images': len(selected),
                       'workers': workers, 'sample_limit': samples if mode == 'auto' else None}), flush=True)

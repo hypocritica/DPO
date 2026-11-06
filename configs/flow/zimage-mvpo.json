@@ -1,0 +1,21 @@
+{
+  "extends": [
+    "../defaults.json",
+    "../models/zimage.json"
+  ],
+  "method": "multiview-C-gaussian",
+  "training": {
+    "objective": "dpo",
+    "formal_arm": "C",
+    "noise_views": 2,
+    "batch_views": false,
+    "gradient_accumulation_steps": 32,
+    "comparison_budget": {
+      "unit": "pair_views",
+      "per_update": 128
+    },
+    "reference_mode": "base",
+    "diagnostic": null
+  },
+  "experiment_note": "Pilot flow LoRA recipe, not validated GPU hyperparameters."
+}

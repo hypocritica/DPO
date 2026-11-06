@@ -1,7 +1,7 @@
 """B averages per-view losses; C applies the loss to the mean margin."""
 import torch
 import torch.nn.functional as F
-from self_correct_dpo.models import PreferenceBackend, shared_pair_noise
+from self_correct_dpo.models import PreferenceBackend, shared_pair_noise, flow_inputs
 from self_correct_dpo.algorithms.losses import preference_logits
 
 
@@ -9,6 +9,8 @@ def _repeat_condition(condition, views):
     """Repeat SD1.5/SDXL conditioning in view-major order."""
     if isinstance(condition, torch.Tensor):
         return torch.cat([condition] * views, dim=0)
+    if isinstance(condition, list):
+        return condition * views
     if isinstance(condition, dict):
         return {key: _repeat_condition(value, views) for key, value in condition.items()}
     return condition
@@ -53,6 +55,25 @@ def stagewise_loss(logits, low_stage, settings):
             metrics[f'stage_{label}_{name}_weighted'] = (value.detach() * mask).mean()
     return per_pair.mean(), metrics
 
+def stagewise_metrics(logits, prepared, settings):
+    """Use physical noise labels on descending flow schedules.
+
+    low_stage remains the historical index<boundary mask for RNG/checkpoint
+    compatibility. Flow losses support DPO only, so relabelling diagnostics has
+    no effect on their numerical objective.
+    """
+    loss, metrics = stagewise_loss(logits, prepared['low_stage'], settings)
+    if prepared.get('stage_axis') == 'descending_flow_schedule_index':
+        labels = {}
+        for name, value in metrics.items():
+            if name.startswith('stage_low_'):
+                name = 'stage_high_noise_' + name[len('stage_low_'):]
+            elif name.startswith('stage_high_'):
+                name = 'stage_low_noise_' + name[len('stage_high_'):]
+            labels[name] = value
+        return loss, labels
+    return loss, metrics
+
 
 def formal_loss(values, arm, beta, stagewise=None):
     logits = preference_logits(values['policy_errors'], values['reference_errors'], beta)
@@ -61,7 +82,7 @@ def formal_loss(values, arm, beta, stagewise=None):
     if stagewise is not None:
         if arm != 'C':
             raise ValueError('stagewise requires formal_arm=C')
-        loss, stage_metrics = stagewise_loss(logits, values['prepared']['low_stage'], stagewise)
+        loss, stage_metrics = stagewise_metrics(logits, values['prepared'], stagewise)
     elif arm == 'B':
         loss = F.softplus(-logits).mean()
     elif arm == 'C':
@@ -75,8 +96,8 @@ def formal_loss(values, arm, beta, stagewise=None):
 
 class MultiViewBackend(PreferenceBackend):
     def prepare_views(self, images, prompts, generator):
-        if self.family not in ('sd15','sdxl'):
-            raise ValueError('Formal comparison requires SD1.5/SDXL')
+        if self.family not in ('sd15', 'sdxl', 'sd35_medium', 'zimage'):
+            raise ValueError('Unsupported preference model family')
         b = len(prompts)
         latents = self._encode_images(images, generator)
         texts = [ps[0] for ps in prompts for _ in range(2)]
@@ -104,10 +125,20 @@ class MultiViewBackend(PreferenceBackend):
                 indices = torch.where(low_stage, low, high)[:, None].expand(-1, 2)
                 noise = noise[:, None].expand_as(latents)
             flat, noise, times = latents.flatten(0, 1), noise.flatten(0, 1), indices.flatten()
-            noisy = self.scheduler.add_noise(flat, noise, times)
-            target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(flat, noise, times)
+            if self.family in ('sd35_medium', 'zimage'):
+                times = self.scheduler.timesteps.to(latents.device)[times]
+                sigma = self.scheduler.sigmas.to(device=latents.device, dtype=latents.dtype)[indices.flatten()]
+                noisy, target = flow_inputs(flat, noise, sigma)
+            else:
+                noisy = self.scheduler.add_noise(flat, noise, times)
+                target = noise if self.scheduler.config.prediction_type == 'epsilon' else self.scheduler.get_velocity(flat, noise, times)
             views.append({'noisy': noisy, 'times': times, 'target': target})
-        return {'views': views, 'condition': condition, 'batch_size': b, **({'low_stage': low_stage} if stagewise is not None else {})}
+        return {'views': views, 'condition': condition, 'batch_size': b,
+                'conditioning_diagnostics': dict(getattr(self, 'last_prompt_truncations', {})),
+                **({'low_stage': low_stage,
+                    'stage_axis': 'descending_flow_schedule_index' if self.family in ('sd35_medium', 'zimage') else 'diffusion_timestep',
+                    **({'high_noise_stage': low_stage} if self.family in ('sd35_medium', 'zimage') else {})}
+                   if stagewise is not None else {})}
 
     def view_errors(self, prepared, view, reference=False, *, return_prediction=False):
         v = prepared['views'][view] if isinstance(view, int) else view
@@ -116,7 +147,7 @@ class MultiViewBackend(PreferenceBackend):
             was_training = self.model.training
             self.model.eval()
             try:
-                with torch.no_grad(), self.model.disable_adapter(), self._autocast():
+                with PreferenceBackend.reference_context(self), self._autocast():
                     prediction = self._predict(v['noisy'], v['times'], prepared['condition'])
             finally:
                 self.model.train(was_training)
@@ -162,8 +193,8 @@ class MultiViewBackend(PreferenceBackend):
             return {**{key: torch.cat([value[i] for value in values], 1)
                        for i, key in enumerate(('policy_errors', 'reference_errors', 'winner_prediction_gaps'))},
                     'prepared': prepared}
-        policy = [self.view_errors(prepared, j) for j in range(len(prepared['views']))]
         refs = [self.view_errors(prepared, j, reference=True) for j in range(len(prepared['views']))]
+        policy = [self.view_errors(prepared, j) for j in range(len(prepared['views']))]
         return {'policy_errors': torch.cat(policy, 1), 'reference_errors': torch.cat(refs, 1), 'prepared': prepared}
 
     def pair_errors(self, images, prompts, generator, reference=True):

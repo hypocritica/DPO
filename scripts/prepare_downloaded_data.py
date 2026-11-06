@@ -304,8 +304,10 @@ def _prepare_pickapic(raw, out, image_root, *, family, model, hpdv2_test=None, h
     print(json.dumps({'out':str(out), 'splits':dict(counts)}), flush=True)
 
 
-def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=None, allowed=None, min_confidence=None):
+def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=None, allowed=None, min_confidence=None, allowed_models=None, workers=1):
     from PIL import Image
+    from io import BytesIO
+    if workers < 1:raise ValueError('workers must be positive')
     raw,out=Path(raw).resolve(),Path(out).resolve()
     if out.exists():raise FileExistsError(out)
     receipt_file=raw/'.scd-download.json'
@@ -313,20 +315,31 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
     if receipt and not receipt.get('complete'):raise ValueError('HPDv3 download is incomplete')
     revision=revision or (receipt['repo_id']+'@'+receipt['revision'] if receipt else None)
     if not revision:raise ValueError('Supply --revision for manually downloaded HPDv3')
-    if not (raw/'images').is_dir():raise FileNotFoundError('Extract HPDv3 images before preparing train.json')
     tests=json.loads((raw/'test.json').read_text())
     blocked_prompts={prompt_key(r['prompt']) for r in tests}
     blocked_hashes=set()
     cached={}
-    def local_image(name):
+    def inspect_image(name):
         path=(raw/name).resolve()
         if not path.is_relative_to(raw):raise ValueError(f'Image path escapes HPDv3 root: {name}')
-        if path not in cached:
-            if not path.is_file():
-                raise FileNotFoundError(f'{path}; do not mix pickapic.json/imagereward.json without their external images')
-            with Image.open(path) as image:image.verify()
-            cached[path]=sha256(path)
-        return str(path),cached[path]
+        # One NFS read supplies both image validation and the exact byte hash.
+        payload=path.read_bytes()
+        with Image.open(BytesIO(payload)) as image:image.verify()
+        return str(path),hash_bytes(payload).hexdigest()
+    def verify_images(names):
+        names=list(dict.fromkeys(name for name in names if name not in cached))
+        started=time.monotonic()
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for start in range(0,len(names),256):
+                batch=names[start:start+256]
+                cached.update(zip(batch,executor.map(inspect_image,batch)))
+                if start == 0 or (start+len(batch))%4096 == 0 or start+len(batch)==len(names):
+                    print(json.dumps({'phase':'verify_images','verified':start+len(batch),
+                                      'total':len(names),'workers':workers,
+                                      'elapsed_seconds':round(time.monotonic()-started,1)}),flush=True)
+    def local_image(name):
+        return cached[name]
+    verify_images(record[side] for record in tests for side in ('path1','path2'))
     for record in tests:
         for side in ('path1','path2'):
             blocked_hashes.add(local_image(record[side])[1])
@@ -341,21 +354,28 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
     allowed=allowed or ((lambda caption:True) if family=='unfiltered' else tokenizer_predicate(Path(model),family))
     annotations=json.loads((raw/'train.json').read_text())
     if not isinstance(annotations,list):raise ValueError('Expected official HPDv3 train.json list')
-    original,groups,excluded,records=[],{},[],{}
-    out.mkdir(parents=True)
-    write_json(out/'preparing.json',{'revision':revision,'family':family})
-    for index,record in enumerate(annotations):
-        pair_id='hpdv3:'+str(index)
+    def exclusion_reason(index,record):
         caption=record.get('prompt')
         reason=None
         confidence=record.get('confidence')
         if confidence is not None and (isinstance(confidence,bool) or not isinstance(confidence,(int,float)) or not math.isfinite(confidence) or not 0<=confidence<=1):
             raise ValueError(f'Invalid official HPDv3 confidence: row {index}')
-        if not isinstance(caption,str) or not caption.strip():reason='empty_caption'
+        if allowed_models is not None and (record.get('model1') not in allowed_models or record.get('model2') not in allowed_models):reason='model_subset'
+        elif not isinstance(caption,str) or not caption.strip():reason='empty_caption'
         elif prompt_key(caption) in blocked_prompts:reason='official_heldout_caption'
         elif not allowed(caption):reason='model_token_length'
         elif min_confidence is not None:
             if confidence is None or confidence<min_confidence:reason='confidence_threshold'
+        return reason
+    reasons=[exclusion_reason(index,record) for index,record in enumerate(annotations)]
+    verify_images(record[side] for record,reason in zip(annotations,reasons) if reason is None
+                  for side in ('path1','path2'))
+    original,groups,excluded,records=[],{},[],{}
+    out.mkdir(parents=True)
+    write_json(out/'preparing.json',{'revision':revision,'family':family})
+    for index,(record,reason) in enumerate(zip(annotations,reasons)):
+        pair_id='hpdv3:'+str(index)
+        caption=record.get('prompt')
         if reason:
             excluded.append({'pair_id':pair_id,'reason':reason});continue
         paths,hashes=zip(*(local_image(record[side]) for side in ('path1','path2')))
@@ -382,7 +402,7 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
     write_json(out/'audit.json',{**report,'family':family,'raw_train_rows':len(annotations),
         'exclusions':dict(Counter(r['reason'] for r in excluded)),
         'train_json_sha256':sha256(raw/'train.json'),'test_json_sha256':sha256(raw/'test.json'),
-        'minimum_confidence':min_confidence,'download_receipt':receipt,
+        'minimum_confidence':min_confidence,'allowed_models':sorted(allowed_models) if allowed_models is not None else None,'download_receipt':receipt,
         'pickapic_heldout_inventory':pickapic_inventory,'preparation_code_sha256':sha256(__file__),
         'model_download_receipt':json.loads((Path(model)/'.scd-download.json').read_text()) if model and (Path(model)/'.scd-download.json').is_file() else None,
         'split_policy':'Official test captions/images and Pick-a-Pic held-out captions/images excluded; remaining train components split 90/5/5. Local test is NOT official test.json.',
