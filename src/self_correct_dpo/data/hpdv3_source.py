@@ -56,6 +56,16 @@ class SourceStatMismatch(ValueError):
                          'Do not reset the inventory before checking this task container view.')
 
 
+def second_precision_equivalent(expected, observed):
+    # Some object-store mounts expose only whole seconds. Permit exactly that
+    # truncation in either direction, never arbitrary subsecond drift.
+    second = 1_000_000_000
+    a, b = expected['mtime_ns'], observed['mtime_ns']
+    return (expected['size_bytes'] == observed['size_bytes'] and a != b
+            and a // second == b // second
+            and (a % second == 0 or b % second == 0))
+
+
 def validate_inventory(raw, record):
     if record.get('kind') != 'hpdv3_local_source_inventory' or record.get('status') != 'inventoried':
         raise ValueError('Invalid HPDv3 source inventory')
@@ -64,6 +74,7 @@ def validate_inventory(raw, record):
     expected_names = set(record['annotations']) | set(record['archives'])
     if not {'train.json', 'test.json'} <= expected_names or not record['archives']:
         raise ValueError('Source inventory lacks annotations/archives')
+    precision_matches = []
     for name in sorted(expected_names):
         if name not in ('train.json', 'test.json') and not re.fullmatch(r'images\.tar\.gz\.\d{2}', name):
             raise ValueError(f'Unsafe source inventory path: {name}')
@@ -71,7 +82,20 @@ def validate_inventory(raw, record):
         expected = {k: entry[k] for k in ('size_bytes', 'mtime_ns')}
         observed = file_stat(raw / name)
         if observed != expected:
-            raise SourceStatMismatch(raw, name, expected, observed)
+            if not second_precision_equivalent(expected, observed):
+                raise SourceStatMismatch(raw, name, expected, observed)
+            evidence = {'file': name, 'expected': expected, 'observed': observed,
+                        'annotation_sha256_rechecked': False}
+            if name in record['annotations']:
+                # Preserve the stronger annotation identity when mount metadata
+                # loses precision. Archive payloads have no original hash here.
+                checked = annotation_hash(raw / name)
+                if checked['sha256'] != entry['sha256']:
+                    raise ValueError(f'Annotation SHA256 changed despite equivalent timestamp: {raw / name}')
+                if {key: checked[key] for key in expected} != observed:
+                    raise ValueError(f'Annotation stat changed during precision check: {raw / name}')
+                evidence['annotation_sha256_rechecked'] = True
+            precision_matches.append(evidence)
     if {p.name for p in raw.glob('images.tar.gz.[0-9][0-9]')} != set(record['archives']):
         raise ValueError('Archive set changed since inventory; finish downloading before preparing data')
     expected_identity = {
@@ -79,6 +103,12 @@ def validate_inventory(raw, record):
         'archives': {name: row['size_bytes'] for name, row in record['archives'].items()}}
     if record['identity'] != expected_identity or record.get('repo_id') != 'local/HPDv3':
         raise ValueError('Source inventory contents disagree with identity')
+    result = {'mtime_policy': 'exact_or_whole_second_truncation',
+              'reduced_precision_matches': precision_matches,
+              'archive_payload_checksums_verified': False}
+    if precision_matches:
+        print('[source-stat-precision] ' + json.dumps(result), file=sys.stderr, flush=True)
+    return result
 
 
 def source_record(raw, *, create_inventory=False):
@@ -100,13 +130,13 @@ def source_record(raw, *, create_inventory=False):
             return path, record
     path = raw / INVENTORY
     if path.is_file():
-        record = json.loads(path.read_text()); validate_inventory(raw, record)
+        record = json.loads(path.read_text()); record['stat_validation'] = validate_inventory(raw, record)
         return path, record
     if not create_inventory:
         raise ValueError('No source record. Run scripts/inspect_hpdv3_source.py --raw PATH once.')
     with output_lock(raw / INVENTORY):
         if path.is_file():
-            record = json.loads(path.read_text()); validate_inventory(raw, record)
+            record = json.loads(path.read_text()); record['stat_validation'] = validate_inventory(raw, record)
             return path, record
         archives = sorted(raw.glob('images.tar.gz.[0-9][0-9]'))
         if not archives:
@@ -135,7 +165,8 @@ def source_record(raw, *, create_inventory=False):
                   'annotations': annotations, 'archives': archive_stats,
                   'upstream_revision_verified': False, 'archive_payload_checksums_verified': False,
                   'download_complete_verified': False, 'hf_cache_commits_observed': sorted(commits)}
-        validate_inventory(raw, record)
+        validation = validate_inventory(raw, record)
         atomic_json(path, record)
+        record['stat_validation'] = validation
         print(f'[source] Local inventory written: {path}; download completion/upstream revision NOT certified', file=sys.stderr, flush=True)
         return path, record

@@ -80,6 +80,40 @@ class HPDv3SourceTests(unittest.TestCase):
             self.assertEqual(default.stdout,'')
             self.assertEqual((raw/INVENTORY).read_bytes(),inventory)
 
+    def test_whole_second_mount_precision_and_annotation_content_guard(self):
+        import os
+        from self_correct_dpo.data.hpdv3_source import second_precision_equivalent
+        expected={'size_bytes':10737418240,'mtime_ns':1793982938732000000}
+        observed={'size_bytes':10737418240,'mtime_ns':1793982938000000000}
+        self.assertTrue(second_precision_equivalent(expected,observed))
+        self.assertTrue(second_precision_equivalent(observed,expected))
+        for bad in ({**observed,'size_bytes':1},
+                    {**observed,'mtime_ns':1793982939000000000},
+                    {**observed,'mtime_ns':1793982938733000000}):
+            self.assertFalse(second_precision_equivalent(expected,bad))
+        with tempfile.TemporaryDirectory() as temporary:
+            raw=raw_folder(Path(temporary));volume=raw/'images.tar.gz.00';train=raw/'train.json'
+            precise=expected['mtime_ns'];coarse=observed['mtime_ns']
+            for path in (volume,train):os.utime(path,ns=(precise,precise))
+            source_record(raw,create_inventory=True)
+            inventory=(raw/INVENTORY).read_bytes()
+            for path in (volume,train):os.utime(path,ns=(coarse,coarse))
+            _,record=source_record(raw)
+            evidence={r['file']:r for r in record['stat_validation']['reduced_precision_matches']}
+            self.assertFalse(evidence[volume.name]['annotation_sha256_rechecked'])
+            self.assertTrue(evidence[train.name]['annotation_sha256_rechecked'])
+            self.assertFalse(record['stat_validation']['archive_payload_checksums_verified'])
+            # Same bytes count, same coarse timestamp, different annotation bytes.
+            train.write_text('{}');os.utime(train,ns=(coarse,coarse))
+            with self.assertRaisesRegex(ValueError,'Annotation SHA256 changed'):source_record(raw)
+            train.write_text('[]');os.utime(train,ns=(coarse,coarse))
+            for stamp in (coarse+1_000_000_000,precise+1_000_000):
+                os.utime(volume,ns=(stamp,stamp))
+                with self.assertRaisesRegex(ValueError,'Source file changed'):source_record(raw)
+            os.utime(volume,ns=(coarse,coarse));volume.write_bytes(b'different-size')
+            with self.assertRaisesRegex(ValueError,'Source file changed'):source_record(raw)
+            self.assertEqual((raw/INVENTORY).read_bytes(),inventory)
+
     def test_native_scd_receipt_and_incomplete_or_changed_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             raw=raw_folder(Path(temporary));path=raw/'.scd-download.json'
@@ -122,6 +156,12 @@ class HPDv3SourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);raw=raw_folder(root,100)
             (raw/'images.tar.gz.00.incomplete').write_bytes(b'ignored leftover')
+            # Reproduce a task mount truncating the development mount's mtimes.
+            source_record(raw,create_inventory=True)
+            inventory=(raw/INVENTORY).read_bytes()
+            for name in ('train.json','test.json','images.tar.gz.00','images.tar.gz.01'):
+                path=raw/name;stamp=path.stat().st_mtime_ns//1_000_000_000*1_000_000_000
+                os.utime(path,ns=(stamp,stamp))
             resources=json.loads((ROOT/'configs/resources-slai-flow.json').read_text())
             resources.update(HPDV3_RAW=str(raw), HPDV3_SUB_PREPARED=str(root/'prepared'),
                              MONITOR_PROMPTS_FLOW_PILOT=str(root/'panel.jsonl'))
@@ -132,6 +172,7 @@ class HPDv3SourceTests(unittest.TestCase):
             run=subprocess.run(command,env=env,capture_output=True,text=True)
             self.assertEqual(run.returncode,0,run.stdout+'\n'+run.stderr)
             self.assertIn('[DONE]',run.stdout)
+            self.assertIn('[source-stat-precision]',run.stdout)
             report=json.loads((root/'prepared/validation-report.json').read_text())
             self.assertTrue(report['passed'],report)
             self.assertEqual(report['counts']['usable_pairs'],100)
@@ -139,6 +180,10 @@ class HPDv3SourceTests(unittest.TestCase):
             self.assertFalse(report['source_identity']['upstream_revision_verified'])
             self.assertFalse(report['source_identity']['download_complete_verified'])
             self.assertFalse((raw/'.download-manifest.json').exists())
+            self.assertEqual((raw/INVENTORY).read_bytes(),inventory)
+            self.assertEqual(report['source_identity']['stat_validation']['mtime_policy'],
+                             'exact_or_whole_second_truncation')
+            self.assertEqual(len(report['source_identity']['stat_validation']['reduced_precision_matches']),4)
             again=subprocess.run(command,env=env,capture_output=True,text=True)
             self.assertEqual(again.returncode,0,again.stdout+'\n'+again.stderr)
             self.assertIn('Reusing completed extraction',again.stdout)

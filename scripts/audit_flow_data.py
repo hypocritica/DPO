@@ -141,7 +141,8 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
             'upstream_revision_verified': not local_inventory,
             'download_complete_verified': not local_inventory,
             'archive_payload_checksums_verified': False,
-            'record': str(receipt_path)}
+            'record': str(receipt_path),
+            'stat_validation': receipt.get('stat_validation')}
         revision = receipt['repo_id'] + '@' + receipt['revision']
         if ready.get('source_revision') != revision or prepared.get('source_revision') != revision:
             raise ValueError('Ready/audit/download source revisions disagree')

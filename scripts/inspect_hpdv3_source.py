@@ -29,7 +29,8 @@ def main():
         raise SystemExit(1)
     if args.diagnose:
         print(json.dumps({**context, 'passed': True, 'source_record': str(path),
-                          'revision': record['revision']}), flush=True)
+                          'revision': record['revision'],
+                          'stat_validation': record.get('stat_validation')}), flush=True)
         return
     print(f'[source] Using {path}', file=sys.stderr, flush=True)
     print(record['repo_id'] + '@' + record['revision'], flush=True)

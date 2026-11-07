@@ -137,11 +137,12 @@ def _extract(raw, out, max_gib, reserve_gib, workers):
         stream.wait()
     if needed: raise FileNotFoundError(f'{len(needed)} selected images missing from downloaded archives')
     # Recheck the existing source record after the stream; inventory paths must
-    # still have exactly the same stats as before extraction.
+    # must still match, allowing explicitly logged whole-second truncation.
     source_path, source = source_record(raw)
     annotation_hashes = source.get('identity', {}).get('annotations', {})
     report = {'source': str(raw), 'revision': source['revision'], 'images': count,
               'selected_pairs_before_image_exclusions': selected_count, 'bytes': total,
+              'source_stat_validation': source.get('stat_validation'),
               'source_record': str(source_path), 'source_record_kind': source.get('kind', 'download_receipt'),
               'upstream_revision_verified': source.get('kind') != 'hpdv3_local_source_inventory',
               'train_json_sha256': annotation_hashes.get('train.json') or sha256(raw/'train.json'),

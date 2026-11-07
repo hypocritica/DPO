@@ -31,26 +31,34 @@ bash launchers/flow/prepare_slai_data.sh
 自定义布局用 `FLOW_IMAGES` / `FLOW_PREPARED` / `FLOW_PANEL`，完成后启动器使用打印的
 `--pairs ... --monitor-prompts ...`。每次准备默认4线程，不执行GPU、不下载内容。
 
-## 任务容器报source changed，开发机诊断却没有变化
+## 开发机与任务容器的修改时间精度不同
 
-开发机和提交任务的容器可能具有不同的挂载视图。不能用另一个容器中匹配的stat结果，
-推断报错任务的来源检查已通过；目前没有远程数据证明具体是哪一字段或挂载变化。
-准备入口的source阶段现在直接输出[source-context]；失败时再输出[source-diagnostic] JSON，
-包含hostname、Python解释器/版本、cwd、模块路径、raw绝对路径，以及报错文件的expected、
-observed和changed_fields。数据来源检查保持严格，不重置inventory，不忽略mtime变化。
+实际SLAI任务报告同一10GiB分卷：原记录mtime_ns=1793982938732000000，
+任务看到mtime_ns=1793982938000000000，大小均为10737418240。
+这一差异恰好是丢弃秒以下精度，与两个挂载视图的时间戳精度不同一致；不能据此声称
+分卷内容经过了独立校验。Ctrl+C准备脚本不会主动修改原始分卷。
 
-先在实际报错任务使用的checkout更新代码，然后重新提交原入口。诊断会进入该任务日志，
-不要只在开发机执行另一个stat检查。若可进入同一任务容器，也可只读检查：
+现检查接受精确匹配，或同时满足：大小完全相同、mtime整秒相同、至少一侧小数部分为零。
+不是任意一秒容差；跨秒变化、两侧均有小数的时间变化及大小变化仍拒绝。
+train.json/test.json如遇精度差异，会流式重新计算SHA256并对照原指纹；分卷维持原有
+未做完整payload哈希的范围，仍假设下载结束后的原始文件不可变。
+
+无需删改原指纹、下载数据或清空已提取图片。更新代码后在实际任务中重新运行准备入口。
+[source-stat-precision]记录接受的文件、expected/observed及注释是否重新核对SHA256；
+extraction.json的source_stat_validation与validation-report.json的source_identity.stat_validation
+保留同类证据，来源revision及原inventory字节保持不变。
+
+真正不匹配时仍输出[source-context]/[source-diagnostic]，包含任务hostname、Python、raw及具体差值。
+开发机stat匹配不能代替任务容器的检查；如需只读诊断，在相同任务容器和Python环境运行：
 
 ```bash
 cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2
 python scripts/inspect_hpdv3_source.py --raw /mnt/aoss/xietianyu/datasets/hpdv3 --diagnose
 ```
 
---diagnose输出JSON，通过返回0，失败返回1；不会创建、修改来源记录，也不读大分卷内容。
-需使用与准备任务一致的Python环境。默认入口成功时stdout仍只输出repo@revision，保留shell捕获兼容。
-拿到任务内的expected/observed后，再区分大小变化、时间戳变化及不同目录/运行环境；
-诊断增强本身不代表已经修复远程文件变化。
+--diagnose输出JSON，通过返回0，失败返回1；不创建或改写来源记录。通常只读元数据；
+注释出现上述精度差异时额外读取其字节核对SHA256，不读取分卷内容。
+默认入口成功时stdout仍只输出repo@revision，保留shell捕获兼容。
 
 ## 读取train.json被Killed / exit 137
 

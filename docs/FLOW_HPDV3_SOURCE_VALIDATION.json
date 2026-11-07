@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "kind": "hpdv3_source_compatibility_implementation_review_not_asset_receipt",
-  "base_commit": "5d454480e61c0980b7e76e5b40d74c211fa7e706",
+  "base_commit": "8d9f05411932bb594a3c9e3e101134eb3c8f6cac",
   "status": "cpu_verified_remote_full_data_not_run",
   "tests": {
-    "test_hpdv3_source": 6,
+    "test_hpdv3_source": 7,
     "test_hpdv3_sub": 5,
     "test_flow_data_audit": 4,
     "test_flow_receipts": 5,
-    "total": 20
+    "total": 21
   },
   "full_wrapper_fixture": {
     "plain_hf_folder_without_project_receipt": true,
@@ -83,8 +83,30 @@
       "observed",
       "changed_fields"
     ],
-    "mtime_only_change_still_rejected": true,
+    "mtime_only_change_still_rejected": "Except exact whole-second truncation with identical file size",
     "original_inventory_preserved": true,
-    "remote_mismatch_root_cause": "unconfirmed; need actual failing container expected/observed"
+    "remote_mismatch_root_cause": "User provided equal sizes and exact whole-second truncation, consistent with mount timestamp precision differences; archive payload identity not independently verified"
+  },
+  "timestamp_precision_compatibility": {
+    "remote_case": {
+      "size_bytes": 10737418240,
+      "expected_mtime_ns": 1793982938732000000,
+      "observed_mtime_ns": 1793982938000000000
+    },
+    "policy": "Equal size, equal integer seconds, at least one timestamp has zero fractional seconds",
+    "both_directions_verified": true,
+    "annotation_sha256_rechecked_on_precision_difference": true,
+    "archive_payload_checksums_verified": false,
+    "original_inventory_and_revision_preserved": true,
+    "different_size_rejected": true,
+    "different_whole_second_rejected": true,
+    "different_nonzero_fraction_rejected": true,
+    "same_size_mutated_annotation_rejected": true,
+    "full_wrapper_fixture_precision_changed_files": 4,
+    "evidence": [
+      "source-stat-precision log",
+      "extraction.json source_stat_validation",
+      "validation-report.json source_identity.stat_validation"
+    ]
   }
 }
