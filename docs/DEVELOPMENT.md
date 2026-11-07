@@ -1,5 +1,7 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 根据SLAI真实日志修复debug_train.sh遗漏--run-label：模型和数据预检已过，训练前require_gpu_allocation因standalone标签空而拒绝。启动器提供family/algorithm/profile运行标签，保留分配检查；运行参数不修改冻结配置，不需清理旧产物。2项相关CPU集成检查通过，新增真实shell→run_flow.main→训练命令测试（仅拦截GPU子进程并调用真实require_gpu_allocation，非config-only），覆盖SD3.5和ZImage标签及25步暂停传递；未在远程GPU执行修复后训练。
+
 2026-11-07 调整预检快照Only 0/128诊断：旧默认前20万条可能漏掉后续完整对，改为max_scan=0流式查到目标或EOF。先索引已完成图片名称（忽略partial/incomplete），减少远程缺失文件stat；每1万条/15秒输出计数，输出相邻availability.json记录范围、过滤、winner_only/loser_only/neither/both及路径示例。新增真实20万条前缀回归：限制前缀返回0，默认成功找到128对；一侧缺图及partial准确统计。4项debug CPU检查通过，来源/正式输出不修改。真实SLAI此次0对原因仍需新报告确认，不能保证未完成解压中必然已有128个完整对；未提交GPU任务或重跑全量准备。
 
 2026-11-07 按用户更正将远程ZImage编号入口默认改为双H100，SD3.5仍四5090。新增prepare_flow_debug_data.py：从正在提取的正式图片中复制128对独立真实偏好快照，不读分卷，限256MiB，源数据/正式目录不写入；原始行号/标签保留，官方test caption/UID排除，缺完整test image hash审计故标记ready_for_paper=false，不生成正式passed数据凭据。debug_train.sh默认50步/1024/B1/累积1，离线W&B独立项目，25步暂停可自动latest恢复至50；无生成评分。run_flow.py新增--smoke-steps，原smoke两步及正式3200步保持。28项相关CPU回归通过（新快照/真实shell配置、旧flow/SFT/stagewise/receipts/数据）；额外实际CPU tiny PEFT生产训练50步与25→50恢复的LoRA及算法EMA逐位一致。未运行远程真实GPU或提交作业，命令见FLOW_DEBUG.md。

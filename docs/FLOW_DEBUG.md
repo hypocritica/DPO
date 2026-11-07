@@ -54,6 +54,14 @@ python scripts/validate_flow_model.py --family zimage \
   --out reports/slai/zimage-model-validation.json
 ```
 
+## standalone缺少run_label的旧入口修复
+
+如果模型报告passed、数据data_ready后报Standalone execution requires an explicit nonempty run_label，
+是早期debug_train.sh漏传运行标签。新版入口自动提供family/algorithm/profile对应的非空run-label，
+不关闭外部分配检查。更新后重新执行原25步/50步命令，冻结配置不变，无需删数据/配置或重做模型验证。
+也可在旧版的两条训练命令末尾均追加--run-label zimage-debug-h100临时修复。
+该错误发生在GPU训练前；两条命令顺序运行时，建议用&&连接，只在25步成功暂停后续跑。
+
 ## 3. 在对应已分配GPU任务运行50步
 
 两组各自进入项目根目录，使用对应卡型/数量。启动器自动激活既有mvpo-flow。

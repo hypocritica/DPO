@@ -24,6 +24,7 @@ source "$ROOT/launchers/flow/slai_common.sh"
 flow_slai_environment "$@"
 exec bash "$ROOT/launchers/flow/train.sh" --family "$family" --algorithm "$algorithm" \
   --profile "$profile" --world-size "$world" --execution standalone \
+  --run-label "$family-$algorithm-$profile-predata-debug" \
   --smoke --smoke-steps "${FLOW_DEBUG_STEPS:-50}" --run-tag predata-v1 \
   --pairs "${FLOW_DEBUG_PAIRS:-/mnt/aoss/xietianyu/datasets/hpdv3/flow-debug-v1/prepared/pairs.jsonl}" \
   --model-report "$SCD_FLOW_REPORTS_ROOT/$family-model-validation.json" \

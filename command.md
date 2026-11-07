@@ -4,6 +4,7 @@
 若旧版提示Only 0/128，更新后默认--max-scan 0流式查找全部注释，避免前20万条限制；不足时查看flow-debug-v1.availability.json的路径、扫描范围和单侧图片计数。
 完整命令、模型一次验证、25→50步续跑和Stagewise K4见[docs/FLOW_DEBUG.md](docs/FLOW_DEBUG.md)。
 正式编号入口仍需完整passed数据报告，预检不能接全量数据续训。
+预检旧入口若在data_ready后报Standalone execution requires an explicit nonempty run_label，更新后自动补运行标签；无需重做模型/数据准备。旧版可在两条debug_train.sh命令都追加--run-label zimage-debug-h100。
 
 # HPDv3：兼容Hugging Face原生下载目录
 

@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "kind": "flow_debug_implementation_validation_not_gpu_receipt",
-  "base_commit": "ccc8fbd4091e1bd47cd0ccc1eab5717f2a2147d3",
+  "base_commit": "a97ce0c31b1e54636e3ebf5d74d6ea30856fc43a",
   "status": "cpu_verified_remote_gpu_not_run",
   "tests": {
-    "test_flow_debug": 4,
+    "test_flow_debug": 5,
     "test_flow_receipts": 5,
     "test_hpdv3_sub": 5,
     "test_flow": 10,
     "test_flow_sft": 3,
     "test_flow_stagewise": 2
   },
-  "total_unit_tests": 29,
+  "total_unit_tests": 30,
   "cpu_production_resume_fixture": {
     "continuous_steps": 50,
     "pause_step": 25,
@@ -52,8 +52,9 @@
   ],
   "documentation": "docs/FLOW_DEBUG.md",
   "current_change_tests": {
-    "test_flow_debug": 4,
-    "older_regression_results_carried_forward": true
+    "runtime_label_to_actual_training_command": 1,
+    "existing_shell_config_regression": 1,
+    "other_results_carried_forward": true
   },
   "availability_scan": {
     "old_prefix_limit_rows": 200000,
@@ -69,5 +70,17 @@
     "json_report_written_on_insufficient_pairs": true,
     "source_files_unchanged": true,
     "remote_actual_zero_pair_cause": "Not independently confirmed; inspect runtime availability report"
+  },
+  "standalone_runtime_label_fix": {
+    "remote_failure": "Standalone execution requires an explicit nonempty run_label",
+    "cause": "Debug shell omitted --run-label",
+    "model_and_data_preflight_passed_in_remote_log": true,
+    "both_model_launchers_now_supply_default_label": true,
+    "allocation_guard_preserved": true,
+    "real_shell_and_run_flow_main_tested_past_config_only": true,
+    "gpu_subprocess_intercepted": true,
+    "actual_allocation_guard_called_in_fixture": true,
+    "frozen_training_configuration_unchanged": true,
+    "remote_post_fix_gpu_run": "not performed"
   }
 }

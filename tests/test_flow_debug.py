@@ -110,6 +110,47 @@ class FlowDebugTests(unittest.TestCase):
         self.assertEqual(c['training']['max_steps'],3200)
         self.assertEqual(c['training']['gradient_accumulation_steps'],64)
 
+    def test_debug_runtime_label_reaches_training_allocation_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);capture=root/'command.json';shim=root/'python-shim'
+            # Run the real shell and run_flow.main past config-only, intercepting
+            # only environment imports and the final GPU process launch.
+            shim.write_text('#!'+sys.executable+'\n'+f"""
+import json,runpy,sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path[:0]=[{str(ROOT/'src')!r},{str(ROOT/'scripts')!r}]
+args=sys.argv[1:]
+if args[0]=='-u':args=args[1:]
+sys.argv=args
+from self_correct_dpo.common import require_gpu_allocation
+
+def check(command):
+    mode=command[command.index('--execution')+1]
+    label=command[command.index('--run-label')+1] if '--run-label' in command else None
+    require_gpu_allocation({{'mode':mode,'run_label':label}})
+    Path({str(capture)!r}).write_text(json.dumps(command))
+
+with patch('check_flow_environment.check_environment',return_value={{}}), \
+     patch('self_correct_dpo.evaluation.runner.run_command',side_effect=check), \
+     patch('self_correct_dpo.common.socket.gethostname',return_value='slai-fixture-worker'):
+    runpy.run_path(args[0],run_name='__main__')
+""")
+            shim.chmod(0o755)
+            env={**os.environ,'SCD_FLOW_PYTHON':str(shim),
+                 'SCD_RESOURCES':str(ROOT/'configs/resources-slai-flow.json')}
+            for family in ('sd35_medium','zimage'):
+                command=['bash',str(ROOT/'launchers/flow/debug_train.sh'),family,'dpo',
+                         '--runs-root',str(root/'runs'),'--config-dir',str(root/'configs'),
+                         '--stop-after-step','25']
+                run=subprocess.run(command,capture_output=True,text=True,env=env)
+                self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+                actual=json.loads(capture.read_text())
+                self.assertEqual(actual[actual.index('--execution')+1],'standalone')
+                self.assertEqual(actual[actual.index('--stop-after-step')+1],'25')
+                label=actual[actual.index('--run-label')+1]
+                self.assertEqual(label,f'{family}-dpo-'+('5090' if family=='sd35_medium' else 'h100')+'-predata-debug')
+
     def test_real_debug_shell_config_only_profiles_logging_and_pause(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
