@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "flow_debug_implementation_validation_not_gpu_receipt",
+  "base_commit": "f001890daae301da96f5418923ec88a861d7f929",
+  "status": "cpu_verified_remote_gpu_not_run",
+  "tests": {
+    "test_flow_debug": 3,
+    "test_flow_receipts": 5,
+    "test_hpdv3_sub": 5,
+    "test_flow": 10,
+    "test_flow_sft": 3,
+    "test_flow_stagewise": 2
+  },
+  "total_unit_tests": 28,
+  "cpu_production_resume_fixture": {
+    "continuous_steps": 50,
+    "pause_step": 25,
+    "resumed_to": 50,
+    "adapter_bit_equal": true,
+    "linear_dpo_reference_bit_equal": true,
+    "reference_updates": 50,
+    "device": "cpu",
+    "backend": "tiny PEFT fixture; not real backbone"
+  },
+  "snapshot": {
+    "pairs": 128,
+    "images_copied_max_mib": 256,
+    "source_bytes_and_mtime_unchanged": true,
+    "missing_and_partial_images_ignored": true,
+    "official_test_caption_uid_excluded": true,
+    "official_test_image_hash_audited": false,
+    "ready_for_paper": false,
+    "formal_passed_receipt_created": false,
+    "snapshot_reuse_verified": true
+  },
+  "launchers": {
+    "sd35_medium": "4x5090",
+    "zimage": "2xH100",
+    "steps": 50,
+    "resolution": 1024,
+    "microbatch": 1,
+    "gradient_accumulation": 1,
+    "checkpoint_every": 10,
+    "wandb_project": "mvpo-flow-debug",
+    "wandb_mode": "offline",
+    "generation_and_pickscore": false
+  },
+  "limits": [
+    "GPU memory, throughput and numerical stability not yet verified",
+    "Snapshot cannot replace full HPDv3 preparation or formal paper data",
+    "Debug run must not resume on the full dataset"
+  ],
+  "documentation": "docs/FLOW_DEBUG.md"
+}

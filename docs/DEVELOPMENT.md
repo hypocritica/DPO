@@ -1,5 +1,7 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 按用户更正将远程ZImage编号入口默认改为双H100，SD3.5仍四5090。新增prepare_flow_debug_data.py：从正在提取的正式图片中复制128对独立真实偏好快照，不读分卷，限256MiB，源数据/正式目录不写入；原始行号/标签保留，官方test caption/UID排除，缺完整test image hash审计故标记ready_for_paper=false，不生成正式passed数据凭据。debug_train.sh默认50步/1024/B1/累积1，离线W&B独立项目，25步暂停可自动latest恢复至50；无生成评分。run_flow.py新增--smoke-steps，原smoke两步及正式3200步保持。28项相关CPU回归通过（新快照/真实shell配置、旧flow/SFT/stagewise/receipts/数据）；额外实际CPU tiny PEFT生产训练50步与25→50恢复的LoRA及算法EMA逐位一致。未运行远程真实GPU或提交作业，命令见FLOW_DEBUG.md。
+
 2026-11-07 根据SLAI实际任务诊断修正mtime纳秒精度误拒绝：分卷大小10737418240一致，mtime_ns从1793982938732000000变为1793982938000000000。仅兼容大小相同、整秒相同且一侧精确为整秒的截断；跨秒变化、非截断小数变化和大小变化仍拒绝。注释出现精度差异时重新核对既有SHA256；分卷不重复全量哈希，不宣称内容认证。日志/extraction/validation报告保留精度证据，原指纹和revision不变。21项相关CPU检查通过，包含实际数字复现、注释同大小改写拒绝及四文件精度变化后的五阶段流程/重复复用；未在SLAI真实全量数据上执行。
 
 2026-11-07 增强HPDv3来源stat失败诊断：确定性文件顺序，错误携带expected/observed/changed_fields，准备入口输出实际任务hostname/Python/raw/module上下文；inspect_hpdv3_source.py --diagnose只读JSON检查，不创建或更新来源记录。保持mtime/大小严格检查。20项相关CPU测试通过，覆盖只改mtime拒绝、任务内错误JSON和原指纹逐字节保留。远程报错与开发机变化0的实际差异尚待任务日志确认，不宣称修复数据变化。

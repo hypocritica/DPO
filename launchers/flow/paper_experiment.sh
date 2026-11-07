@@ -17,7 +17,7 @@ while [[ "${1:-}" == --internal-aggregation || "${1:-}" == --internal-boundary ]
   shift 2
 done
 profile=5090
-[[ "$family" == zimage ]] && profile=a800
+[[ "$family" == zimage ]] && profile=h100
 run_tag=flow-paper-v2
 weight_dtype=
 forward=()
@@ -27,7 +27,7 @@ Usage: $(basename "$0") [options]
 Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
 
   --profile 5090|h100|a800   5090: 4 GPUs; H100/A800: 2 GPUs
-                            SD3.5 defaults 5090; ZImage defaults A800
+                            SD3.5 defaults 5090; ZImage defaults H100
   --weight-dtype DTYPE      Explicit model weight precision; ZImage defaults float32.
                             ZImage on 5090 requires --weight-dtype bfloat16.
   --run-tag TAG             Experiment version (default: flow-paper-v2).

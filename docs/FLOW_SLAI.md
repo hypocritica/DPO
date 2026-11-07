@@ -101,6 +101,8 @@ bash launchers/flow/prepare_slai_data.sh
 必须保留完整输出`repo_id@revision`，不再写死`.download-manifest.json`或填造版本。
 本地源报告不作为远程凭据；两模型共用一份远程准备数据和面板。
 
+完整数据准备期间可用独立128对小快照跑50步预检，步骤见[FLOW_DEBUG.md](FLOW_DEBUG.md)。
+
 ## 5. 检查配置与启动
 
 CPU 配置检查不会加载模型、审计图片或训练。可写临时 runs/config 路径，避免生成正式冻结配置后才补报告 revision：
@@ -120,7 +122,7 @@ exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2/launchers/sd
 ```
 
 ```bash
-# ZImage：默认2×A800；可追加 --profile h100 使用双卡。
+# ZImage：默认2×H100；可追加 --profile a800 使用双卡。
 exec bash /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2/launchers/zimage/07_stagewise_mvpo_k2_views128.sh
 ```
 

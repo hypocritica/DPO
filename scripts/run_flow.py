@@ -17,7 +17,11 @@ from run_sdxl_h100 import prepare_output
 
 def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budget=128,
                  profile='h100', beta=None, steps=3200, stagewise=False, boundary=500,
-                 resources=None, smoke=False, recipe=None, batch_size=None, weight_dtype=None, aggregation='C'):
+                 resources=None, smoke=False, recipe=None, batch_size=None, weight_dtype=None, aggregation='C', smoke_steps=2):
+    if type(smoke_steps) is not int or not 1 <= smoke_steps <= 200:
+        raise ValueError('smoke-steps must be an integer in 1..200')
+    if not smoke and smoke_steps != 2:
+        raise ValueError('smoke-steps requires --smoke')
     if recipe not in (None, 'paper-pilot', 'paper-v2'): raise ValueError('Unknown flow recipe')
     if recipe and smoke: raise ValueError('paper-pilot is an effect experiment, not a smoke test')
     budget_unit = budget_unit or ('pairs' if recipe == 'paper-pilot' or algorithm == 'sft' else 'pair_views')
@@ -85,8 +89,8 @@ def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budge
         t['stagewise'] = {'boundary':boundary,'objective':'dpo','target_margin':1.,'huber_delta':1.,'huber_weight':1.}
     if smoke:
         # Deliberately small compute smoke, separate config/run identity.
-        t.update(max_steps=2, warmup_steps=0, batch_size=1, gradient_accumulation_steps=1,
-                 checkpoint_every=1, logging='jsonl')
+        t.update(max_steps=smoke_steps, warmup_steps=0, batch_size=1, gradient_accumulation_steps=1,
+                 checkpoint_every=1 if smoke_steps<=2 else 10, logging='jsonl')
         t['comparison_budget'] = {'unit':'pair_views','per_update':world*k}
         c['evaluation'] = {'enabled':False}
     if algorithm == 'sft':
@@ -138,6 +142,7 @@ def main():
     p.add_argument('--config-only', action='store_true')
     p.add_argument('--check-only', action='store_true')
     p.add_argument('--smoke', action='store_true')
+    p.add_argument('--smoke-steps', type=int, default=2, help='1..200 updates for --smoke; default 2; debug launcher uses 50')
     p.add_argument('--stop-after-step', type=int)
     p.add_argument('--execution', default='slurm', choices=['slurm','standalone'])
     p.add_argument('--run-label')
@@ -154,7 +159,7 @@ def main():
     c = build_config(a.family,a.algorithm,world=a.world_size,views=a.views,budget_unit=a.budget_unit,
         budget=a.budget,profile=a.profile,beta=a.beta,steps=a.steps,stagewise=a.stagewise,
         boundary=a.stage_boundary,resources=a.resources,smoke=a.smoke,recipe=a.recipe,batch_size=a.batch_size,
-        weight_dtype=a.weight_dtype,aggregation=a.aggregation)
+        weight_dtype=a.weight_dtype,aggregation=a.aggregation,smoke_steps=a.smoke_steps)
     for option, key in ((a.learning_rate,'learning_rate'),(a.ema_decay,'ema_decay'),(a.linear_eta,'linear_eta')):
         if option is not None: c['training'][key] = option
     if a.seed is not None: c['seed'] = a.seed
@@ -191,12 +196,15 @@ def main():
     if a.scorers_config and c.get('evaluation', {}).get('enabled'):
         c['evaluation']['scorers_config'] = str(a.scorers_config.expanduser().resolve())
     k = c['training']['noise_views']
-    name = f'{a.family}-{a.algorithm}-k{k}-{a.budget_unit}{a.budget}-{a.world_size}{a.profile}-b{c["training"]["batch_size"]}-{a.steps}'
+    name_steps = a.smoke_steps if a.smoke and a.smoke_steps != 2 else a.steps
+    name = f'{a.family}-{a.algorithm}-k{k}-{a.budget_unit}{a.budget}-{a.world_size}{a.profile}-b{c["training"]["batch_size"]}-{name_steps}'
     if a.recipe == 'paper-v2':
         precision = c['model'].get('transformer_dtype', c['training']['dtype'])
         name += f'-{a.aggregation}-{precision}'
         print(f'Profile: {a.world_size}x{a.profile}; weights: {precision}; policy EMA: disabled; reference: {c["training"]["reference_mode"]}', flush=True)
-    name += (f'-stage{a.stage_boundary}' if a.stagewise else '') + ('-smoke' if a.smoke else '')
+    name += f'-stage{a.stage_boundary}' if a.stagewise else ''
+    if a.smoke:
+        name += '-smoke' + (str(a.smoke_steps) if a.smoke_steps != 2 else '')
     name += ('-' + a.recipe if a.recipe else '') + '-' + a.run_tag
     output = (a.runs_root or Path(load_resources(a.resources)['RUNS_ROOT'])).resolve()/name
     frozen = a.config_dir.resolve()/f'local-{name}.json'

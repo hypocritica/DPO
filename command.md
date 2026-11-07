@@ -1,3 +1,9 @@
+# 数据准备期间先验证训练（ZImage双H100）
+
+新增独立128对真实图片快照与50步预检，不依赖正式数据完成，不读分卷；ZImage默认双H100，SD3.5四5090。
+完整命令、模型一次验证、25→50步续跑和Stagewise K4见[docs/FLOW_DEBUG.md](docs/FLOW_DEBUG.md)。
+正式编号入口仍需完整passed数据报告，预检不能接全量数据续训。
+
 # HPDv3：兼容Hugging Face原生下载目录
 
 远程数据目录没有`.download-manifest.json`时，改用统一入口，自动识别已有项目下载记录，或生成明确标识的本地来源指纹；不伪造下载完成状态。
