@@ -5,7 +5,7 @@ import json
 import sys
 from packaging.version import Version
 
-LOCK = {'diffusers': '0.37.1', 'transformers': '4.57.1', 'peft': '0.17.1', 'accelerate': '1.14.0', 'huggingface-hub': '0.36.0', 'safetensors': '0.7.0', 'sentencepiece': '0.2.1', 'tokenizers': '0.22.2'}
+LOCK = {'diffusers': '0.37.1', 'transformers': '4.57.1', 'peft': '0.17.1', 'accelerate': '1.14.0', 'huggingface-hub': '0.36.0', 'safetensors': '0.7.0', 'sentencepiece': '0.2.1', 'tokenizers': '0.22.2', 'wandb': '0.18.7'}
 
 
 def check_environment(family):

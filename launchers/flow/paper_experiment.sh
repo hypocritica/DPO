@@ -41,6 +41,12 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
   --runs-root DIR           Persistent experiment output root
   --config-dir DIR          Frozen configuration directory
   --stop-after-step N       Pause after an optimizer step
+  --report-to all|wandb     paper-v2 defaults all: TensorBoard plus offline W&B
+  --wandb-project NAME      Default mvpo-flow; use the same project on both servers
+  --wandb-group NAME        Comparison group (default family/dataset/budget/seed)
+  --wandb-name NAME         Display name; include server and method if desired
+  --wandb-images N          Evaluation images per point (default 8; 0 disables)
+  --wandb-mode MODE         offline (default), online, or disabled
   --help                    Show this help
 
 Other run_flow.py runtime options are forwarded. Recipe identity (family,

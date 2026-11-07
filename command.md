@@ -1,3 +1,38 @@
+# W&B离线记录与训练中同步（2026-11-07更新）
+
+新paper-v2默认W&B offline + TensorBoard，评估默认记录前8张图片；固定wandb==0.18.7。
+两台服务器使用同一entity/project/group，以不同run ID区分实验；网络可用时在另一终端执行
+`python scripts/sync_flow_wandb.py --entity YOUR_ENTITY RUN_DIR...`，反复执行会追加新完成的段，跳过正在写入的段。
+加`--dry-run`只预览。完整命令及旧面板metadata补齐见[docs/FLOW_WANDB.md](docs/FLOW_WANDB.md)。
+本地旧作业继续使用原checkout；本次发布在独立flow-wandb checkout完成，不替换它们的源码、配置或数据。
+
+# 本地四组与 W&B 离线对比（2026-11-07）
+
+最新追加：**65805（LinearDPO K1）/65806（Global MVPO K2 C，64 pairs/128 pair-views）**。
+用户随后要求取消依赖，65805/65806已清除Dependency，四组直接正常排队；
+相同2×A800/8CPU/96GB/4天、3200步、128 pair-views、seed17和W&B offline项目/group。
+四组冻结配置已核对预算及相同模型、数据、评估面板，并复核passed凭据；脚本语法与diff检查通过。
+
+```bash
+# 已提交65805/65806，勿重复提交。
+sbatch --job-name=zimage-linear-wb launchers/flow/local/train_stagewise_a800.sbatch linear-dpo
+sbatch --job-name=zimage-globalk2-wb launchers/flow/local/train_stagewise_a800.sbatch global-k2
+```
+
+此前用户确认本地先跑 ZImage DPO K1、Stagewise MVPO K2 C；旧 Global MVPO/LinearDPO 作业由此替换。
+新入口 `launchers/flow/local/train_stagewise_a800.sbatch dpo|stagewise-k2`，
+每组2×A800/8CPU/96GB/4天，3200步、128 pair-views/update（DPO128对/K2为64对）。
+独立 tag 为 `irip-wandb-20261107-v1`；旧 flow 的环境与准备数据只读复用。
+一次数据审计作业65800已通过。新 paper-v2 默认 W&B offline + TensorBoard，
+项目 `mvpo-flow`、group `zimage-hpdv3-pair_views128-seed17`；训练/评估共享稳定实验ID。
+实际已取消旧65766/65767/65770，提交 **65803（DPO）/65804（Stagewise K2 C）**。
+输入检查作业65802两组通过；原64条面板缺canonical元数据，已在新目录生成
+`data/hpdv3-pilot-64-v2.jsonl`，prompt文本/顺序不变，旧产物保留。
+5项receipt/预算检查、2项flow stagewise检查、1项真实离线W&B跨阶段记录检查和
+1项面板生成→评估loader集成检查通过，Slurm脚本语法与diff检查通过。
+提交时GPU训练尚未开始。SLAI K4入口、同面板比较、离线记录位置和显式同步命令见
+[FLOW_WANDB.md](docs/FLOW_WANDB.md)。
+
 # SLAI Flow paper-v2 部署
 
 本轮完整 clone、独立环境、SLAI 路径核对、HPDv3 准备/一次审计与20个编号训练入口见 [docs/FLOW_SLAI.md](docs/FLOW_SLAI.md)。发布分支为 `feat/flow-stagewise-slai-20261107`；默认使用 `configs/resources-slai-flow.json`，SD3.5 路径为 `/mnt/aoss/xietianyu/models/sd3.5-medium`。编号入口在 SLAI 自动加载独立 `mvpo-flow` 环境，复用 `reports/slai/` 的远程一次模型验证报告。此前本地处理中数据快照不能用作远程 passed 凭据。

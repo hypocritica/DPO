@@ -1,5 +1,7 @@
 # Self Correct DPO
 
+Flow默认W&B offline与TensorBoard；训练中可在联网终端分批同步已结束的记录段，评估包含图片。[双服务器W&B与面板元数据修复](docs/FLOW_WANDB.md)。
+
 SD3.5 Medium / Z-Image Base 的 Flow DPO、Linear-DPO、SFT、Global/Stagewise MVPO 实验已加入。SLAI 部署请从 [FLOW_SLAI.md](docs/FLOW_SLAI.md) 开始；实验入口分别在 [launchers/sd35](launchers/sd35) 和 [launchers/zimage](launchers/zimage)，方法与预算见 [FLOW_STAGEWISE.md](docs/FLOW_STAGEWISE.md)。默认 SD3.5 使用 4×5090，Z-Image 使用 2×A800；每 200 步保存最新完整恢复状态，每 400 步永久保留完整 checkpoint。首次生成数据和模型验证报告，后续启动复用报告。CPU 检查通过不代表目标服务器的 GPU 训练已验证。
 
 以下为已有 SD1.5 / SDXL 工作流，Flow 的环境、资源路径与启动命令以 [SLAI Flow 部署文档](docs/FLOW_SLAI.md) 为准。

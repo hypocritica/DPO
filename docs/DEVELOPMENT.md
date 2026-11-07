@@ -1,5 +1,17 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 W&B远程补齐在独立flow-wandb checkout完成，保留本地65803–65806使用的stagewise源码和配置。
+同步本地未发布的offline入口及canonical面板metadata修复，新增旧面板补齐工具（新文件、保持prompt/顺序）。
+新tracker每点评估记录前8张图片；SDK固定0.18.7。同步工具只上传已结束且稳定的离线段，等待基座评估后排序，跳过活动段、拒绝history重叠与目的地变更。
+15项CPU/真实离线测试及两组真实编号入口配置冻结通过，未登录W&B、上传云端、安装环境或改变Slurm作业。复核摘要见FLOW_WANDB_VALIDATION.json。
+
+2026-11-07 本地Flow比较改为DPO K1和Stagewise K2 C（65803/65804），用户授权取消旧65766/65767/65770。
+两组使用新checkout，128 pair-views/update、3200步、2A800；数据审计65800和两组输入检查65802通过。
+paper-v2默认W&B offline与TensorBoard，新增project/group/name/mode选项，统一mvpo-flow项目与按模型/预算/seed分组。
+offline记录显式history step，训练/评估复用run ID；sync_flow_wandb.py按history起始步排序后逐段append，处理首段训练后才产生base评估的顺序。
+修正prepare_flow_monitor输出缺metadata/canonical-only标记导致评估loader拒绝的问题，本地另存v2面板，旧文本和顺序不变。
+9项相关CPU/真实离线记录检查通过（不上传），GPU训练仍以作业实际日志为准。命令与SLAI K4比较见docs/FLOW_WANDB.md。
+
 2026-11-07 HPDv3本地准备加速：提取采用单路gzip读取、1MiB缓冲和4线程有界写入（最多64MiB、16个任务），每个目录只初始化一次，输出加锁，全部写入成功后原子生成extraction.json；已有同大小图片和旧日志保留。HPDv3完整准备对唯一图片分批并行校验，一次读取完成PIL verify与SHA256，原始标签、顺序、筛选和seed17划分不变。3项CPU检查通过，覆盖串并行pairs/excluded逐字节一致、跨分片gzip、旧图片复用、partial恢复、独占锁与写入失败不生成完成凭据。计算作业65773因继承Conda环境的deactivate hook遇到nounset失败；仅在Conda激活期间关闭nounset后，65774以4CPU/16GB/无GPU/4天启动在compute-1。确认旧manager提取及cat/释放控制进程退出，再开启handoff-65774.ready；由新作业完成准备并释放既有65766/65767，65770依赖保持原样。此处不代表GPU训练已启动。
 
 2026-11-03 双H100独立入口：按用户要求新增`launchers/sdxl_h100/`的DMPO K1、DMPO K6 Stage-C、DSPO K1三个独立训练脚本，自动加载原ACP Conda及资源路径。固定双卡B1、192 pair-views，K1累积96/K6累积16，均10000步；跳过smoke、部署自检、启动图片抽查及基座生成评估，保留定期生成评估。`data.validation=none`仅关闭启动图片读取，清单/ready身份和消费时SHA仍保留，默认auto不变。运行入口增加TERM/INT转发；专用启动器恢复checkpoint事务，自动latest续训、补完最终评估、跳过完成实验；无完整状态的中断尝试保留后重新开始。原子checkpoint、200步完整保存、1000步LoRA及恢复身份保护继续沿用；新配置使用独立H100实验名。更改训练来源身份的源码后，旧实验须继续保留原checkout恢复。

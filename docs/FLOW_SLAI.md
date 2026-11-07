@@ -1,5 +1,8 @@
 # SLAI 部署与运行 Flow paper-v2
 
+W&B离线记录、中途同步、图片和旧评估面板metadata修复见 [FLOW_WANDB.md](FLOW_WANDB.md)。
+paper-v2现在默认同时记录TensorBoard与W&B offline；已有独立环境需安装 `wandb==0.18.7`，新bootstrap会自动安装。
+
 在新 checkout 操作。编号脚本、公共 Bash 入口、`scripts/run_flow.py` 和实际训练/评估主体均在仓库内；脚本在已分配的 SLAI 容器运行，不申请平台资源。旧 `self_correct_dpo-flow` 的准备作业、环境和实验继续使用原 checkout。
 
 已知远程 shell 起点为 `/mnt/afs/L202500030/xietianyu`；用户列出的资源父目录为 `/mnt/aoss/xietianyu/datasets/{benchmarks,hpdv3,pickapicv2}` 与 `/mnt/aoss/xietianyu/models/{aesthetic,backbones,clip,preference,sd3.5-medium,stable_diffusion,Z-Image}`。这里只确认父目录；尚未连接该服务器核实子目录、模型完整性、HPDv3 文件、评分器或可用空间。下面的输出目录是新规划位置，不表示已经存在。

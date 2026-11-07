@@ -9,3 +9,5 @@ huggingface-hub==0.36.0
 safetensors==0.7.0
 sentencepiece==0.2.1
 tokenizers==0.22.2
+# Offline record format and sync --append are tested together at this version.
+wandb==0.18.7

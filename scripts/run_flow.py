@@ -141,7 +141,14 @@ def main():
     p.add_argument('--stop-after-step', type=int)
     p.add_argument('--execution', default='slurm', choices=['slurm','standalone'])
     p.add_argument('--run-label')
+    p.add_argument('--report-to', choices=['tensorboard', 'wandb', 'all', 'none', 'jsonl'])
+    p.add_argument('--wandb-project', default='mvpo-flow')
+    p.add_argument('--wandb-group')
+    p.add_argument('--wandb-name')
+    p.add_argument('--wandb-mode', choices=['offline', 'online', 'disabled'], default='offline')
+    p.add_argument('--wandb-images', type=int, default=8, help='Evaluation images per point, 0 disables media logging')
     a = p.parse_args()
+    if not 0 <= a.wandb_images <= 64: p.error('--wandb-images must be between 0 and 64')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',a.run_tag): p.error('Invalid run-tag')
     a.budget_unit = a.budget_unit or ('pairs' if a.recipe == 'paper-pilot' or a.algorithm == 'sft' else 'pair_views')
     c = build_config(a.family,a.algorithm,world=a.world_size,views=a.views,budget_unit=a.budget_unit,
@@ -153,6 +160,16 @@ def main():
     if a.seed is not None: c['seed'] = a.seed
     if a.frozen_placement: c['training']['offload_frozen'] = a.frozen_placement == 'offload'
     if a.no_evaluation: c['evaluation'] = {'enabled':False}
+    if a.report_to or a.recipe == 'paper-v2':
+        c['training']['logging'] = a.report_to or 'all'
+        c['training']['wandb'] = {
+            'project': a.wandb_project, 'mode': a.wandb_mode,
+            'image_count': a.wandb_images,
+            'group': a.wandb_group or f'{a.family}-hpdv3-{a.budget_unit}{a.budget}-seed{c["seed"]}',
+            'tags': [a.family, a.algorithm, f'k{c["training"]["noise_views"]}',
+                     'stagewise' if a.stagewise else 'global', a.profile, a.recipe or 'custom'],
+        }
+        if a.wandb_name: c['training']['wandb']['name'] = a.wandb_name
     validate_config(c,files=False)
     if a.model: c['model']['path'] = str(a.model.expanduser().resolve())
     report_path = a.model_report or (Path(c['model']['path'])/'flow-validation-report.json' if a.recipe == 'paper-v2' else None)

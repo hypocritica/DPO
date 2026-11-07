@@ -31,7 +31,9 @@ def main():
     if a.count<1 or len(keys)<a.count:raise ValueError('Insufficient distinct heldout captions')
     random.Random(a.seed).shuffle(keys)
     rows=[{'scene_id':f'hpdv3-flow-{i:04d}','variant_id':'canonical','tag':'hpdv3-validation',
-           'prompt':validation[key]} for i,key in enumerate(keys[:a.count])]
+           'prompt':validation[key], 'metadata':{'prompt':validation[key], 'tag':'hpdv3-validation'},
+           'suite_mode':'canonical-only-v1', 'template_family':'canonical',
+           'transform_type':'canonical'} for i,key in enumerate(keys[:a.count])]
     a.out.parent.mkdir(parents=True,exist_ok=True)
     write_jsonl(a.out,rows)
     write_json(a.out.with_suffix('.audit.json'),{'pairs_sha256':sha256(a.pairs),'prompts_sha256':sha256(a.out),

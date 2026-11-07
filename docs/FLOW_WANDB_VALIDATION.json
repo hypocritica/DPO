@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "flow_wandb_and_monitor_implementation_review_not_asset_receipt",
+  "status": "cpu_offline_verified_no_cloud_upload",
+  "base_commit": "d6e474391e49097f4c499dfbae06f54893467f0c",
+  "tests": {
+    "tracking_and_sync": 3,
+    "monitor_generation_and_old_panel_repair": 2,
+    "receipts_and_preflight_regression": 10,
+    "total": 15
+  },
+  "actual_offline_sdk": "wandb==0.18.7",
+  "verified": [
+    "Real offline scalar/image files",
+    "Shared training/evaluation/resume run ID",
+    "Explicit history steps and optimizer_step axis",
+    "Base evaluation ordering before first upload",
+    "Finished record detection for core exit",
+    "Unfinished and truncated record skipping",
+    "Completed segment ordering and overlap refusal",
+    "Dry run without state writes",
+    "Sync command planning and successful-marker checks with stub uploader",
+    "Destination binding and repeat-sync skip",
+    "Two actual numbered Bash launchers froze offline/all/image_count=8 configurations",
+    "Old canonical panel repair preserves original prompt text/order and file",
+    "Real load_suite accepts locally prepared 64-prompt v2 panel"
+  ],
+  "local_panel_sha256": "94f58ff501943849a9e3e6e9a1d2c7372b8448b6d717e43cece950c24248694f",
+  "remote_asset_note": "Updating source does not rewrite already-generated remote panels; repair to a new file or copy the same v2 panel before starting a new experiment.",
+  "limits": [
+    "No actual W&B cloud login or upload performed",
+    "No new GPU training or Slurm job changes",
+    "Existing local queued/running checkout and frozen configs were preserved",
+    "Website progress reaches the latest completed training/evaluation segment, not the currently open segment",
+    "Existing scalar-only records are not retroactively given images"
+  ],
+  "entrypoints": {
+    "docs": "docs/FLOW_WANDB.md",
+    "sync": "scripts/sync_flow_wandb.py",
+    "repair_old_panel": "scripts/repair_flow_monitor.py"
+  }
+}
