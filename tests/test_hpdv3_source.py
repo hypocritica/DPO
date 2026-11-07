@@ -51,6 +51,35 @@ class HPDv3SourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'changed'):
                 source_record(raw)
 
+    def test_same_container_readonly_diagnostic_preserves_strict_stat_check(self):
+        import os
+        with tempfile.TemporaryDirectory() as temporary:
+            raw=raw_folder(Path(temporary))
+            source_record(raw,create_inventory=True)
+            inventory=(raw/INVENTORY).read_bytes()
+            command=[sys.executable,str(ROOT/'scripts/inspect_hpdv3_source.py'),
+                     '--raw',str(raw),'--diagnose']
+            good=subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(good.returncode,0,good.stderr)
+            result=json.loads(good.stdout)
+            self.assertTrue(result['passed']);self.assertEqual(result['raw'],str(raw.resolve()))
+            self.assertTrue(result['hostname']);self.assertEqual(result['python'],sys.executable)
+            volume=raw/'images.tar.gz.00';before=volume.stat()
+            os.utime(volume,ns=(before.st_atime_ns,before.st_mtime_ns+1000000000))
+            bad=subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(bad.returncode,1,bad.stderr)
+            result=json.loads(bad.stdout)
+            self.assertFalse(result['passed']);self.assertEqual(result['changed_fields'],['mtime_ns'])
+            self.assertEqual(result['expected']['mtime_ns'],before.st_mtime_ns)
+            self.assertEqual(result['observed']['mtime_ns'],volume.stat().st_mtime_ns)
+            self.assertEqual(result['expected']['size_bytes'],result['observed']['size_bytes'])
+            default=subprocess.run(command[:-1],capture_output=True,text=True)
+            self.assertEqual(default.returncode,1)
+            self.assertIn('[source-context]',default.stderr)
+            self.assertIn('[source-diagnostic]',default.stderr)
+            self.assertEqual(default.stdout,'')
+            self.assertEqual((raw/INVENTORY).read_bytes(),inventory)
+
     def test_native_scd_receipt_and_incomplete_or_changed_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             raw=raw_folder(Path(temporary));path=raw/'.scd-download.json'

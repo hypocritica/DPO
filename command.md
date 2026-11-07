@@ -11,6 +11,7 @@ bash launchers/flow/prepare_slai_data.sh
 
 入口显示每个阶段及日志，完整执行提取、准备、审计和64条canonical面板。
 若旧版在读取train.json处Killed/137，更新后原命令重跑：已改成流式注释读取，无新增依赖，保留原数据与输出。
+若任务报source changed但开发机诊断变化为0，更新后在实际任务内重跑；日志[source-context]/[source-diagnostic]会输出该任务的运行环境及expected/observed，不重建指纹或放宽mtime检查。
 详细来源验证范围及重复运行说明见[FLOW_HPDV3_SOURCE.md](docs/FLOW_HPDV3_SOURCE.md)。
 
 # W&B离线记录与训练中同步（2026-11-07更新）

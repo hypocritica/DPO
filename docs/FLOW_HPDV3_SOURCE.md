@@ -31,6 +31,27 @@ bash launchers/flow/prepare_slai_data.sh
 自定义布局用 `FLOW_IMAGES` / `FLOW_PREPARED` / `FLOW_PANEL`，完成后启动器使用打印的
 `--pairs ... --monitor-prompts ...`。每次准备默认4线程，不执行GPU、不下载内容。
 
+## 任务容器报source changed，开发机诊断却没有变化
+
+开发机和提交任务的容器可能具有不同的挂载视图。不能用另一个容器中匹配的stat结果，
+推断报错任务的来源检查已通过；目前没有远程数据证明具体是哪一字段或挂载变化。
+准备入口的source阶段现在直接输出[source-context]；失败时再输出[source-diagnostic] JSON，
+包含hostname、Python解释器/版本、cwd、模块路径、raw绝对路径，以及报错文件的expected、
+observed和changed_fields。数据来源检查保持严格，不重置inventory，不忽略mtime变化。
+
+先在实际报错任务使用的checkout更新代码，然后重新提交原入口。诊断会进入该任务日志，
+不要只在开发机执行另一个stat检查。若可进入同一任务容器，也可只读检查：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2
+python scripts/inspect_hpdv3_source.py --raw /mnt/aoss/xietianyu/datasets/hpdv3 --diagnose
+```
+
+--diagnose输出JSON，通过返回0，失败返回1；不会创建、修改来源记录，也不读大分卷内容。
+需使用与准备任务一致的Python环境。默认入口成功时stdout仍只输出repo@revision，保留shell捕获兼容。
+拿到任务内的expected/observed后，再区分大小变化、时间戳变化及不同目录/运行环境；
+诊断增强本身不代表已经修复远程文件变化。
+
 ## 读取train.json被Killed / exit 137
 
 137表示进程收到SIGKILL；若停在读取train.json且没有Python traceback，优先检查容器RAM限制与OOM事件。

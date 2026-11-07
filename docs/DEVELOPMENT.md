@@ -1,5 +1,7 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 增强HPDv3来源stat失败诊断：确定性文件顺序，错误携带expected/observed/changed_fields，准备入口输出实际任务hostname/Python/raw/module上下文；inspect_hpdv3_source.py --diagnose只读JSON检查，不创建或更新来源记录。保持mtime/大小严格检查。20项相关CPU测试通过，覆盖只改mtime拒绝、任务内错误JSON和原指纹逐字节保留。远程报错与开发机变化0的实际差异尚待任务日志确认，不宣称修复数据变化。
+
 2026-11-07 修正SLAI读取train.json时SIGKILL/137的高内存路径：提取和metadata筛选按对象流式读取，提取仅累计图片路径；完整准备每256条校验并丢弃排除的原始注释。无新依赖，不更改筛选、源行号、标签或seed17组件划分。19项相关CPU测试通过；300条跨批次fixture的新旧pairs/excluded/ready逐字节一致。6.76MB/12001条源数据的解析+筛选tracemalloc峰值338702字节，该数字不代表完整prepare RAM；完整prepare仍保留合格元数据和组件结构。未运行远程全量数据或改动本地实验作业。
 
 2026-11-07 HPDv3准备入口兼容HF原生下载目录：不再要求ModelScope流程的.download-manifest.json；支持.scd-download.json，缺下载记录时生成状态为inventoried的本地来源指纹，明确不宣称download complete/upstream revision verified。

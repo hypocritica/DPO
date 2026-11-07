@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import socket
 import sys
 import time
 
@@ -36,6 +37,25 @@ def annotation_hash(path):
     return {**before, 'sha256': h.hexdigest()}
 
 
+def source_context(raw):
+    """Identify the exact runtime/mount view without reading archive payloads."""
+    raw = Path(raw).resolve()
+    return {'hostname': socket.gethostname(), 'python': sys.executable,
+            'python_version': sys.version.split()[0], 'cwd': str(Path.cwd()),
+            'raw': str(raw), 'module': str(Path(__file__).resolve()),
+            'inventory_path': str(raw / INVENTORY)}
+
+
+class SourceStatMismatch(ValueError):
+    def __init__(self, raw, name, expected, observed):
+        self.diagnostic = {**source_context(raw), 'kind': 'hpdv3_source_stat_mismatch',
+                           'file': name, 'expected': expected, 'observed': observed,
+                           'changed_fields': [key for key in expected if expected[key] != observed[key]]}
+        super().__init__(f'Source file changed since inventory: {Path(raw) / name}. '
+                         f'Expected {expected}; observed {observed}. '
+                         'Do not reset the inventory before checking this task container view.')
+
+
 def validate_inventory(raw, record):
     if record.get('kind') != 'hpdv3_local_source_inventory' or record.get('status') != 'inventoried':
         raise ValueError('Invalid HPDv3 source inventory')
@@ -44,12 +64,14 @@ def validate_inventory(raw, record):
     expected_names = set(record['annotations']) | set(record['archives'])
     if not {'train.json', 'test.json'} <= expected_names or not record['archives']:
         raise ValueError('Source inventory lacks annotations/archives')
-    for name in expected_names:
+    for name in sorted(expected_names):
         if name not in ('train.json', 'test.json') and not re.fullmatch(r'images\.tar\.gz\.\d{2}', name):
             raise ValueError(f'Unsafe source inventory path: {name}')
         entry = record['annotations'].get(name, record['archives'].get(name))
-        if file_stat(raw / name) != {k: entry[k] for k in ('size_bytes', 'mtime_ns')}:
-            raise ValueError(f'Source file changed since inventory: {raw / name}. Use a fresh preparation version.')
+        expected = {k: entry[k] for k in ('size_bytes', 'mtime_ns')}
+        observed = file_stat(raw / name)
+        if observed != expected:
+            raise SourceStatMismatch(raw, name, expected, observed)
     if {p.name for p in raw.glob('images.tar.gz.[0-9][0-9]')} != set(record['archives']):
         raise ValueError('Archive set changed since inventory; finish downloading before preparing data')
     expected_identity = {

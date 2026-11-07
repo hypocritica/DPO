@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "kind": "hpdv3_source_compatibility_implementation_review_not_asset_receipt",
-  "base_commit": "8ccf86b94eaa47fef9ebdf00486012dd1d266aa7",
+  "base_commit": "5d454480e61c0980b7e76e5b40d74c211fa7e706",
   "status": "cpu_verified_remote_full_data_not_run",
   "tests": {
-    "test_hpdv3_source": 5,
+    "test_hpdv3_source": 6,
     "test_hpdv3_sub": 5,
     "test_flow_data_audit": 4,
     "test_flow_receipts": 5,
-    "total": 19
+    "total": 20
   },
   "full_wrapper_fixture": {
     "plain_hf_folder_without_project_receipt": true,
@@ -67,5 +67,24 @@
     ],
     "parity_fixture_rows": 300,
     "invalid_json_and_truncation_rejected": true
+  },
+  "source_stat_diagnostics": {
+    "readonly_json_option": "--diagnose",
+    "same_runtime_context_logged": true,
+    "fields": [
+      "hostname",
+      "python",
+      "python_version",
+      "cwd",
+      "raw",
+      "module",
+      "inventory_path",
+      "expected",
+      "observed",
+      "changed_fields"
+    ],
+    "mtime_only_change_still_rejected": true,
+    "original_inventory_preserved": true,
+    "remote_mismatch_root_cause": "unconfirmed; need actual failing container expected/observed"
   }
 }
