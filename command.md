@@ -1,6 +1,7 @@
 # 数据准备期间先验证训练（ZImage双H100）
 
 新增独立128对真实图片快照与50步预检，不依赖正式数据完成，不读分卷；ZImage默认双H100，SD3.5四5090。
+若旧版提示Only 0/128，更新后默认--max-scan 0流式查找全部注释，避免前20万条限制；不足时查看flow-debug-v1.availability.json的路径、扫描范围和单侧图片计数。
 完整命令、模型一次验证、25→50步续跑和Stagewise K4见[docs/FLOW_DEBUG.md](docs/FLOW_DEBUG.md)。
 正式编号入口仍需完整passed数据报告，预检不能接全量数据续训。
 

@@ -18,12 +18,26 @@ python scripts/prepare_flow_debug_data.py \
   --out /mnt/aoss/xietianyu/datasets/hpdv3/flow-debug-v1
 ```
 
-默认128对、最多扫描20万条源注释，最多复制256MiB图片；不读取或解压分卷。
+默认128对，流式扫描源注释直到找到足够配对或读到末尾；最多复制256MiB图片，不读取或解压分卷。
+旧版默认只扫前20万条，可能漏掉后面的可用对；现在--max-scan 0表示不限前缀，正数可显式限制。
+先一次列出已完成图片名称，再用集合匹配注释，避免扫描中对大量缺失路径反复访问AOSS。
 跳过缺任一正式图片的样本，不读.partial；从已完成图片复制独立字节并verify，保留原始偏好记录
 和selection.jsonl中的原始行号，不写原始文件、现有提取目录或正式准备目录。
 筛掉官方test归一化prompt及图片UID；没有全量test图片hash审计，因此报告明确ready_for_paper=false，
 不生成可冒充正式数据认证的validation-report.json。准备调用已有组件划分/图片哈希实现。
-找不到足够完整样本时等提取继续后重跑，不需要重跑大解压；失败不会留下可被误用的完成目录。
+每1万条或15秒打印debug_scan计数；结果写入与输出目录相邻的flow-debug-v1.availability.json，
+成功/不足都保留scanned_rows、stop_reason、skips、图片可用性计数及路径示例。
+completed_files_at_start是开始时的图片名称快照，不包含扫描期间新完成的图片。
+
+若扫描后仍不足，先看报告而不是反复提交GPU：
+
+- completed_files_at_start为0或缺images目录：核对--images所在挂载/路径。
+- stop_reason=scan_limit：本次只检查了指定前缀，可改--max-scan 0。
+- winner_only/loser_only较多：这些候选对的一侧尚未解出；图片数量大不代表完整对数量大。
+- neither_image较多：对照examples里的路径与completed_files样例/当前提取范围。
+
+不足时让提取继续后重跑，不需要重跑大解压；失败不会留下可被误用的完成目录。
+诊断计数是在模型子集、heldout和重复过滤之后统计，不能当作整个数据集的图片配对统计。
 快照完成后不可变，重复命令复用；换数量或重新采样需新--out，并通过FLOW_DEBUG_PAIRS指定新清单。
 
 ## 2. 每模型验证一次

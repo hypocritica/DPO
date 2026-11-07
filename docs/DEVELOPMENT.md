@@ -1,5 +1,7 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 调整预检快照Only 0/128诊断：旧默认前20万条可能漏掉后续完整对，改为max_scan=0流式查到目标或EOF。先索引已完成图片名称（忽略partial/incomplete），减少远程缺失文件stat；每1万条/15秒输出计数，输出相邻availability.json记录范围、过滤、winner_only/loser_only/neither/both及路径示例。新增真实20万条前缀回归：限制前缀返回0，默认成功找到128对；一侧缺图及partial准确统计。4项debug CPU检查通过，来源/正式输出不修改。真实SLAI此次0对原因仍需新报告确认，不能保证未完成解压中必然已有128个完整对；未提交GPU任务或重跑全量准备。
+
 2026-11-07 按用户更正将远程ZImage编号入口默认改为双H100，SD3.5仍四5090。新增prepare_flow_debug_data.py：从正在提取的正式图片中复制128对独立真实偏好快照，不读分卷，限256MiB，源数据/正式目录不写入；原始行号/标签保留，官方test caption/UID排除，缺完整test image hash审计故标记ready_for_paper=false，不生成正式passed数据凭据。debug_train.sh默认50步/1024/B1/累积1，离线W&B独立项目，25步暂停可自动latest恢复至50；无生成评分。run_flow.py新增--smoke-steps，原smoke两步及正式3200步保持。28项相关CPU回归通过（新快照/真实shell配置、旧flow/SFT/stagewise/receipts/数据）；额外实际CPU tiny PEFT生产训练50步与25→50恢复的LoRA及算法EMA逐位一致。未运行远程真实GPU或提交作业，命令见FLOW_DEBUG.md。
 
 2026-11-07 根据SLAI实际任务诊断修正mtime纳秒精度误拒绝：分卷大小10737418240一致，mtime_ns从1793982938732000000变为1793982938000000000。仅兼容大小相同、整秒相同且一侧精确为整秒的截断；跨秒变化、非截断小数变化和大小变化仍拒绝。注释出现精度差异时重新核对既有SHA256；分卷不重复全量哈希，不宣称内容认证。日志/extraction/validation报告保留精度证据，原指纹和revision不变。21项相关CPU检查通过，包含实际数字复现、注释同大小改写拒绝及四文件精度变化后的五阶段流程/重复复用；未在SLAI真实全量数据上执行。

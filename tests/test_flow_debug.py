@@ -58,6 +58,42 @@ class FlowDebugTests(unittest.TestCase):
                 prepare(raw,images,root/'insufficient',count=256)
             self.assertFalse((root/'insufficient').exists())
 
+    def test_search_beyond_old_prefix_and_report_one_sided_pairs(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);raw=root/'raw';raw.mkdir();images=root/'extract';(images/'images').mkdir(parents=True)
+            rows=[]
+            for i in range(128):
+                row={'prompt':f'late caption {i}','path1':f'images/{i}-1.png',
+                     'path2':f'images/{i}-2.png','model1':'flux','model2':'kolors'}
+                rows.append(row)
+                for side in (1,2):Image.new('RGB',(16,16),(i,side,7)).save(images/f'images/{i}-{side}.png')
+            bad={'model1':'sdxl','model2':'sdxl'}
+            one_sided={**rows[0],'prompt':'only winner ready','path2':'images/not-yet.png'}
+            with (raw/'train.json').open('w') as handle:
+                handle.write('[')
+                for _ in range(200000):handle.write(json.dumps(bad)+',')
+                handle.write(json.dumps(one_sided)+',')
+                handle.write(','.join(json.dumps(r) for r in rows)+']')
+            (raw/'test.json').write_text('[]')
+            (images/'images/not-yet.png.partial').write_bytes(b'incomplete')
+            out=root/'debug'
+            with self.assertRaisesRegex(RuntimeError,'0/128 complete pairs'):
+                prepare(raw,images,out,max_scan=200000)
+            report=json.loads((root/'debug.availability.json').read_text())
+            self.assertEqual(report['stop_reason'],'scan_limit')
+            self.assertEqual(report['scanned_rows'],200000);self.assertEqual(report['selected_pairs'],0)
+            self.assertEqual(report['skips']['model_subset'],200000)
+            self.assertFalse(out.exists())
+            prepare(raw,images,out)
+            report=json.loads((root/'debug.availability.json').read_text())
+            self.assertEqual(report['stop_reason'],'target_reached')
+            self.assertEqual(report['selected_pairs'],128)
+            self.assertEqual(report['completed_files_at_start'],256)
+            self.assertEqual(report['availability']['winner_only'],1)
+            self.assertEqual(report['availability']['both_images'],128)
+            self.assertEqual(read_jsonl(out/'selection.jsonl')[0]['source_index'],200001)
+
     def test_longer_smoke_keeps_formal_recipe_and_precision_unchanged(self):
         self.assertEqual(build_config('zimage','dpo',smoke=True)['training']['max_steps'],2)
         for family,profile,world in (('sd35_medium','5090',4),('zimage','h100',2)):

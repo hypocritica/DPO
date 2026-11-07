@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "kind": "flow_debug_implementation_validation_not_gpu_receipt",
-  "base_commit": "f001890daae301da96f5418923ec88a861d7f929",
+  "base_commit": "ccc8fbd4091e1bd47cd0ccc1eab5717f2a2147d3",
   "status": "cpu_verified_remote_gpu_not_run",
   "tests": {
-    "test_flow_debug": 3,
+    "test_flow_debug": 4,
     "test_flow_receipts": 5,
     "test_hpdv3_sub": 5,
     "test_flow": 10,
     "test_flow_sft": 3,
     "test_flow_stagewise": 2
   },
-  "total_unit_tests": 28,
+  "total_unit_tests": 29,
   "cpu_production_resume_fixture": {
     "continuous_steps": 50,
     "pause_step": 25,
@@ -50,5 +50,24 @@
     "Snapshot cannot replace full HPDv3 preparation or formal paper data",
     "Debug run must not resume on the full dataset"
   ],
-  "documentation": "docs/FLOW_DEBUG.md"
+  "documentation": "docs/FLOW_DEBUG.md",
+  "current_change_tests": {
+    "test_flow_debug": 4,
+    "older_regression_results_carried_forward": true
+  },
+  "availability_scan": {
+    "old_prefix_limit_rows": 200000,
+    "default_max_scan": 0,
+    "stops_when": "Target reached or EOF",
+    "completed_image_name_index": true,
+    "partial_files_ignored": true,
+    "per_row_missing_file_remote_stat_avoided": true,
+    "prefix_regression_rows_before_first_complete_pair": 200001,
+    "prefix_scan_selected": 0,
+    "unlimited_scan_selected": 128,
+    "one_sided_pair_detected": true,
+    "json_report_written_on_insufficient_pairs": true,
+    "source_files_unchanged": true,
+    "remote_actual_zero_pair_cause": "Not independently confirmed; inspect runtime availability report"
+  }
 }
