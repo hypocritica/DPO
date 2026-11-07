@@ -1,5 +1,9 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 发布前复核：13项preflight/receipt/真实tiny ZImage CPU检查在本地排队目录及远程分支7154f69的独立发布checkout均通过，更新monitor preflight测试fixture以包含zimage_compat.py源码身份。四个本地待运行配置及实际环境锁、模型/数据凭据绑定通过。65803/65804的两份修复前隐藏preflight.pkl在取得launcher/preflight文件锁并确认作业仍PENDING、无训练输出后改名保留；启动时重建缓存，65805/65806本来没有缓存。未取消、重提或修改Slurm作业；完整GPU训练未验证。SLAI更新后使用新run-tag，避免复用旧缓存和身份。
+
+2026-11-08 ZImage混合精度padding修复：保留FP32 transformer/LoRA、BF16 autocast与FP32 loss，在实例上回移Diffusers v0.40.0的torch.where padding；保留0.37.1其余sequence/mask语义，训练和评估加载共同应用，>=0.40.0保留原生方法。新增zimage_compat.py纳入训练、监控、评估/生成源码身份，不添加旧checkpoint恢复白名单。实际本地Flow环境Python3.10.19/torch2.6.0/diffusers0.37.1/peft0.17.1/transformers4.57.1下，3项真实tiny ZImage CPU回归通过（原版错误复现、三种权重/激活精度、reference/policy/EMA及梯度检查点反向、padding值/梯度/掩码与FP32一致性）；4项既有Flow回归和1项暂停/恢复测试通过。7份变更Python文件AST与git diff --check通过。未更新依赖、申请/取消作业或同步SLAI容器；完整GPU训练仍未验证。精度说明见FLOW.md，CPU验证命令见command.md。
+
 2026-11-07 根据SLAI真实日志修复debug_train.sh遗漏--run-label：模型和数据预检已过，训练前require_gpu_allocation因standalone标签空而拒绝。启动器提供family/algorithm/profile运行标签，保留分配检查；运行参数不修改冻结配置，不需清理旧产物。2项相关CPU集成检查通过，新增真实shell→run_flow.main→训练命令测试（仅拦截GPU子进程并调用真实require_gpu_allocation，非config-only），覆盖SD3.5和ZImage标签及25步暂停传递；未在远程GPU执行修复后训练。
 
 2026-11-07 调整预检快照Only 0/128诊断：旧默认前20万条可能漏掉后续完整对，改为max_scan=0流式查到目标或EOF。先索引已完成图片名称（忽略partial/incomplete），减少远程缺失文件stat；每1万条/15秒输出计数，输出相邻availability.json记录范围、过滤、winner_only/loser_only/neither/both及路径示例。新增真实20万条前缀回归：限制前缀返回0，默认成功找到128对；一侧缺图及partial准确统计。4项debug CPU检查通过，来源/正式输出不修改。真实SLAI此次0对原因仍需新报告确认，不能保证未完成解压中必然已有128个完整对；未提交GPU任务或重跑全量准备。

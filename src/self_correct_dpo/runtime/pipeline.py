@@ -57,7 +57,7 @@ def monitor_preflight(config, train_rows):
     result=validate_evaluation(settings['prompts'],settings['scorers_config'],['pickscore'],expected_prompts=expected)
     return {'settings':settings,'inputs':result,'code_sha256':{
         name:sha256(source_file(name)) for name in
-        ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py')}}
+        ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py','zimage_compat.py')}}
 
 
 def training_command(config,config_path,out,*,execution,stop_after_step=None,resume=None,extend_from=None):
@@ -166,7 +166,7 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
     frozen=monitor_identity or {'settings':settings,'inputs':validate_evaluation(settings['prompts'],
         settings['scorers_config'],['pickscore'],expected_prompts=settings.get('expected_prompts',128)),
         'code_sha256':{name:sha256(source_file(name)) for name in
-                      ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py')}}
+                      ('pipeline.py','evaluation.py','metrics.py','scorers.py','render.py','benchmarks.py','zimage_compat.py')}}
     input_file=out/'monitor-inputs.json'
     if input_file.exists():
         recorded = read_json(input_file)
@@ -191,7 +191,7 @@ def run_pipeline(config, config_path, out, *, execution, resume=None, extend_fro
             options['preflight']={'inputs':frozen['inputs'],
                 'base_identity':preflight['identity']['base_identity'],
                 'code_sha256':{name:code['runner.py' if name=='evaluation.py' else name]
-                    for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py')}}
+                    for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py','zimage_compat.py')}}
         evaluator(model,adapter,settings['prompts'],settings['scorers_config'],['pickscore'],
             settings['sampling'],path,step=step,keep_images=keep_images(step,budget,settings),
             execution=execution,expected_prompts=settings.get('expected_prompts',128),**options)

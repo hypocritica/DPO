@@ -1,3 +1,17 @@
+# ZImage FP32/BF16 padding修复（2026-11-08）
+
+远程失败进程退出后，在SLAI checkout执行`git pull --ff-only origin feat/flow-stagewise-slai-20261107`获取修复。重新运行原入口时使用新的`--run-tag padding-fix-20261108-v1`，避免复用修复前的preflight缓存与训练身份；旧产物保留。
+
+保留FP32 transformer/LoRA、BF16 autocast与FP32 loss。项目局部回移Diffusers v0.40.0的`torch.where` padding，训练与生成共用，不改环境内Diffusers或CUDA依赖。实际报错的SLAI checkout须同步本次源码后才生效；这里没有连接或更新远程容器。
+
+以下是CPU小模型回归，在项目Flow环境中执行，不申请GPU、不读取完整checkpoint：
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m unittest discover -s tests -p test_zimage_precision.py -v
+```
+
+本地可使用`../self_correct_dpo-flow/.venv-flow-a800/bin/python`替代`python`。测试覆盖原版错误复现、reference/policy/EMA前向、LoRA反向和梯度检查点、FP32/BF16权重变体、padding梯度/掩码及纯FP32数值一致性。该结果不代表完整GPU训练通过。新源码身份不自动兼容旧checkpoint，保留旧产物；修复前已中断的实验应使用新的输出名。
+
 # 数据准备期间先验证训练（ZImage双H100）
 
 新增独立128对真实图片快照与50步预检，不依赖正式数据完成，不读分卷；ZImage默认双H100，SD3.5四5090。

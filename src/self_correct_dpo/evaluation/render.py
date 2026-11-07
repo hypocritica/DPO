@@ -277,6 +277,9 @@ def load_pipeline(config, arm, torch, *, device='cuda'):
             subfolder='transformer', local_files_only=True,
             torch_dtype=getattr(torch, model.get('transformer_dtype', 'float32')))
     pipe = getattr(diffusers, pipeline_name).from_pretrained(model["path"], **kwargs)
+    if model['family'] == 'zimage':
+        from self_correct_dpo.zimage_compat import fix_zimage_padding
+        fix_zimage_padding(pipe.transformer)
     if model['family'] == 'sd35_medium':
         cast_vae_decode_input(pipe.vae)
     if arm == "aligned" and config["aligned"]["kind"] == "peft":
@@ -445,6 +448,9 @@ def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_
               "full_suite_id": full_suite_id, "shard": shard, "suite_indices": suite_indices, "base_identity": base_identity,
               "model_identity": model_identity, "render_sha256": source_identity["render.py"] if source_identity else sha256(__file__),
               "common_sha256": source_identity["common.py"] if source_identity else sha256(source_file("common.py"))}
+    if model_spec(config)['family'] == 'zimage':
+        wanted['zimage_compat_sha256'] = (source_identity['zimage_compat.py'] if source_identity
+                                        else sha256(source_file('zimage_compat.py')))
     for key, value in wanted.items():
         if run.get(key) != value:
             if key == 'render_sha256' and compatible_sources({'render.py': run.get(key)}, {'render.py': value}):
@@ -533,6 +539,9 @@ def main():
                "slurm_job_id": os.environ.get("SLURM_JOB_ID"), "expected_images": expected,
                "render_sha256": preflight["code_sha256"]["render.py"] if preflight else sha256(__file__),
                "common_sha256": preflight["code_sha256"]["common.py"] if preflight else sha256(source_file("common.py"))}
+        if model['family'] == 'zimage':
+            run['zimage_compat_sha256'] = (preflight['code_sha256']['zimage_compat.py'] if preflight
+                                         else sha256(source_file('zimage_compat.py')))
         run["run_id"] = digest(run)
         out.mkdir(parents=True, exist_ok=False)
         write_json(out / "run.json", run)

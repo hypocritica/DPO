@@ -421,7 +421,7 @@ def training_identity(config, rows, validation_rows, monitor_inputs=None):
                 if receipt else digest(split_rows or []))
     identity = {"config": config, "pairs_id": split_identity('train', rows), "base_identity": model_identity,
                 "code": {p.name: sha256(p) for p in [Path(__file__), source_file("models.py"),
-                         source_file("losses.py"), source_file("formal.py"), source_file("independent.py"), source_file("joint.py"), source_file("objectives.py"), source_file("adapter_ema.py"), source_file("data.py"), source_file("architecture.py"),
+                         source_file("losses.py"), source_file("formal.py"), source_file("independent.py"), source_file("joint.py"), source_file("objectives.py"), source_file("adapter_ema.py"), source_file("data.py"), source_file("architecture.py"), source_file("zimage_compat.py"),
                          source_file("auto_preferences.py"), source_file("reward_preferences.py"),
                          source_file("pickapic.py"), source_file("checkpoints.py"),
                          source_file("diagnostics.py"), source_file("prompt_generalization.py"),

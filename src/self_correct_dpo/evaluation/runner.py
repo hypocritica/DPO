@@ -114,7 +114,7 @@ def _evaluate_checkpoint(model, adapter, prompts, scorers_config, metrics, sampl
         config['preflight']=preflight
     identity={'inputs':inputs,'config':config,'base_identity':model_id,'step':step,
               'keep_images':keep_images,'code_sha256':preflight['code_sha256'] if preflight else {name:sha256(source_file(name))
-              for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py')}}
+              for name in ('evaluation.py','render.py','metrics.py','scorers.py','common.py','zimage_compat.py')}}
     meta={'identity':identity,'evaluation_id':digest(identity)}
     out=Path(out).resolve()
     if out.exists():

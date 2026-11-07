@@ -170,6 +170,8 @@ class PreferenceBackend:
             from diffusers import ZImageTransformer2DModel
             transformer = ZImageTransformer2DModel.from_pretrained(str(model_path),
                 subfolder='transformer', local_files_only=True, torch_dtype=getattr(torch, denoiser_dtype))
+            from self_correct_dpo.zimage_compat import fix_zimage_padding
+            fix_zimage_padding(transformer)
             vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
                 local_files_only=True, torch_dtype=torch.float32)
             self.pipe = ZImagePipeline.from_pretrained(str(model_path), transformer=transformer, vae=vae, **kwargs)

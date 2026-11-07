@@ -144,7 +144,7 @@ class PreflightOnceTests(unittest.TestCase):
                 'prompts':'panel','scorers_config':'scorers','sampling':{'seeds':[17]}}
             c={'model':{'family':'sd35_medium'},'evaluation':settings,
                'training':{'max_steps':3200,'preflight':'once','logging':'jsonl'}}
-            code={n:'frozen-'+n for n in ('runner.py','render.py','metrics.py','scorers.py','common.py')}
+            code={n:'frozen-'+n for n in ('runner.py','render.py','metrics.py','scorers.py','common.py','zimage_compat.py')}
             frozen={'settings':settings,'inputs':{'prompts':64},'code_sha256':{}}
             saved={'identity':{'code':code,'base_identity':{'frozen':True}},'monitor_identity':frozen}
             calls=[];evaluated=[]

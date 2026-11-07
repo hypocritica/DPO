@@ -32,6 +32,8 @@ flow预设显式 `model.prompt_truncation=truncate`：保留原caption/标签，
 
 只优化FP32 LoRA参数，默认rank/alpha=16/16、dropout0；denoiser activation用BF16 autocast。SD35 transformer以BF16加载，ZImage默认**直接FP32加载**transformer（与BF16权重加载后转FP32不同）；可在新配置显式改 `model.transformer_dtype=bfloat16`，这属于新的精度实验。
 
+2026-11-08 ZImage padding兼容修复：继续采用FP32 transformer/LoRA、BF16 autocast和FP32误差计算。锁定的Diffusers 0.37.1在`_prepare_sequence`中直接把FP32 pad参数索引写入BF16激活，会在reference前向报dtype不匹配。`zimage_compat.py`将v0.40.0的`torch.where`处理回移到模型实例，padding处按类型提升到FP32；保留0.37.1的RoPE、attention/noise mask行为及梯度。训练与生成加载均安装修复，Diffusers>=0.40.0使用原生实现。没有降低pad参数精度或修改已安装依赖；兼容代码纳入训练/评估源码身份，旧checkpoint不自动放宽恢复限制。真实tiny ZImage的CPU BF16前向/反向验证命令见`command.md`；完整GPU训练仍需实际作业验证。
+
 两模型VAE直接FP32加载。`offload_frozen=true`使denoiser常驻GPU、VAE和文本encoder仅编码时移到GPU、随后返回CPU；减少峰值显存但会增加传输耗时，不是已测的5090吞吐保证。生成使用Diffusers model CPU offload；SD35在decode入口显式把latent cast为VAE dtype，解决BF16 denoiser/FP32 VAE接口差异。ZImage pipeline原生有此cast。ZImage仅提供H100/A800 profile，SD35可选5090/H100/A800。
 
 当前快捷配方关闭训练offload，四5090以B1/VAE逐图编码起步，双H100的SD35 B4、ZImage B2。冻结文本条件每个microbatch按独立caption只编码一次，再还原winner/loser顺序，截断计数仍按原重复条件加权。EMA形状/dtype/有限性只在构造与加载检查，不再每次更新逐参数触发GPU同步。
