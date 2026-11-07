@@ -59,6 +59,7 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
     from self_correct_dpo.common import sha256
     from self_correct_dpo.data.pickapic import prompt_key, validate_human_pair
     from self_correct_dpo.data.validation import load_training_pairs
+    from self_correct_dpo.data.hpdv3_source import source_record
 
     pairs, extraction = Path(pairs).resolve(), Path(extraction).resolve()
     ready_path, audit_path = pairs.parent / 'ready.json', pairs.parent / 'audit.json'
@@ -110,11 +111,11 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
                 report['source']['annotations'][name] = {
                     'path': str(path), 'size_bytes': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
                     'bytes_rehashed_in_progress': False}
-        for name in ('.download-manifest.json', '.scd-download.json'):
+        for name in ('.download-manifest.json', '.scd-download.json', '.flow-source-inventory.json'):
             path = raw / name
             if path.is_file():
                 receipt = json.loads(path.read_text())
-                report['source']['download'] = {
+                report['source']['inventory' if name == '.flow-source-inventory.json' else 'download'] = {
                     'repo_id': receipt.get('repo_id'), 'revision': receipt.get('revision'),
                     'status': receipt.get('status', 'complete' if receipt.get('complete') else 'unknown'),
                     'download_source': receipt.get('download_source'), 'receipt': fingerprint(path)}
@@ -133,13 +134,14 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
         prepared = json.loads(audit_path.read_text())
         extracted = json.loads(extraction.read_text())
         raw = Path(raw or extracted['source']).resolve()
-        receipt_path = next((raw / name for name in ('.download-manifest.json', '.scd-download.json')
-                             if (raw / name).is_file()), None)
-        if receipt_path is None:
-            raise ValueError('Missing raw download receipt')
-        receipt = json.loads(receipt_path.read_text())
-        if not (receipt.get('status') == 'complete' or receipt.get('complete') is True):
-            raise ValueError('Raw download receipt is not complete')
+        receipt_path, receipt = source_record(raw)
+        local_inventory = receipt.get('kind') == 'hpdv3_local_source_inventory'
+        report['source_identity'] = {
+            'kind': 'local_inventory' if local_inventory else 'download_receipt',
+            'upstream_revision_verified': not local_inventory,
+            'download_complete_verified': not local_inventory,
+            'archive_payload_checksums_verified': False,
+            'record': str(receipt_path)}
         revision = receipt['repo_id'] + '@' + receipt['revision']
         if ready.get('source_revision') != revision or prepared.get('source_revision') != revision:
             raise ValueError('Ready/audit/download source revisions disagree')
@@ -159,6 +161,10 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
                                  if r.get('file') == 'train.json'), {})
         if len(downloaded_train.get('hash', '')) == 64 and downloaded_train['hash'] != prepared['train_json_sha256']:
             raise ValueError('Train annotation digest differs from download receipt')
+        if local_inventory:
+            for name, key in (('train.json', 'train_json_sha256'), ('test.json', 'test_json_sha256')):
+                if receipt['annotations'][name]['sha256'] != prepared[key]:
+                    raise ValueError(f'Annotation digest differs from local source inventory: {name}')
         tests_path = raw / 'test.json'
         if sha256(tests_path) != prepared['test_json_sha256']:
             raise ValueError('Official test metadata changed')
@@ -194,7 +200,7 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
                 raise ValueError(f'{name} changed during audit')
         identities = {name: fingerprint(path, checksum=ready['pairs_sha256'] if name == 'pairs' else None)
                       for name, path in required.items()}
-        identities['download_receipt'] = fingerprint(receipt_path)
+        identities['source_record' if local_inventory else 'download_receipt'] = fingerprint(receipt_path)
         report.update(status='passed', passed=True, source_revision=revision,
                       dataset_identity=identities, splits=counts,
                       counts={'usable_pairs': len(rows), 'raw_train_rows': prepared['raw_train_rows'],
@@ -215,7 +221,7 @@ def audit(pairs, *, extraction, raw=None, preparation_log=None, job_id=None):
             'note': 'Preparation verified/hash-compared official test images; this audit does not reread them.'}
         report['checks']['original_train_record_provenance'] = {
             'status': 'preparation_evidence', 'evidence': str(audit_path),
-            'note': 'Source annotation digests match preparation/extraction/download receipts; full train.json records are not rescanned.'}
+            'note': 'Source annotation digests match preparation/extraction/source records; full train.json records are not rescanned.'}
     except (ValueError, KeyError, TypeError, OSError) as error:
         report.update(status='failed', passed=False, error=str(error))
     return report

@@ -1,3 +1,17 @@
+# HPDv3：兼容Hugging Face原生下载目录
+
+远程数据目录没有`.download-manifest.json`时，改用统一入口，自动识别已有项目下载记录，或生成明确标识的本地来源指纹；不伪造下载完成状态。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2
+git pull --ff-only origin feat/flow-stagewise-slai-20261107
+export HPDV3_RAW=/mnt/aoss/xietianyu/datasets/hpdv3
+bash launchers/flow/prepare_slai_data.sh
+```
+
+入口显示每个阶段及日志，完整执行提取、准备、审计和64条canonical面板。
+详细来源验证范围及重复运行说明见[FLOW_HPDV3_SOURCE.md](docs/FLOW_HPDV3_SOURCE.md)。
+
 # W&B离线记录与训练中同步（2026-11-07更新）
 
 新paper-v2默认W&B offline + TensorBoard，评估默认记录前8张图片；固定wandb==0.18.7。

@@ -80,44 +80,26 @@ python scripts/validate_flow_model.py --family zimage \
 
 ## 4. HPDv3 子集准备与数据审计一次
 
-完整解包、图片校验和数据扫描放在已分配 CPU/GPU 容器，不能在本集群登录节点执行。先查看上一步原始文件与下载凭据：当前提取脚本明确要求 HPDv3 根下有 `train.json`、`test.json`、`images.tar.gz.00` 等分卷及 `.download-manifest.json`，不能仅用 `.scd-download.json` 代替该文件。父目录存在不代表这些文件齐备；若服务器采用别的布局，先调整 raw 路径或整理实际文件，不填造 revision 或完成凭据。
-
-以下命令先读取真实 `.download-manifest.json` 并检查 complete 状态，将 `repo_id@revision` 作为准备来源身份；不能只传裸 SHA，否则最终审计拒绝。缺少完成凭据时在大规模处理前退出。图片选择与正式训练清单属于新输出，不覆盖原始数据。准备耗时和存储可能较大，应先检查空间；脚本有提取容量/剩余空间门槛。
+在已分配资源的SLAI容器使用统一入口。支持原生Hugging Face目录，不要求额外存在项目下载标记：
 
 ```bash
-set -eo pipefail
-FLOW_IMAGE_VIEW="$HPDV3_RAW/flow-sub-images-v2"
-HPDV3_REVISION="$(python - <<'PY'
-import json, os
-from pathlib import Path
-path = Path(os.environ['HPDV3_RAW']) / '.download-manifest.json'
-if not path.is_file():
-    raise SystemExit(f'Missing real download receipt: {path}')
-receipt = json.loads(path.read_text())
-if not (receipt.get('status') == 'complete' or receipt.get('complete') is True):
-    raise SystemExit('HPDv3 download receipt is incomplete; stop before extraction')
-repo, revision = receipt.get('repo_id'), receipt.get('revision')
-if not isinstance(repo, str) or not repo or not isinstance(revision, str) or not revision:
-    raise SystemExit('HPDv3 download receipt lacks repo_id/revision')
-print(repo + '@' + revision)
-PY
-)"
-df -h "$HPDV3_RAW"
-mkdir -p logs/slai-data
-python -u scripts/extract_hpdv3_sub.py --raw "$HPDV3_RAW" \
-  --out "$FLOW_IMAGE_VIEW" --workers 4 \
-  2>&1 | tee -a logs/slai-data/extract-flow-v2.log
-python -u scripts/prepare_hpdv3_sub.py --raw "$FLOW_IMAGE_VIEW" \
-  --out "$HPDV3_SUB_PREPARED" --revision "$HPDV3_REVISION" --workers 4 \
-  2>&1 | tee -a logs/slai-data/prepare-flow-v2.log
-python scripts/audit_flow_data.py --pairs "$HPDV3_SUB_PREPARED/pairs.jsonl" \
-  --extraction "$FLOW_IMAGE_VIEW/extraction.json" --raw "$HPDV3_RAW" \
-  --preparation-log logs/slai-data/prepare-flow-v2.log
-python scripts/prepare_flow_monitor.py --pairs "$HPDV3_SUB_PREPARED/pairs.jsonl" \
-  --out "$MONITOR_PROMPTS_FLOW_PILOT" --count 64 --seed 17
+export HPDV3_RAW=/mnt/aoss/xietianyu/datasets/hpdv3
+bash launchers/flow/prepare_slai_data.sh
 ```
 
-只需准备一份，两个骨干共用。已完成的提取可直接复用；若 `pairs.jsonl/audit.json/ready.json` 与面板已经存在，不重复执行 prepare/monitor（它们拒绝覆盖），直接对实际产物路径审计，并将资源表指向它们。完整审计一次解析 manifest，复用准备时图片校验/官方 test 排除证据，报告明确核验范围。退出码 `0=passed`、`2=in_progress`、`1=failed`；只有 passed 可启动新实验。本地65774正在准备的数据及其处理中快照与本服务器无关，不能代替该审计。
+入口依次显示source/extract/prepare/audit/panel，日志在`logs/slai-data/prepare-<UTC时间>-<PID>.log`，失败时显示阶段及行号。
+默认使用资源表中的准备目录和评估面板，图片在`$HPDV3_RAW/flow-sub-images-v2`。
+已完成产物复用；未完成prepared目录保留并要求选择新`FLOW_PREPARED`路径，不覆盖旧结果。
+
+如有完整有效的`.download-manifest.json`或`.scd-download.json`，直接使用。
+若均没有，则生成`.flow-source-inventory.json`，用注释SHA256及分卷inventory绑定本地来源，明确不宣称下载完成或上游revision已验证。
+原始分卷须有`images.tar.gz.00`等连续编号；`.incomplete`不读取也不删除。
+提取检查所需图片存在，准备过程验证图片字节，最终审计passed才可用于训练。
+详细说明见[FLOW_HPDV3_SOURCE.md](FLOW_HPDV3_SOURCE.md)。
+
+如需手动分步操作，来源身份用`python scripts/inspect_hpdv3_source.py --raw "$HPDV3_RAW"`获取，
+必须保留完整输出`repo_id@revision`，不再写死`.download-manifest.json`或填造版本。
+本地源报告不作为远程凭据；两模型共用一份远程准备数据和面板。
 
 ## 5. 检查配置与启动
 

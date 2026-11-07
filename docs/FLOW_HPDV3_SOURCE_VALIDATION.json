@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "hpdv3_source_compatibility_implementation_review_not_asset_receipt",
+  "base_commit": "85c0d6317fb5e95bba9d7d87d8c847d842283b06",
+  "status": "cpu_verified_remote_full_data_not_run",
+  "tests": {
+    "test_hpdv3_source": 5,
+    "test_hpdv3_sub": 3,
+    "test_flow_data_audit": 4,
+    "test_flow_receipts": 5,
+    "total": 17
+  },
+  "full_wrapper_fixture": {
+    "plain_hf_folder_without_project_receipt": true,
+    "pairs": 100,
+    "images": 200,
+    "stages": [
+      "source",
+      "extract",
+      "prepare",
+      "audit",
+      "panel"
+    ],
+    "audit_passed": true,
+    "repeat_reused_outputs": true,
+    "upstream_revision_verified": false,
+    "download_complete_verified": false,
+    "fake_complete_marker_created": false
+  },
+  "refusals_verified": [
+    "Incomplete native receipt",
+    "Missing/mismatched native expected file sizes",
+    "Missing middle archive volume",
+    "Source mutation after inventory",
+    "Truncated compressed payload produces no completed extraction"
+  ],
+  "compatibility": {
+    "existing_local_modelscope_receipt_read_only": true,
+    "temporary_incomplete_files_ignored": true
+  },
+  "commands": [
+    "PYTHONPATH=src:tests python -m unittest test_hpdv3_source test_hpdv3_sub test_flow_data_audit test_flow_receipts -v",
+    "bash -n launchers/flow/prepare_slai_data.sh",
+    "git diff --check"
+  ],
+  "limits": [
+    "Source inventory is not a download completion certificate",
+    "Archive payloads are not fully checksummed by inventory",
+    "Raw source and image bytes must remain immutable after preparation",
+    "No full remote data preparation or GPU test run"
+  ],
+  "entrypoint": "launchers/flow/prepare_slai_data.sh",
+  "documentation": "docs/FLOW_HPDV3_SOURCE.md"
+}

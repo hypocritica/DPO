@@ -1,5 +1,10 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-07 HPDv3准备入口兼容HF原生下载目录：不再要求ModelScope流程的.download-manifest.json；支持.scd-download.json，缺下载记录时生成状态为inventoried的本地来源指纹，明确不宣称download complete/upstream revision verified。
+prepare_slai_data.sh统一执行source/extract/prepare/audit/panel并显示阶段、日志与失败行号。提取开始前显示大注释读取阶段，来源指纹只首次哈希注释；原始分卷不重复哈希，所需图片仍经真实提取和准备验证。
+源码在独立flow-wandb checkout维护，不修改本地正在使用的stagewise checkout或作业。
+17项相关CPU检查通过，包括无下载标记的完整五阶段流程、重复复用、来源变更拒绝、缺卷/截断拒绝、既有数据凭据及预算回归；实际ModelScope记录只读兼容检查通过。未下载、未在真实全量数据上重跑准备、未改变GPU作业。
+
 2026-11-07 W&B远程补齐在独立flow-wandb checkout完成，保留本地65803–65806使用的stagewise源码和配置。
 同步本地未发布的offline入口及canonical面板metadata修复，新增旧面板补齐工具（新文件、保持prompt/顺序）。
 新tracker每点评估记录前8张图片；SDK固定0.18.7。同步工具只上传已结束且稳定的离线段，等待基座评估后排序，跳过活动段、拒绝history重叠与目的地变更。

@@ -19,6 +19,7 @@ sys.path[:0] = [str(ROOT/'src'), str(ROOT/'scripts')]
 from prepare_hpdv3_sub import select
 from self_correct_dpo.common import sha256, output_lock
 from self_correct_dpo.data.preparation import atomic_json
+from self_correct_dpo.data.hpdv3_source import source_record
 
 
 def _write_image(target, payload):
@@ -40,12 +41,20 @@ def extract(raw, out, max_gib=80, reserve_gib=30, workers=4):
 
 
 def _extract(raw, out, max_gib, reserve_gib, workers):
+    print('[extract] Checking source records and final archive volumes', flush=True)
+    source_path, source = source_record(raw, create_inventory=True)
     out.mkdir(parents=True, exist_ok=True)
     if (out/'extraction.json').is_file():
+        previous = json.loads((out/'extraction.json').read_text())
+        if previous.get('revision') != source['revision']:
+            raise ValueError('Completed extraction has a different source identity; choose a new output directory')
         print(f'Reusing completed extraction: {out}', flush=True)
         return
+    print('[extract] Reading test.json', flush=True)
     tests = json.loads((raw/'test.json').read_text())
+    print('[extract] Reading train.json (large annotation file; no image extraction yet)', flush=True)
     records = json.loads((raw/'train.json').read_text())
+    print(f'[extract] Selecting from {len(records)} records', flush=True)
     chosen, exclusions = select(records, tests)
     needed = {r[key] for r in tests for key in ('path1', 'path2')}
     needed.update(item['record'][key] for item in chosen for key in ('path1', 'path2'))
@@ -125,10 +134,16 @@ def _extract(raw, out, max_gib, reserve_gib, workers):
         if stream.poll() is None: stream.terminate()
         stream.wait()
     if needed: raise FileNotFoundError(f'{len(needed)} selected images missing from downloaded archives')
-    receipt = json.loads((raw/'.download-manifest.json').read_text())
-    report = {'source': str(raw), 'revision': receipt['revision'], 'images': count,
+    # Recheck the existing source record after the stream; inventory paths must
+    # still have exactly the same stats as before extraction.
+    source_path, source = source_record(raw)
+    annotation_hashes = source.get('identity', {}).get('annotations', {})
+    report = {'source': str(raw), 'revision': source['revision'], 'images': count,
               'selected_pairs_before_image_exclusions': selected_count, 'bytes': total,
-              'train_json_sha256': sha256(raw/'train.json'), 'test_json_sha256': sha256(raw/'test.json')}
+              'source_record': str(source_path), 'source_record_kind': source.get('kind', 'download_receipt'),
+              'upstream_revision_verified': source.get('kind') != 'hpdv3_local_source_inventory',
+              'train_json_sha256': annotation_hashes.get('train.json') or sha256(raw/'train.json'),
+              'test_json_sha256': annotation_hashes.get('test.json') or sha256(raw/'test.json')}
     report.update(workers=workers, written_images=written, reused_images=count-written,
                   elapsed_seconds=round(time.monotonic()-started, 1))
     atomic_json(out/'extraction.json', report)

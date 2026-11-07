@@ -62,7 +62,7 @@ class HPDv3SubTests(unittest.TestCase):
             row={'prompt':'pair','path1':'images/a.jpg','path2':'images/b.jpg',
                  'model1':'flux','model2':'kolors'}
             (raw/'train.json').write_text(json.dumps([row]));(raw/'test.json').write_text('[]')
-            (raw/'.download-manifest.json').write_text('{"revision":"fixture"}')
+            (raw/'.download-manifest.json').write_text('{"repo_id":"fixture/HPDv3","revision":"fixture","status":"complete"}')
             payloads={'images/a.jpg':b'a'*12345,'images/b.jpg':b'b'*23456,'images/unused.jpg':b'ignored'}
             buffer=BytesIO()
             with tarfile.open(fileobj=buffer,mode='w:gz') as archive:
