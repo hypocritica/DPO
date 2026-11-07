@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "kind": "hpdv3_source_compatibility_implementation_review_not_asset_receipt",
-  "base_commit": "85c0d6317fb5e95bba9d7d87d8c847d842283b06",
+  "base_commit": "8ccf86b94eaa47fef9ebdf00486012dd1d266aa7",
   "status": "cpu_verified_remote_full_data_not_run",
   "tests": {
     "test_hpdv3_source": 5,
-    "test_hpdv3_sub": 3,
+    "test_hpdv3_sub": 5,
     "test_flow_data_audit": 4,
     "test_flow_receipts": 5,
-    "total": 17
+    "total": 19
   },
   "full_wrapper_fixture": {
     "plain_hf_folder_without_project_receipt": true,
@@ -50,5 +50,22 @@
     "No full remote data preparation or GPU test run"
   ],
   "entrypoint": "launchers/flow/prepare_slai_data.sh",
-  "documentation": "docs/FLOW_HPDV3_SOURCE.md"
+  "documentation": "docs/FLOW_HPDV3_SOURCE.md",
+  "streaming_annotation_regression": {
+    "old_failure": "SIGKILL exit137 while reading full train.json; remote OOM not independently confirmed",
+    "parser": "stdlib incremental JSON array of objects; 64Ki characters per read; 16Mi character record limit",
+    "new_dependency": false,
+    "preparation_batch_rows": 256,
+    "source_fixture_rows": 12001,
+    "source_fixture_bytes": 6756177,
+    "parser_selection_tracemalloc_peak_bytes": 338702,
+    "memory_measurement_scope": "Parser and selection only; excludes full preparation and global splitting",
+    "old_new_byte_identical": [
+      "pairs.jsonl",
+      "excluded.jsonl",
+      "ready.json"
+    ],
+    "parity_fixture_rows": 300,
+    "invalid_json_and_truncation_rejected": true
+  }
 }

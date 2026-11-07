@@ -51,7 +51,7 @@ FLOW_REVISION="$("$FLOW_PYTHON" -u scripts/inspect_hpdv3_source.py --raw "$HPDV3
 printf '[source] Identity=%s\n' "$FLOW_REVISION"
 
 FLOW_STAGE=extract
-echo '[2/5] Extract selected images; initial annotation reads are logged'
+echo '[2/5] Extract selected images; train annotations are streamed with bounded parser memory'
 "$FLOW_PYTHON" -u scripts/extract_hpdv3_sub.py --raw "$HPDV3_RAW" --out "$FLOW_IMAGES" \
   --workers "${FLOW_WORKERS:-4}" --reserve-gib "${FLOW_RESERVE_GIB:-30}"
 

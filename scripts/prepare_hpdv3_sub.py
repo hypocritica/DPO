@@ -14,13 +14,14 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 from self_correct_dpo.common import sha256, write_json, write_jsonl
 from self_correct_dpo.data.pickapic import prompt_key
+from self_correct_dpo.data.json_stream import object_records
+from self_correct_dpo.data.preparation import atomic_jsonl
 
 ALLOWED_MODELS = frozenset({'flux', 'kolors', 'sd3', 'hunyuan', 'real_images'})
 
 
-def select(records, tests):
+def iter_selected(records, tests, counts):
     heldout = {prompt_key(r['prompt']) for r in tests}
-    selected, counts = [], Counter()
     for index, row in enumerate(records):
         if row.get('model1') not in ALLOWED_MODELS or row.get('model2') not in ALLOWED_MODELS:
             counts['model_subset'] += 1
@@ -28,7 +29,12 @@ def select(records, tests):
             counts['official_heldout_prompt'] += 1
         else:
             # Keep path1=preferred/path2=rejected and exact original records.
-            selected.append({'source_index': index, 'record': row})
+            yield {'source_index': index, 'record': row}
+
+
+def select(records, tests):
+    counts = Counter()
+    selected = list(iter_selected(records, tests, counts))
     return selected, dict(counts)
 
 
@@ -43,13 +49,24 @@ def main():
     if a.workers < 1:p.error('--workers must be positive')
     if a.out.exists(): raise FileExistsError(a.out)
     if a.metadata_only:
-        records = json.loads((a.raw / 'train.json').read_text())
+        records = object_records(a.raw / 'train.json')
         tests = json.loads((a.raw / 'test.json').read_text())
-        selected, exclusions = select(records, tests)
+        exclusions = Counter()
+        source_rows = selected_rows = 0
+        def counted():
+            nonlocal source_rows
+            for record in records:
+                source_rows += 1
+                yield record
+        def selection():
+            nonlocal selected_rows
+            for row in iter_selected(counted(), tests, exclusions):
+                selected_rows += 1
+                yield row
         a.out.mkdir(parents=True)
-        write_jsonl(a.out / 'selection.jsonl', selected)
+        atomic_jsonl(a.out / 'selection.jsonl', selection())
         write_json(a.out / 'filter.json', {'revision': a.revision, 'allowed_models': sorted(ALLOWED_MODELS),
-            'source_rows': len(records), 'selected_rows': len(selected), 'exclusions': exclusions,
+            'source_rows': source_rows, 'selected_rows': selected_rows, 'exclusions': exclusions,
             'train_json_sha256': sha256(a.raw/'train.json'), 'test_json_sha256': sha256(a.raw/'test.json'),
             'selection_sha256': sha256(a.out/'selection.jsonl'), 'ready_for_training': False,
             'image_resolution_filter': None, 'label_policy': 'path1 preferred, path2 rejected',

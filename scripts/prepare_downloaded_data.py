@@ -5,6 +5,7 @@ No GPU, network, image resize/re-encoding, or reward-based relabeling is used.
 """
 import argparse
 from collections import Counter
+from itertools import islice
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256 as hash_bytes
 import json
@@ -19,6 +20,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 from download_assets import env_path, parquet_split
 from self_correct_dpo.data.benchmarks import prepare_panels, prompt_key
+from self_correct_dpo.data.json_stream import object_records
 from self_correct_dpo.common import digest, sha256, write_json, write_jsonl, output_lock
 from self_correct_dpo.data.pickapic import adapt_rows
 from self_correct_dpo.data.preparation import ImagePool, InvalidImageError, BatchJournal, parquet_batches, atomic_json, atomic_jsonl
@@ -328,14 +330,15 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
         return str(path),hash_bytes(payload).hexdigest()
     def verify_images(names):
         names=list(dict.fromkeys(name for name in names if name not in cached))
+        before=len(cached)
         started=time.monotonic()
         with ThreadPoolExecutor(max_workers=workers) as executor:
             for start in range(0,len(names),256):
                 batch=names[start:start+256]
                 cached.update(zip(batch,executor.map(inspect_image,batch)))
-                if start == 0 or (start+len(batch))%4096 == 0 or start+len(batch)==len(names):
-                    print(json.dumps({'phase':'verify_images','verified':start+len(batch),
-                                      'total':len(names),'workers':workers,
+                if before == 0 or len(cached)//4096 > before//4096:
+                    print(json.dumps({'phase':'verify_images','verified_unique':len(cached),
+                                      'batch_images':len(names),'workers':workers,
                                       'elapsed_seconds':round(time.monotonic()-started,1)}),flush=True)
     def local_image(name):
         return cached[name]
@@ -352,8 +355,8 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
             blocked_hashes.update(hash_bytes(image_bytes(record[f'jpg_{side}'])).hexdigest() for side in (0,1))
         pickapic_inventory=[{'path':str(f),'bytes':f.stat().st_size,'mtime_ns':f.stat().st_mtime_ns} for f in heldout]
     allowed=allowed or ((lambda caption:True) if family=='unfiltered' else tokenizer_predicate(Path(model),family))
-    annotations=json.loads((raw/'train.json').read_text())
-    if not isinstance(annotations,list):raise ValueError('Expected official HPDv3 train.json list')
+    print('[prepare] Streaming train.json in batches of 256; retaining eligible pair metadata',flush=True)
+    annotations=enumerate(object_records(raw/'train.json'))
     def exclusion_reason(index,record):
         caption=record.get('prompt')
         reason=None
@@ -367,26 +370,31 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
         elif min_confidence is not None:
             if confidence is None or confidence<min_confidence:reason='confidence_threshold'
         return reason
-    reasons=[exclusion_reason(index,record) for index,record in enumerate(annotations)]
-    verify_images(record[side] for record,reason in zip(annotations,reasons) if reason is None
-                  for side in ('path1','path2'))
     original,groups,excluded,records=[],{},[],{}
+    raw_count=0
+    # Scan once, verify only eligible images, and discard every excluded source
+    # record immediately. Global component splitting retains eligible metadata.
+    while batch := list(islice(annotations,256)):
+        reasons=[exclusion_reason(index,record) for index,record in batch]
+        verify_images(record[side] for (_,record),reason in zip(batch,reasons) if reason is None
+                      for side in ('path1','path2'))
+        for (index,record),reason in zip(batch,reasons):
+            raw_count=index+1
+            pair_id='hpdv3:'+str(index)
+            caption=record.get('prompt')
+            if reason:
+                excluded.append({'pair_id':pair_id,'reason':reason});continue
+            paths,hashes=zip(*(local_image(record[side]) for side in ('path1','path2')))
+            if blocked_hashes.intersection(hashes):
+                excluded.append({'pair_id':pair_id,'reason':'official_heldout_image'});continue
+            groups[caption]='caption:'+digest(prompt_key(caption))[:24]
+            original.append({'pair_id':pair_id,'caption':caption,'label_0':1,'label_1':0,
+                             'image_0':paths[0],'image_1':paths[1],'hashes':list(hashes),
+                             'image_0_uid':record['path1'],'image_1_uid':record['path2'],'split':'train'})
+            records[pair_id]=record
+        if raw_count%10240==0:print(json.dumps({'scanned':raw_count,'eligible':len(original)}),flush=True)
     out.mkdir(parents=True)
     write_json(out/'preparing.json',{'revision':revision,'family':family})
-    for index,(record,reason) in enumerate(zip(annotations,reasons)):
-        pair_id='hpdv3:'+str(index)
-        caption=record.get('prompt')
-        if reason:
-            excluded.append({'pair_id':pair_id,'reason':reason});continue
-        paths,hashes=zip(*(local_image(record[side]) for side in ('path1','path2')))
-        if blocked_hashes.intersection(hashes):
-            excluded.append({'pair_id':pair_id,'reason':'official_heldout_image'});continue
-        groups[caption]='caption:'+digest(prompt_key(caption))[:24]
-        original.append({'pair_id':pair_id,'caption':caption,'label_0':1,'label_1':0,
-                         'image_0':paths[0],'image_1':paths[1],'hashes':list(hashes),
-                         'image_0_uid':record['path1'],'image_1_uid':record['path2'],'split':'train'})
-        records[pair_id]=record
-        if index and index%10000==0:print(json.dumps({'scanned':index,'eligible':len(original)}),flush=True)
     def resolve_images(row):
         return ([row['image_0'],row['image_1']],row['hashes'],[row['image_0_uid'],row['image_1_uid']])
     pairs,rejected,report=adapt_rows(original,out,groups,source_revision=revision,seed=17,
@@ -399,7 +407,7 @@ def prepare_hpdv3(raw, out, *, family, model=None, pickapic_raw=None, revision=N
         for side in ('winner','loser'):row[side]=os.path.relpath(row[side],out)
     write_jsonl(out/'pairs.jsonl',pairs)
     write_jsonl(out/'excluded.jsonl',excluded)
-    write_json(out/'audit.json',{**report,'family':family,'raw_train_rows':len(annotations),
+    write_json(out/'audit.json',{**report,'family':family,'raw_train_rows':raw_count,
         'exclusions':dict(Counter(r['reason'] for r in excluded)),
         'train_json_sha256':sha256(raw/'train.json'),'test_json_sha256':sha256(raw/'test.json'),
         'minimum_confidence':min_confidence,'allowed_models':sorted(allowed_models) if allowed_models is not None else None,'download_receipt':receipt,

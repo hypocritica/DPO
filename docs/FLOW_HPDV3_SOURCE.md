@@ -31,6 +31,32 @@ bash launchers/flow/prepare_slai_data.sh
 自定义布局用 `FLOW_IMAGES` / `FLOW_PREPARED` / `FLOW_PANEL`，完成后启动器使用打印的
 `--pairs ... --monitor-prompts ...`。每次准备默认4线程，不执行GPU、不下载内容。
 
+## 读取train.json被Killed / exit 137
+
+137表示进程收到SIGKILL；若停在读取train.json且没有Python traceback，优先检查容器RAM限制与OOM事件。
+旧实现使用read_text加json.loads同时保留全量文本和解析对象。现提取/metadata筛选均逐条读取JSON数组，
+提取只累计所需图片路径；完整准备每256条校验图片，不再保留全部源注释或全部筛选原因列表。
+不需要安装新依赖，筛选、原始行号、标签和seed17组件划分保持不变。
+解析器每64Ki字符读取，单条注释上限16Mi字符，拒绝截断/尾部内容，每15秒输出扫描进度。
+
+更新后直接重跑上面的入口，保留原始数据和输出目录。本次若停在注释读取，尚未开始提取图片；
+若以前已提取部分图片，重跑会重新扫描gzip，复用同大小文件。
+完整prepare仍保留合格样本、图片哈希、排除记录与组件划分结构，因此总RAM随数据规模增长，
+不是整个流程固定0.34MB。若再次137，查看容器实际限制，按平台方式增加CPU内存；减少图片线程
+不能解决旧版全量JSON读取峰值，也不涉及GPU显存或BF16。
+
+可选只读诊断（cgroup v2常见路径，路径不存在时跳过）：
+
+```bash
+free -h
+for f in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.events; do
+  if [ -f "$f" ]; then echo "$f"; cat "$f"; fi
+done
+```
+
+memory.events的oom_kill非零说明该cgroup曾有OOM杀进程，但累计数本身不能唯一归因这一次失败。
+实现验证摘要见FLOW_HPDV3_SOURCE_VALIDATION.json；未在该SLAI容器重跑真实全量数据。
+
 ## 来源身份与验证范围
 
 优先使用完整且字段有效的已有 `.download-manifest.json` 或 `.scd-download.json`；

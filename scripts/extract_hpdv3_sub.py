@@ -4,7 +4,7 @@ Run once on a CPU compute allocation. Original archives and annotations stay int
 The output is a raw-image view for prepare_hpdv3_sub.py, not a training manifest.
 """
 import argparse
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
@@ -16,7 +16,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'src'), str(ROOT/'scripts')]
-from prepare_hpdv3_sub import select
+from prepare_hpdv3_sub import iter_selected
+from self_correct_dpo.data.json_stream import object_records
 from self_correct_dpo.common import sha256, output_lock
 from self_correct_dpo.data.preparation import atomic_json
 from self_correct_dpo.data.hpdv3_source import source_record
@@ -52,21 +53,22 @@ def _extract(raw, out, max_gib, reserve_gib, workers):
         return
     print('[extract] Reading test.json', flush=True)
     tests = json.loads((raw/'test.json').read_text())
-    print('[extract] Reading train.json (large annotation file; no image extraction yet)', flush=True)
-    records = json.loads((raw/'train.json').read_text())
-    print(f'[extract] Selecting from {len(records)} records', flush=True)
-    chosen, exclusions = select(records, tests)
+    print('[extract] Streaming train.json; keeping only selected image paths', flush=True)
+    exclusions = Counter()
+    selected_count = 0
     needed = {r[key] for r in tests for key in ('path1', 'path2')}
-    needed.update(item['record'][key] for item in chosen for key in ('path1', 'path2'))
+    for item in iter_selected(object_records(raw/'train.json'), tests, exclusions):
+        selected_count += 1
+        needed.update(item['record'][key] for key in ('path1', 'path2'))
     for name in needed:
         path = Path(name)
         if path.is_absolute() or '..' in path.parts or path.parts[0] != 'images':
             raise ValueError(f'Unexpected image path: {name}')
-    selected_count, needed_count = len(chosen), len(needed)
+    needed_count = len(needed)
     print(json.dumps({'selected_pairs_before_image_exclusions': selected_count,
                       'required_images_including_official_test': needed_count,
                       'exclusions': exclusions}), flush=True)
-    del records, chosen, tests
+    del tests
     for name in ('train.json', 'test.json'):
         destination = out/name
         if not destination.exists(): destination.symlink_to((raw/name).resolve())

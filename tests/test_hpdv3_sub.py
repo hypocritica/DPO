@@ -22,6 +22,46 @@ class HPDv3SubTests(unittest.TestCase):
         self.assertEqual(chosen[0]['record'],row)
         self.assertEqual(excluded,{'model_subset':2,'official_heldout_prompt':1})
 
+    def test_streamed_arrays_chunk_boundaries_and_invalid_input(self):
+        from self_correct_dpo.data.json_stream import object_records
+        rows=[{'prompt':'中文 \" quote } ] \\ '+('x'*1000),'nested':[1,{'ok':True}]},
+              {'prompt':'second','confidence':None}]
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'train.json'
+            for content in (json.dumps(rows,ensure_ascii=False),json.dumps(rows), ' [ ] \n'):
+                path.write_text(content)
+                self.assertEqual(list(object_records(path,chunk_size=7)),json.loads(content))
+            for content in ('', '{}', '[{}', '[{},]', '[{}] junk', '[1]', '[{} {}]', '[{"x":"bad'):
+                path.write_text(content)
+                with self.assertRaises(ValueError,msg=content):list(object_records(path,chunk_size=3))
+            path.write_text(json.dumps(rows))
+            with self.assertRaisesRegex(ValueError,'limit'):
+                list(object_records(path,chunk_size=17,max_record_chars=100))
+
+    def test_streaming_selection_discards_large_excluded_source(self):
+        import tracemalloc
+        from collections import Counter
+        from prepare_hpdv3_sub import iter_selected
+        from self_correct_dpo.data.json_stream import object_records
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'train.json'
+            bad={'prompt':'x'*512,'model1':'excluded','model2':'flux'}
+            good={'prompt':'selected','model1':'flux','model2':'kolors',
+                  'path1':'images/a.jpg','path2':'images/b.jpg'}
+            with path.open('w') as handle:
+                handle.write('[')
+                for _ in range(12000):handle.write(json.dumps(bad)+',')
+                handle.write(json.dumps(good)+']')
+            counts=Counter()
+            tracemalloc.start()
+            try:
+                chosen=list(iter_selected(object_records(path),[],counts))
+                _,peak=tracemalloc.get_traced_memory()
+            finally:tracemalloc.stop()
+            self.assertEqual(chosen,[{'source_index':12000,'record':good}])
+            self.assertEqual(counts,{'model_subset':12000})
+            self.assertLess(peak,2*1024**2)
+
     def test_full_prepare_small_images_with_prompt_component_splits(self):
         from PIL import Image
         from prepare_downloaded_data import prepare_hpdv3
