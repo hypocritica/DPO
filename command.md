@@ -1,3 +1,8 @@
+## 2026-11-08 SLAI更换容器后数据凭据stat不一致
+
+新增CPU工具 `scripts/rebind_flow_data_receipt.py`，默认只读；只有pairs/ready/audit实际SHA256均与原passed报告一致，才允许用--out生成新的stat绑定报告。原报告与数据不修改，不加载模型或读图片，训练器校验保持原样。
+完整诊断/恢复命令见[docs/FLOW_DATA_RECEIPT_REBIND.md](docs/FLOW_DATA_RECEIPT_REBIND.md)。新报告路径须搭配新run-tag，例如flow-b4-stat-v1；两个容器按case分别生成报告。SHA不一致会拒绝并停止后续训练。
+
 ## 2026-11-08 Flow全套训练/消融：每卡B4，固定128 pair-views
 
 分支 `feat/flow-detached-eval-20261108`。这是当前推荐默认，后文旧B1/pairs说明作为历史记录保留。

@@ -1,6 +1,8 @@
 2026-11-08验证：连续训练/独立评估与B4探针共30项CPU回归通过；同步修正旧storage兼容测试中遗漏的base_model/zimage_compat身份fixture。未执行完整模型GPU训练或评估。
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 SLAI正式ZImage B4在preflight的pairs stat绑定失败，用户确认未修改数据、仅更换容器；实际expected/observed尚未获得，不能直接宣称mtime差异为已证实根因。新增rebind_flow_data_receipt.py，默认只读；核对三份准备文件SHA256、文件稳定性、ready摘要/source revision后才生成独立新报告，保留原审计/原始报告及SHA/stat/hostname来源，幂等复用一致输出、拒绝覆盖无关输出。训练/receipt生产源码保持不变，不自动忽略mtime或绕过校验；使用新报告+新tag恢复失败项，正常训练项不变。CPU检查覆盖mtime截断、同size/mtime内容改写拒绝、哈希中变化拒绝、原报告保留、无图片读取及幂等；同步更新旧receipt测试对已支持Stagewise B的过时拒绝断言。SLAI实际文件需在其容器内执行工具核实。 17项receipt/preflight/audit相关CPU检查通过，实际SLAI字节身份仍待用户执行工具确认。
+
 本轮验证覆盖50项CPU检查；默认tag调整为flow-b4-v1以避免inline名称误带trainonly，并修正旧SFT测试按NFS glob顺序挑日志的假设；受影响13项最终重测全部通过，其余37项此前通过。两模型61配方均经真实shell参数与配置构造验证，全部Bash/Python语法、diff检查及原排队目录280文件指纹检查通过。
 
 2026-11-08 按用户最终更正统一为B4/128 pair-views（不是pairs）。所有Flow编号入口默认B4与resident，保持SD3.5四5090/ZImage双H100；新增两模型suite与缺失编号入口，共61个唯一配方/模型，覆盖main四组、Global/Stage×B/C、K2/4/8、边界、共同beta/seed网格与可选pairs补充。各独立实验复用原冻结/恢复/完成跳过，失败/暂停即停，list/plan只读；编号与suite默认tag一致。为完整2×2增加仅Flow DPO可用的stagewise-B-gaussian，保留同Stage C采样，仅修改聚合位置；默认C及diffusion目标不变。新增全部case的真实shell参数/实际配置CPU校验、预算与输出唯一性、B损失/梯度及tiny PEFT保存恢复检查。核心训练来源变化要求新实验保留新checkout；既有排队stagewise源码/配置不修改。完整GPU显存/效果未验证。详见FLOW_EXPERIMENT_SUITE.md。

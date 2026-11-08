@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from self_correct_dpo.common import artifact_identity, sha256
 from self_correct_dpo.flow_receipts import data_receipt, file_binding, model_receipt, load_certified_pairs
@@ -72,6 +73,55 @@ class ReceiptTests(unittest.TestCase):
             stat=config.stat(); self.write(config,{'a':2}); os.utime(config,ns=(stat.st_atime_ns,stat.st_mtime_ns))
             with self.assertRaises(ValueError): model_receipt(path,model)
 
+    def test_metadata_rebind_checks_bytes_preserves_original_and_is_readonly_by_default(self):
+        from rebind_flow_data_receipt import verify_and_rebind
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); pairs, receipt, report=self.fixture(root)
+            original=receipt.read_bytes()
+            for name in ('pairs.jsonl','ready.json','audit.json'):
+                path=root/name; stat=path.stat()
+                os.utime(path,ns=(stat.st_atime_ns,stat.st_mtime_ns//10**9*10**9))
+            before={p.name:p.read_bytes() for p in root.iterdir()}
+            result=verify_and_rebind(pairs,receipt)
+            self.assertTrue(result['metadata_changed'])
+            self.assertEqual(before,{p.name:p.read_bytes() for p in root.iterdir()})
+            out=root/'new-receipt.json'
+            result=verify_and_rebind(pairs,receipt,out)
+            self.assertEqual(result['status'],'rebound')
+            self.assertEqual(receipt.read_bytes(),original)
+            self.assertEqual(data_receipt(out,pairs)['dataset_identity']['pairs']['sha256'],sha256(pairs))
+            self.assertEqual(load_certified_pairs(pairs,out)[0]['winner'],str(root/'winner.png'))
+            self.assertFalse((root/'winner.png').exists())
+            saved=out.read_bytes()
+            self.assertEqual(verify_and_rebind(pairs,receipt,out)['status'],'reused')
+            self.assertEqual(out.read_bytes(),saved)
+            unrelated=root/'unrelated.json';unrelated.write_bytes(original)
+            with self.assertRaises((ValueError,FileExistsError)):verify_and_rebind(pairs,receipt,unrelated)
+            self.assertEqual(unrelated.read_bytes(),original)
+
+    def test_rebind_refuses_changed_content_even_with_original_size_and_mtime(self):
+        from rebind_flow_data_receipt import verify_and_rebind
+        for name in ('pairs','ready','audit'):
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);pairs,receipt,report=self.fixture(root)
+                path=Path(report['dataset_identity'][name]['path']);stat=path.stat()
+                value=bytearray(path.read_bytes());value[-2]^=1;path.write_bytes(value)
+                os.utime(path,ns=(stat.st_atime_ns,stat.st_mtime_ns))
+                with self.assertRaisesRegex(ValueError,f'SHA256 differs for {name}'):
+                    verify_and_rebind(pairs,receipt,root/'new.json')
+                self.assertFalse((root/'new.json').exists())
+
+    def test_rebind_refuses_a_file_that_changes_during_hashing(self):
+        from rebind_flow_data_receipt import checked_binding
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'file';path.write_text('a')
+            def change(value):
+                value.write_text('different size')
+                return 'a'*64
+            with patch('self_correct_dpo.common.sha256',side_effect=change):
+                with self.assertRaisesRegex(ValueError,'changed while computing'):
+                    checked_binding(path)
+
 
 class PaperRecipeTests(unittest.TestCase):
     def recipe(self,family='sd35_medium',**kw):
@@ -98,8 +148,8 @@ class PaperRecipeTests(unittest.TestCase):
         self.assertEqual(self.recipe(aggregation='B')['method'],'multiview-B-gaussian')
         for boundary in (250,500,750):
             self.assertEqual(self.recipe(stagewise=True,boundary=boundary)['training']['stagewise']['boundary'],boundary)
-        for kw in ({'aggregation':'B','stagewise':True},{'budget':127}):
-            with self.assertRaises(ValueError): self.recipe(**kw)
+        self.assertEqual(self.recipe(aggregation='B',stagewise=True)['method'],'stagewise-B-gaussian')
+        with self.assertRaises(ValueError): self.recipe(budget=127)
         with self.assertRaises(ValueError): self.recipe('zimage')
         for algorithm in ('dpo','linear_dpo','sft'):
             c=self.recipe(algorithm=algorithm)
