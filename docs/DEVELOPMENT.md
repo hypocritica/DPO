@@ -1,6 +1,8 @@
 2026-11-08验证：连续训练/独立评估与B4探针共30项CPU回归通过；同步修正旧storage兼容测试中遗漏的base_model/zimage_compat身份fixture。未执行完整模型GPU训练或评估。
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 SLAI ZImage加载排查：实际数据三文件SHA256均匹配，仅mtime不同，用户已成功重绑；随后两个worker在FUSE/页等待且映射text_encoder三分片，后续日志确认加载继续完成，不能宣称死锁。新增默认启动阶段JSON日志及首个update的microbatch进度，记录rank/PID/UTC和主机耗时；不读取额外权重、不强制CUDA同步、不碰RNG和训练预算。旧进程仅用已有manifest/metrics粗定位，新日志需下次在独立checkout的新实验使用；不放宽源码恢复身份，不修改既有排队checkout或SLAI活动任务。11项现有CPU回归通过，覆盖once预检、全程与暂停恢复的权重/优化器/RNG一致性、tiny PEFT Stage B恢复及原加载诊断工具；未执行完整模型GPU训练。命令见command.md。
+
 2026-11-08 SLAI正式ZImage B4在preflight的pairs stat绑定失败，用户确认未修改数据、仅更换容器；实际expected/observed尚未获得，不能直接宣称mtime差异为已证实根因。新增rebind_flow_data_receipt.py，默认只读；核对三份准备文件SHA256、文件稳定性、ready摘要/source revision后才生成独立新报告，保留原审计/原始报告及SHA/stat/hostname来源，幂等复用一致输出、拒绝覆盖无关输出。训练/receipt生产源码保持不变，不自动忽略mtime或绕过校验；使用新报告+新tag恢复失败项，正常训练项不变。CPU检查覆盖mtime截断、同size/mtime内容改写拒绝、哈希中变化拒绝、原报告保留、无图片读取及幂等；同步更新旧receipt测试对已支持Stagewise B的过时拒绝断言。SLAI实际文件需在其容器内执行工具核实。 17项receipt/preflight/audit相关CPU检查通过，实际SLAI字节身份仍待用户执行工具确认。
 
 本轮验证覆盖50项CPU检查；默认tag调整为flow-b4-v1以避免inline名称误带trainonly，并修正旧SFT测试按NFS glob顺序挑日志的假设；受影响13项最终重测全部通过，其余37项此前通过。两模型61配方均经真实shell参数与配置构造验证，全部Bash/Python语法、diff检查及原排队目录280文件指纹检查通过。

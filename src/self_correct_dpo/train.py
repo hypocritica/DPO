@@ -88,7 +88,9 @@ def main():
     if Path(args.out).exists() and not args.resume:
         raise FileExistsError(args.out)
     print(json.dumps({"family": config["model"]["family"], "objective": config["training"]["objective"],
-                     "training_pairs": len(rows), "steps": config["training"]["max_steps"], "seed": config["seed"]}))
+                     "training_pairs": len(rows), "steps": config["training"]["max_steps"], "seed": config["seed"],
+                     "role": "coordinator" if world > 1 and runtime_world == 1 else "worker",
+                     "rank": int(os.environ.get('RANK', '0')), "pid": os.getpid()}), flush=True)
     if args.check_only:
         if preflight is None:
             check_rows(rows, config)

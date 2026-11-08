@@ -15,6 +15,7 @@ import math
 from pathlib import Path
 
 import torch
+from self_correct_dpo.common import startup_phase
 
 
 def detach_condition(value):
@@ -168,13 +169,16 @@ class PreferenceBackend:
             if denoiser_dtype not in ('float32', 'bfloat16'):
                 raise ValueError('ZImage transformer_dtype must be float32 or bfloat16')
             from diffusers import ZImageTransformer2DModel
-            transformer = ZImageTransformer2DModel.from_pretrained(str(model_path),
-                subfolder='transformer', local_files_only=True, torch_dtype=getattr(torch, denoiser_dtype))
+            with startup_phase('model.transformer.load', path=str(model_path / 'transformer')):
+                transformer = ZImageTransformer2DModel.from_pretrained(str(model_path),
+                    subfolder='transformer', local_files_only=True, torch_dtype=getattr(torch, denoiser_dtype))
             from self_correct_dpo.zimage_compat import fix_zimage_padding
             fix_zimage_padding(transformer)
-            vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
-                local_files_only=True, torch_dtype=torch.float32)
-            self.pipe = ZImagePipeline.from_pretrained(str(model_path), transformer=transformer, vae=vae, **kwargs)
+            with startup_phase('model.vae.load', path=str(model_path / 'vae')):
+                vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
+                    local_files_only=True, torch_dtype=torch.float32)
+            with startup_phase('model.pipeline.load', path=str(model_path)):
+                self.pipe = ZImagePipeline.from_pretrained(str(model_path), transformer=transformer, vae=vae, **kwargs)
             self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
                 str(model_path), subfolder='scheduler', local_files_only=True)
             if getattr(self.scheduler.config, 'use_dynamic_shifting', False):
@@ -184,9 +188,11 @@ class PreferenceBackend:
                        'feed_forward.w1', 'feed_forward.w2', 'feed_forward.w3']
             self.error_parameterization = 'flow_velocity_mse_uniform_schedule_index'
         else:
-            vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
-                local_files_only=True, torch_dtype=torch.float32)
-            self.pipe = StableDiffusion3Pipeline.from_pretrained(str(model_path), vae=vae, **kwargs)
+            with startup_phase('model.vae.load', path=str(model_path / 'vae')):
+                vae = AutoencoderKL.from_pretrained(str(model_path), subfolder='vae',
+                    local_files_only=True, torch_dtype=torch.float32)
+            with startup_phase('model.pipeline.load', path=str(model_path)):
+                self.pipe = StableDiffusion3Pipeline.from_pretrained(str(model_path), vae=vae, **kwargs)
             if self.pipe.text_encoder_3 is None or self.pipe.tokenizer_3 is None:
                 raise ValueError("SD3.5 Medium requires the complete T5 conditioning branch")
             validate_sd35_medium_config(self.pipe.transformer.config)
@@ -202,7 +208,8 @@ class PreferenceBackend:
         self.component_name = component
         self.offload_frozen = bool(training_config.get('offload_frozen', False))
         if not self.offload_frozen:
-            self.pipe.to(self.device)
+            with startup_phase('model.pipeline.to_device', device=str(self.device)):
+                self.pipe.to(self.device)
         self.pipe.set_progress_bar_config(disable=True)
         self.frozen_modules = [self.pipe.vae, self.pipe.text_encoder]
         if self.family in {"sdxl", "sd35_medium"}:
@@ -214,18 +221,21 @@ class PreferenceBackend:
                 raise ValueError("A required frozen pipeline component is missing")
             module.requires_grad_(False).eval()
         # Both official LoRA examples keep VAE arithmetic in float32.
-        self.pipe.vae.to(dtype=torch.float32)
+        with startup_phase('model.vae.to_float32'):
+            self.pipe.vae.to(dtype=torch.float32)
         base = getattr(self.pipe, component)
-        base.to(self.device)
+        with startup_phase('model.denoiser.to_device', device=str(self.device)):
+            base.to(self.device)
         base.requires_grad_(False)
         rank = int(training_config.get("lora_rank", 16))
         alpha = float(training_config.get("lora_alpha", rank))
         if rank < 1 or alpha <= 0 or not math.isfinite(alpha):
             raise ValueError("LoRA rank/alpha must be positive")
-        self.model = get_peft_model(base, LoraConfig(
-            r=rank, lora_alpha=alpha, lora_dropout=0.0,
-            target_modules=targets, init_lora_weights="gaussian", bias="none",
-        ))
+        with startup_phase('model.lora.attach'):
+            self.model = get_peft_model(base, LoraConfig(
+                r=rank, lora_alpha=alpha, lora_dropout=0.0,
+                target_modules=targets, init_lora_weights="gaussian", bias="none",
+            ))
         setattr(self.pipe, component, self.model)
         for name, parameter in self.model.named_parameters():
             if parameter.requires_grad:

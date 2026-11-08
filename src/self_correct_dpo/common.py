@@ -3,12 +3,35 @@ import hashlib
 import json
 import os
 import socket
+import time
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from contextlib import contextmanager
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+def startup_event(phase, status, **details):
+    """Flush startup milestones without touching CUDA, RNG or shared storage."""
+    print(json.dumps({'event': 'startup', 'phase': phase, 'status': status,
+                      'rank': int(os.environ.get('RANK', '0')), 'pid': os.getpid(),
+                      'utc': datetime.now(timezone.utc).isoformat(), **details}), flush=True)
+
+
+@contextmanager
+def startup_phase(phase, **details):
+    started = time.monotonic()
+    startup_event(phase, 'begin', **details)
+    try:
+        yield
+    except BaseException as error:
+        startup_event(phase, 'error', seconds=round(time.monotonic() - started, 3),
+                      error_type=type(error).__name__, **details)
+        raise
+    else:
+        startup_event(phase, 'done', seconds=round(time.monotonic() - started, 3), **details)
 
 
 @lru_cache(maxsize=None)

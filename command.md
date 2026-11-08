@@ -1,3 +1,23 @@
+## 2026-11-08 Flow启动进度日志
+
+新启动的训练默认打印JSON阶段日志（event=startup），包含phase、begin/done/error、rank、PID、UTC时间和完成耗时。
+覆盖分布式初始化、ZImage transformer/VAE/pipeline加载、SD3.5 VAE/pipeline加载、GPU搬运、LoRA、DDP、优化器、训练身份写入、tracker及进入训练循环。
+每次启动的第一个microbatch细分图片读取、forward和backward；第一个update打印各microbatch进度，例如1/16到16/16，之后恢复原逐步指标日志。
+最后一条begin尚无相同rank/phase的done，表示该rank尚未返回此阶段；这不是死锁证明。时间为主机端墙钟，不为计时强制CUDA同步。
+新增日志不重载模型、不访问权重内容、不改变训练预算/RNG/损失，不注册进程信号。
+已有运行不能补装日志；正在运行/需要续训的checkout保留原源码，新实验在独立checkout拉取同分支并用新tag（例如flow-b4-log-v1）。
+
+对当前旧版SLAI DPO，只读观察：
+
+```bash
+flow_out=/mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs/zimage-dpo-k1-pair_views128-2h100-b4-3200-C-float32-trainonly-paper-v2-flow-b4-stat-v1
+ls -lh "$flow_out/training.json" "$flow_out"/metrics-*.jsonl
+tail -n 1 "$flow_out"/metrics-*.jsonl
+```
+
+本次全新输出中training.json成功写出表示rank0已经完成模型/LoRA/DDP/优化器初始化；metrics文件创建表示rank0进入训练循环，第一条指标等该update所有microbatch完成后写入。
+缺文件时ls/tail报错只表示尚未生成。文件存在不能单独确认所有rank当前状态或具体Python调用，容器禁止ptrace时外部堆栈也可能不可用。
+
 ## 2026-11-08 SLAI更换容器后数据凭据stat不一致
 
 新增CPU工具 `scripts/rebind_flow_data_receipt.py`，默认只读；只有pairs/ready/audit实际SHA256均与原passed报告一致，才允许用--out生成新的stat绑定报告。原报告与数据不修改，不加载模型或读图片，训练器校验保持原样。

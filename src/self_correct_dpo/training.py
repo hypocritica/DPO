@@ -15,7 +15,7 @@ import socket
 import tempfile
 import time
 
-from self_correct_dpo.common import model_artifact_identity, digest, read_json, sha256, write_json
+from self_correct_dpo.common import model_artifact_identity, digest, read_json, sha256, write_json, startup_event, startup_phase
 from self_correct_dpo.runtime.storage_compat import compatible_sources, record_compatibility
 
 def git_revision():
@@ -524,7 +524,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     from self_correct_dpo.runtime.checkpoints import resolve_checkpoint, validate_extension, ManagedCheckpoints, progress_steps
     from self_correct_dpo.runtime.distributed import initialize, average_metrics, gather_rng, restore_rng
     import torch.distributed as dist
-    world, rank, device = initialize(device)
+    with startup_phase('distributed.initialize'):
+        world, rank, device = initialize(device)
     session_started = time.monotonic()
     t = config["training"]
     once = t.get('preflight') == 'once'
@@ -616,16 +617,20 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
     if "paired_drift" in t:
         from self_correct_dpo.algorithms.paired_drift import PairedDriftBackend
         backend_class = PairedDriftBackend
-    backend = (backend_factory or backend_class)(config["model"], t, device)
+    with startup_phase('model.initialize'):
+        backend = (backend_factory or backend_class)(config["model"], t, device)
     source_checkpoint = resume or extend_from
     if source_checkpoint:
-        backend.load_adapter(source_checkpoint / "adapter")
+        with startup_phase('checkpoint.adapter.load'):
+            backend.load_adapter(source_checkpoint / "adapter")
     if world > 1:
-        backend.enable_distributed()
+        with startup_phase('distributed.wrap_model'):
+            backend.enable_distributed()
     parameters = list(backend.trainable_parameters())
     if not parameters:
         raise ValueError("No trainable adapter parameters")
-    optimizer = torch.optim.AdamW(parameters, lr=t["learning_rate"], weight_decay=t.get("weight_decay", 0.0))
+    with startup_phase('optimizer.initialize'):
+        optimizer = torch.optim.AdamW(parameters, lr=t["learning_rate"], weight_decay=t.get("weight_decay", 0.0))
     warmup = t.get("warmup_steps", 0)
 
     def lr_scale(step):
@@ -642,7 +647,8 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
             "reference_image_evaluations": 0, "rollout_model_calls": 0, "rollout_image_evaluations": 0, "training_seconds": 0.0,
             "exposure": {} if once else {r["pair_id"]: {p["variant_id"]: 0 for p in eligible_prompts(r, config["data"])} for r in rows}}
     if source_checkpoint:
-        state = torch.load(source_checkpoint / "state.pt", map_location="cpu", weights_only=True)
+        with startup_phase('checkpoint.state.load'):
+            state = torch.load(source_checkpoint / "state.pt", map_location="cpu", weights_only=True)
         if state["step"] != checkpoint_manifest(source_checkpoint)["step"]:
             raise ValueError("Saved training step differs from checkpoint manifest")
         parent_training = parent["training"] if parent else read_json(out / "training.json")
@@ -668,6 +674,7 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
         step, cost = state["step"], state["cost"]
     if stop_after_step is not None and stop_after_step <= step:
         raise ValueError('stop_after_step must be greater than the resumed optimizer step')
+    startup_event('training.manifest', 'begin')
     if not resume and rank == 0:
         out.mkdir(parents=True)
         (out / "checkpoints").mkdir()
@@ -698,13 +705,16 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                    "planned_pair_view_exposures": 0 if t["objective"] == "sft" else t["max_steps"] * t["batch_size"] * t["gradient_accumulation_steps"] * world * t["noise_views"],
                    "planned_data_passes": t["max_steps"] * t["batch_size"] * t["gradient_accumulation_steps"] * world / len(rows),
                    "seed_scope": "training seed; generation seeds configured separately"})
+    startup_event('training.manifest', 'done')
     if world > 1:
-        dist.barrier()
+        with startup_phase('distributed.manifest_barrier'):
+            dist.barrier()
     writer = None
     if rank == 0 and t.get('logging', 'jsonl') not in ('none', 'jsonl'):
         from self_correct_dpo.runtime.tracking import ExperimentTracker
-        writer = ExperimentTracker(config, out, run_id, start_step=step, resume=bool(source_checkpoint))
-        writer.add_text("configuration", json.dumps(config, indent=2), 0)
+        with startup_phase('tracking.initialize'):
+            writer = ExperimentTracker(config, out, run_id, start_step=step, resume=bool(source_checkpoint))
+            writer.add_text("configuration", json.dumps(config, indent=2), 0)
     stopped = [False]
     previous = {}
     for signum in (signal.SIGTERM, signal.SIGINT):
@@ -731,14 +741,24 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                     writer.add_scalar(f"dpo_diagnostic/{record['split']}/{key}",value,step)
             writer.flush()
     if diagnostic and rank == 0:
-        run_diagnostics()
-    if world > 1: dist.barrier()
+        with startup_phase('training.initial_diagnostics'):
+            run_diagnostics()
+    if world > 1:
+        with startup_phase('distributed.training_barrier'):
+            dist.barrier()
+    startup_event('training.loop', 'ready', step=step,
+                  gradient_accumulation_steps=accumulation, batch_size=t['batch_size'])
+    first_step = step
     try:
         with open(logfile, "x") as log:
             while step < t["max_steps"]:
                 started = time.monotonic()
                 metrics_sum = {}
                 for inner in range(accumulation):
+                    first_batch = step == first_step and inner == 0
+                    if step == first_step:
+                        startup_event('training.first_update.microbatch', 'begin',
+                                      microbatch=inner + 1, total=accumulation)
                     microbatch = step * accumulation + inner
                     batch, prompts, variant_ids = sampler(rows, config, microbatch, world=world, rank=rank)
                     if not once:
@@ -746,10 +766,12 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                             exposed, _, exposed_ids = sampler(rows, config, microbatch, world=world, rank=other_rank)
                             for row, variants in zip(exposed, exposed_ids):
                                 for variant in variants: cost["exposure"][row["pair_id"]][variant] += 1
-                    images = image_batch(batch, t["resolution"], device, workers=config["data"].get("num_workers", 0), **({"verify_files": False} if once and not config["data"].get("validation_report") else {}), **({"winners_only": True} if t["objective"] == "sft" else {}))
+                    with startup_phase('training.first_batch.images') if first_batch else nullcontext():
+                        images = image_batch(batch, t["resolution"], device, workers=config["data"].get("num_workers", 0), **({"verify_files": False} if once and not config["data"].get("validation_report") else {}), **({"winners_only": True} if t["objective"] == "sft" else {}))
                     synchronization = backend.distributed_model.no_sync() if world > 1 and inner < accumulation - 1 else nullcontext()
                     with synchronization:
-                        values = backend.score_errors(images, prompts, generator)
+                        with startup_phase('training.first_batch.forward') if first_batch else nullcontext():
+                            values = backend.score_errors(images, prompts, generator)
                         from self_correct_dpo.algorithms.losses import preference_logits
                         import torch.nn.functional as F
                         if once and t['objective'] == 'sft':
@@ -823,7 +845,11 @@ def train(config, rows, out, *, resume=None, extend_from=None, execution=None, b
                             raise FloatingPointError("Non-finite training loss")
                         # Keep every view's policy graph and differentiate the
                         # joint objective once, without a policy scoring pass.
-                        (loss / accumulation).backward()
+                        with startup_phase('training.first_batch.backward') if first_batch else nullcontext():
+                            (loss / accumulation).backward()
+                    if step == first_step:
+                        startup_event('training.first_update.microbatch', 'done',
+                                      microbatch=inner + 1, total=accumulation)
                     for key, value in {**metrics, **values.get("rollout_diagnostics", {}), "loss": loss.detach()}.items():
                         if once:
                             number = value.detach() if hasattr(value, 'detach') else value
