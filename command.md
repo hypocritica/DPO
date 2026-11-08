@@ -1,3 +1,27 @@
+# 单张5090：SD3.5关闭offload、B2快速实测（2026-11-08）
+
+在SLAI已分配单张5090的任务内运行；先结束当前checkout的训练再更新：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2
+git -c safe.directory="$PWD" fetch origin feat/flow-benchmark-slai-20261108
+git -c safe.directory="$PWD" switch --detach FETCH_HEAD
+bash launchers/flow/probe_sd35_b2_5090.sh
+```
+
+自动激活现有mvpo-flow，使用现有SD3.5 passed模型报告与128对debug快照。
+只用逻辑cuda:0，world_size=1，不用torchrun；模型只加载一次，1024px、BF16、DPO K1、
+每卡B2/累积1、offload=false、梯度检查点开启，VAE按正式5090配方逐图编码（vae_batch_size=1）。
+默认6步真实reference/policy前向、反向、AdamW更新；关闭评估、W&B/TensorBoard，仅最终保存一次。
+新tag默认自动生成，配置/报告在logs/sd35-b2-probe/<tag>，训练输出在资源表RUNS_ROOT。
+不覆盖旧实验；可用--steps 3缩短为3步，默认丢弃前2步统计余下4步的速度。
+--config-only只做CPU配置检查；--model/--pairs/--model-report可显式指定已有输入。
+
+末尾PROBE RESULT: passed表示完成目标更新及最终保存；OOM会返回非零，并在summary.json保留异常、
+allocated/reserved峰值、设备容量和总耗时。PROBE前缀的纯文本数值便于平台导出，逐步JSON仍保留。
+reserved峰值覆盖加载及训练，不等于整卡实际使用；总耗时包含模型读取/保存，不能保证几秒结束。
+单GPU通过只证明本卡条件下可训练；四卡DDP仍需额外显存余量及多卡短测。
+
 # SLAI加载诊断与microbatch试验（2026-11-08）
 
 已提供连续入口（发布分支feat/flow-benchmark-slai-20261108）：

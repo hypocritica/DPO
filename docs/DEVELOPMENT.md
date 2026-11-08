@@ -1,5 +1,7 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 按用户要求新增单5090 SD3.5 B2常驻短测：probe_sd35_b2_5090.sh自动激活环境，probe_sd35_b2.py使用生产trainer、单GPU/B2/累积1/1024/BF16/offload=false/VAE chunk1/梯度检查点，加载一次并完成6次AdamW更新，仅最终保存，独立tag与配置/输出。报告allocated/reserved峰值、设备容量、总耗时与去掉前2步的速度；OOM保留traceback和报告并非零退出，纯文本PROBE数值避免平台导出丢字段。2项CPU检查覆盖真实shell配置、拒绝覆盖及OOM报告路径（CUDA为fixture），未在5090验证。沿用feat/flow-benchmark-slai-20261108发布；不修改训练算法源码或既有实验。
+
 2026-11-08 按用户要求增加SLAI连续任务benchmark.sh/benchmark_flow.py：自动生成独立配置，双rank加载两次，再测K1/K4 C的B1A2/B2A1各20步，线程固定4/rank；支持--part拆分、成功跳过、失败新attempt、子进程失败继续和取消停止。按生产日志汇总后10步速度、pair-view吞吐及两个rank allocated峰值，加载分项/RSS/容器配额保留原始JSONL。CPU检查覆盖真实shell配置生成、失败隔离和取消/只读预览；整合远程修复后20项相关检查通过（含preflight回归）；本地未操作SLAI GPU。发布分支feat/flow-benchmark-slai-20261108，资源对照为双卡8CPU/128GiB与16CPU/256GiB；缓存、卡型及CPU/RAM共同变化的归因限制见FLOW_STARTUP_PROFILE.md。同步远程最新Z-Image padding修复后再发布，不更改本地正在运行的stagewise checkout。
 
 2026-11-08 SLAI双80GB/8vCPU/128GiB启动诊断：新增独立profile_flow_startup.py，默认只读模型header与容器配额；显式--load调用原PreferenceBackend并临时计时组件加载、GPU搬运、DDP，支持逐rank加载/CPU线程对照。单进程可选每分片至多64MiB只读探针，与加载测量互斥以避免预热干扰。逐rank新JSONL拒绝覆盖，不修改生产源码或checkpoint。debug新增可选smoke microbatch/累积，默认1/1和旧输出名保持；编号正式入口放行显式batch-size并自动保持原pair-view预算。11项相关CPU测试通过（debug、stagewise、计时工具），覆盖B1A2/B2A1等预算、正式K1/K2/K4累积32/16/8、加载包装失败后恢复与报告不覆盖；Bash/Python语法和diff检查通过。本地真实Z-Image header确认2 transformer分片11.46GiB、3 encoder分片7.49GiB，均BF16磁盘权重；未加载完整GPU模型、未操作SLAI或提交Slurm，根因与B2收益待远程测量。命令见FLOW_STARTUP_PROFILE.md。
