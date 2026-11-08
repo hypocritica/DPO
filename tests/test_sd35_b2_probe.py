@@ -52,6 +52,46 @@ class ProbeTests(unittest.TestCase):
             self.assertNotEqual(subprocess.run(command, cwd=ROOT, env=environment, capture_output=True).returncode, 0)
             self.assertEqual(config_file.read_bytes(), original)
 
+    def test_zimage_h100_shell_preserves_formal_precision_and_resident_placement(self):
+        from run_flow import build_config
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            reports = root / 'model-reports'
+            reports.mkdir()
+            (reports / 'zimage-model-validation.json').write_text(json.dumps(
+                {'status': 'passed', 'revision': 'fixture-zimage'}))
+            environment = dict(os.environ, SCD_FLOW_PYTHON=sys.executable,
+                               SCD_FLOW_REPORTS_ROOT=str(reports),
+                               SCD_RESOURCES=str(ROOT / 'configs/resources-slai-flow.json'))
+            result = subprocess.run(['bash', str(ROOT / 'launchers/flow/probe_zimage_b4_h100.sh'),
+                '--tag', 'zimage', '--config-only', '--report-root', str(root / 'reports'),
+                '--runs-root', str(root / 'runs')], cwd=ROOT, env=environment,
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = json.loads((root / 'reports/zimage/config.json').read_text())
+            formal = build_config('zimage', 'dpo', world=2, profile='h100',
+                                  recipe='paper-v2', batch_size=4,
+                                  resources=environment['SCD_RESOURCES'])
+            self.assertEqual(config['model']['family'], 'zimage')
+            self.assertEqual(config['model']['transformer_dtype'], 'float32')
+            self.assertEqual(config['model']['revision'], 'fixture-zimage')
+            self.assertTrue(config['model']['path'].endswith('/Z-Image'))
+            training = config['training']
+            for key in ('dtype', 'resolution', 'reference_mode', 'gradient_checkpointing',
+                        'offload_frozen', 'vae_batch_size', 'learning_rate', 'beta'):
+                self.assertEqual(training[key], formal['training'][key], key)
+            self.assertEqual(training['dtype'], 'bfloat16')
+            self.assertFalse(training['offload_frozen'])
+            self.assertEqual(training['batch_size'], 4)
+            self.assertEqual(training['world_size'], 1)
+            self.assertEqual(training['noise_views'], 1)
+            self.assertEqual(training['gradient_accumulation_steps'], 1)
+            self.assertEqual(training['comparison_budget']['per_update'], 4)
+            self.assertEqual(training['max_steps'], 20)
+            self.assertEqual(training['checkpoint_every'], 20)
+            self.assertFalse(config['evaluation']['enabled'])
+            self.assertFalse((root / 'runs').exists())
+
     def test_oom_preserves_traceback_memory_and_plain_text_result(self):
         # The config is real; only CUDA and the final trainer are fixtures.
         with tempfile.TemporaryDirectory() as temporary:

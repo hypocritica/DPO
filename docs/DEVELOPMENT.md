@@ -1,6 +1,8 @@
 2026-11-08验证：连续训练/独立评估与B4探针共30项CPU回归通过；同步修正旧storage兼容测试中遗漏的base_model/zimage_compat身份fixture。未执行完整模型GPU训练或评估。
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 按用户确认新增ZImage单H100 B4探针probe_zimage_b4_h100.sh/probe_zimage_b4.py，复用原SD35探针的配置/生产trainer/报告流程，保持原SD35入口默认不变。ZImage默认20步、B4/累积1/K1/1024，FP32 transformer+BF16 autocast、关闭offload、VAE chunk1与正式双H100一致；保留既有验证报告、独立tag/输出及OOM报告，只有最终保存、不自动启动正式实验。CPU检查覆盖实际新shell入口、正式精度/放置一致性及原B2/B4/OOM行为；未在H100实际加载或提交任务。
+
 2026-11-08 用户要求正式训练默认连续、另一GPU独立评估且不影响排队任务：在独立flow-wandb checkout的feat/flow-detached-eval-20261108实现paper-v2默认evaluation.enabled=false但保留面板/采样/八点LoRA保存，输出名增加trainonly；inline-evaluation显式恢复旧流程。新evaluate_flow.py/evaluate.sh按原子发布的永久step目录评估/等待，校验run及资产身份，复用基座pipeline和PickScore、切换小PEFT adapter，独立事务/曲线/W&B身份，保留渲染与评分恢复语义；不依赖滚动latest、不锁训练进程。render/metrics仅增加内部可注入入口，普通CLI默认行为保持。真实tiny PEFT与CPU生产保存/渲染评分事务检查通过，SLAI完整GPU评估未验证。检查时65803–65806均PENDING且引用原stagewise目录，其280份源码/冻结配置指纹在开发期间保持一致，未提交/取消/修改作业。另按用户B2截图确认B2常驻6步passed，给原探针增加可选batch-size4；不修改正式batch默认。部署与限制见FLOW_DETACHED_EVAL.md。
 
 2026-11-08 按用户要求新增单5090 SD3.5 B2常驻短测：probe_sd35_b2_5090.sh自动激活环境，probe_sd35_b2.py使用生产trainer、单GPU/B2/累积1/1024/BF16/offload=false/VAE chunk1/梯度检查点，加载一次并完成6次AdamW更新，仅最终保存，独立tag与配置/输出。报告allocated/reserved峰值、设备容量、总耗时与去掉前2步的速度；OOM保留traceback和报告并非零退出，纯文本PROBE数值避免平台导出丢字段。2项CPU检查覆盖真实shell配置、拒绝覆盖及OOM报告路径（CUDA为fixture），未在5090验证。沿用feat/flow-benchmark-slai-20261108发布；不修改训练算法源码或既有实验。

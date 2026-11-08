@@ -1,3 +1,18 @@
+## 2026-11-08 ZImage 单H100 B4显存/吞吐探针
+
+分支 `feat/flow-detached-eval-20261108`。在新目录更新源码后，在已分配的H100任务内运行：
+
+```bash
+bash launchers/flow/probe_zimage_b4_h100.sh
+# 通过后，双H100正式DPO K1；梯度累积自动为16，保持128 pair-views/update。
+bash launchers/zimage/01_dpo_k1.sh --batch-size 4 --run-tag h100-b4-trainonly-v1
+```
+
+探针单次加载、20步真实生产训练，B4/累积1/K1/1024/FP32 transformer/BF16 autocast/关闭offload/VAE chunk1/梯度检查点。
+使用既有 `flow-debug-v1/prepared/pairs.jsonl` 和 `reports/slai/zimage-model-validation.json`，不下载/重验模型；可用--pairs/--model-report覆盖。
+结果见 `logs/zimage-b4-probe/TAG/summary.json` 与纯文本PROBE行；去掉前2步汇总速度，显存峰值包含加载和最终保存。
+仅最终保存，不自动接续正式训练；每次调用仍需一次加载。单卡结果不覆盖DDP通信或MVPO多视图峰值，正式多卡需保留显存余量。
+
 # 正式训练默认连续执行，评估另用GPU（2026-11-08）
 
 发布分支feat/flow-detached-eval-20261108。新paper-v2默认evaluation.enabled=false，

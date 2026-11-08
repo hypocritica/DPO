@@ -111,3 +111,26 @@ bash launchers/flow/probe_sd35_b2_5090.sh --batch-size 4
 CPU验证覆盖真实编号入口的连续/inline配置、一次worker启动、生产训练的多次保存只构造一次backend、
 真实tiny PEFT切换两份LoRA及基座复现、原渲染/评分事务在单进程执行和重复跳过、检查点篡改拒绝。
 未在SLAI实际GPU验证新的独立评估入口；不把CPU fixture结果宣称为完整模型生成通过。
+
+## ZImage H100 B4单卡探针
+
+在新源码目录、已分配的H100任务里执行：
+
+```bash
+bash launchers/flow/probe_zimage_b4_h100.sh
+```
+
+默认20步，单卡B4/累积1/DPO K1/1024；沿用正式ZImage的FP32 transformer权重、BF16 autocast、关闭offload、VAE chunk1与梯度检查点，不以降低权重精度换取显存。
+复用原debug偏好数据与zimage-model-validation.json；可用--pairs/--model-report覆盖，不重新运行模型验证。
+启动只构造一次模型，20步连续更新、最后保存；速度丢弃前2步，报告allocated/reserved峰值、设备容量及包含加载/保存的总耗时。
+默认日志logs/zimage-b4-probe/TAG/summary.json、训练输出zimage-b4-resident-1gpu-TAG，OOM保留报告并非零退出。
+可用--steps 6缩短更新数；每次单独调用仍需加载一次模型。实际H100是否能容纳B4须由本探针验证。
+
+检查PROBE RESULT=passed、显存余量和稳定吞吐后，双H100正式DPO入口为：
+
+```bash
+bash launchers/zimage/01_dpo_k1.sh --batch-size 4 --run-tag h100-b4-trainonly-v1
+```
+
+正式配置自动使用累积16，保持2×4×16=128 pair-views/update。单卡探针不包含DDP通信显存，多视图算法还需分别验证自己的峰值。
+探针不会自动启动或复用为正式实验；正式入口独立加载一次，之后连续训练保存不重启。
