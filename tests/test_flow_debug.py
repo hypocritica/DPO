@@ -151,6 +151,40 @@ with patch('check_flow_environment.check_environment',return_value={{}}), \
                 label=actual[actual.index('--run-label')+1]
                 self.assertEqual(label,f'{family}-dpo-'+('5090' if family=='sd35_medium' else 'h100')+'-predata-debug')
 
+    def test_microbatch_probes_match_budget_without_changing_default_smoke(self):
+        for k in (1, 2, 4):
+            algorithm = 'dpo' if k == 1 else 'mvpo'
+            settings = dict(world=2, views=k if algorithm == 'mvpo' else 2, smoke=True, smoke_steps=20)
+            a = build_config('zimage', algorithm, **settings, smoke_batch_size=1, smoke_accumulation_steps=2)
+            b = build_config('zimage', algorithm, **settings, smoke_batch_size=2, smoke_accumulation_steps=1)
+            for c in (a, b):
+                self.assertEqual(c['training']['comparison_budget']['per_update'], 4*k)
+                self.assertEqual(c['training']['max_steps'], 20)
+                self.assertEqual(c['model']['transformer_dtype'], 'float32')
+            self.assertEqual(a['training']['batch_size'], 1)
+            self.assertEqual(b['training']['batch_size'], 2)
+        for options in ({'smoke_batch_size':2}, {'smoke':True,'smoke_batch_size':0},
+                        {'smoke':True,'smoke_accumulation_steps':0}):
+            with self.assertRaises(ValueError):build_config('zimage','dpo',**options)
+
+    def test_numbered_launcher_batch_two_preserves_formal_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {**os.environ, 'SCD_FLOW_PYTHON':sys.executable,
+                   'SCD_RESOURCES':str(ROOT/'configs/resources-slai-flow.json')}
+            for script, k in (('01_dpo_k1.sh',1),('07_stagewise_mvpo_k2_views128.sh',2),
+                              ('08_stagewise_mvpo_k4_views128.sh',4)):
+                command=['bash',str(ROOT/'launchers/zimage'/script),'--batch-size','2',
+                         '--config-only','--config-dir',str(root/script),'--runs-root',str(root/'runs')]
+                result=subprocess.run(command,env=env,capture_output=True,text=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                path=next((root/script).glob('*.json'))
+                t=json.loads(path.read_text())['training']
+                self.assertEqual(t['batch_size'],2)
+                self.assertEqual(t['gradient_accumulation_steps'],32//k)
+                self.assertEqual(t['comparison_budget']['per_update'],128)
+                self.assertIn('-b2-',path.name)
+
     def test_real_debug_shell_config_only_profiles_logging_and_pause(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

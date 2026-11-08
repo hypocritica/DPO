@@ -1,3 +1,29 @@
+# SLAI加载诊断与microbatch试验（2026-11-08）
+
+已提供连续入口（发布分支feat/flow-benchmark-slai-20261108）：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-paper-v2
+git -c safe.directory="$PWD" fetch origin feat/flow-benchmark-slai-20261108
+git -c safe.directory="$PWD" switch --detach FETCH_HEAD
+# 每条命令放在对应SLAI已分配双GPU任务内；两边同卡型，先结束当前训练再更新代码。
+bash launchers/flow/benchmark.sh --tag cpu8-ram128-v1
+# 另一个16vCPU/256GiB双卡任务运行：
+bash launchers/flow/benchmark.sh --tag cpu16-ram256-v1
+```
+
+每项依次做2次组件加载、K1 B1A2/B2A1和K4 C B1A2/B2A1各20步，CPU线程固定4/rank。
+OOM等子进程失败保留日志并继续，取消则立即停止；同命令重跑跳过成功项，失败项创建新attempt。
+也可用--part load/k1/k4分3次提交。汇总见logs/flow-benchmarks/<tag>/summary.md与summary.json；
+CPU/RAM同时变化不能单独归因CPU，first/repeat不保证冷/热缓存，正式128预算性能仍需后续测量。
+
+双80GB/8vCPU/128GiB任务的独立组件计时、只读CPU/RAM/I/O元数据与B1/B2同预算探针见
+[FLOW_STARTUP_PROFILE.md](docs/FLOW_STARTUP_PROFILE.md)。加载诊断只需复制新增的
+scripts/profile_flow_startup.py到旧checkout；它不修改训练源码或已有实验。
+microbatch新入口需要同步scripts/run_flow.py、launchers/flow/debug_train.sh和paper_experiment.sh；
+默认B1与旧25→50冻结配置保持，正式编号入口可显式--batch-size 2并自动减半累积。
+所有GPU检查在SLAI已分配容器运行；本地只完成CPU检查，不代表B2性能已测或加载原因已确认。
+
 # ZImage FP32/BF16 padding修复（2026-11-08）
 
 远程失败进程退出后，在SLAI checkout执行`git pull --ff-only origin feat/flow-stagewise-slai-20261107`获取修复。重新运行原入口时使用新的`--run-tag padding-fix-20261108-v1`，避免复用修复前的preflight缓存与训练身份；旧产物保留。

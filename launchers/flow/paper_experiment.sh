@@ -20,6 +20,7 @@ profile=5090
 [[ "$family" == zimage ]] && profile=h100
 run_tag=flow-paper-v2
 weight_dtype=
+batch_size=1
 forward=()
 usage() {
   cat <<EOF
@@ -30,6 +31,8 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
                             SD3.5 defaults 5090; ZImage defaults H100
   --weight-dtype DTYPE      Explicit model weight precision; ZImage defaults float32.
                             ZImage on 5090 requires --weight-dtype bfloat16.
+  --batch-size N           Pairs per GPU (default 1); accumulation preserves the recipe budget.
+                            Benchmark first and use a new run tag.
   --run-tag TAG             Experiment version (default: flow-paper-v2).
                             Reuse the same tag to resume automatically.
   --execution MODE          standalone (default) or slurm; resources already allocated
@@ -49,25 +52,27 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
   --wandb-mode MODE         offline (default), online, or disabled
   --help                    Show this help
 
-Other run_flow.py runtime options are forwarded. Recipe identity (family,
-algorithm, K, budget, batch, world size and stage settings) cannot be overridden.
+Other run_flow.py runtime options are forwarded. Family, algorithm, K, total
+budget, world size and stage settings remain fixed by the numbered recipe.
 EOF
 }
 while (( $# )); do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --profile|--run-tag|--weight-dtype)
+    --profile|--run-tag|--weight-dtype|--batch-size)
       (( $# >= 2 )) || { echo "Missing value for $1" >&2; exit 2; }
       case "$1" in
         --profile) profile=$2 ;;
         --run-tag) run_tag=$2 ;;
         --weight-dtype) weight_dtype=$2 ;;
+        --batch-size) batch_size=$2 ;;
       esac
       shift 2 ;;
     --profile=*) profile=${1#*=}; shift ;;
     --run-tag=*) run_tag=${1#*=}; shift ;;
     --weight-dtype=*) weight_dtype=${1#*=}; shift ;;
-    --family|--family=*|--algorithm|--algorithm=*|--views|--views=*|--budget|--budget=*|--budget-unit|--budget-unit=*|--world-size|--world-size=*|--batch-size|--batch-size=*|--recipe|--recipe=*|--stagewise|--stage-boundary|--stage-boundary=*|--smoke|--aggregator|--aggregator=*|--aggregation|--aggregation=*)
+    --batch-size=*) batch_size=${1#*=}; shift ;;
+    --family|--family=*|--algorithm|--algorithm=*|--views|--views=*|--budget|--budget=*|--budget-unit|--budget-unit=*|--world-size|--world-size=*|--recipe|--recipe=*|--stagewise|--stage-boundary|--stage-boundary=*|--smoke|--aggregator|--aggregator=*|--aggregation|--aggregation=*)
       echo "Recipe identity cannot be overridden: $1" >&2; exit 2 ;;
     *) forward+=("$1"); shift ;;
   esac
@@ -85,7 +90,7 @@ FLOW_LAUNCHERS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$FLOW_LAUNCHERS/slai_common.sh"
 flow_slai_environment "${forward[@]}"
 args=(--family "$family" --algorithm "$algorithm" --recipe paper-v2
-      --profile "$profile" --world-size "$world" --batch-size 1
+      --profile "$profile" --world-size "$world" --batch-size "$batch_size"
       --budget-unit "$budget_unit" --budget 128 --run-tag "$run_tag"
       --execution standalone --run-label "$family-$algorithm-k$views-$budget_unit-$profile-$run_tag"
       --model-report "$SCD_FLOW_REPORTS_ROOT/$family-model-validation.json")

@@ -1,5 +1,9 @@
 # Self Correct DPO 开发与实验约定
 
+2026-11-08 按用户要求增加SLAI连续任务benchmark.sh/benchmark_flow.py：自动生成独立配置，双rank加载两次，再测K1/K4 C的B1A2/B2A1各20步，线程固定4/rank；支持--part拆分、成功跳过、失败新attempt、子进程失败继续和取消停止。按生产日志汇总后10步速度、pair-view吞吐及两个rank allocated峰值，加载分项/RSS/容器配额保留原始JSONL。CPU检查覆盖真实shell配置生成、失败隔离和取消/只读预览；整合远程修复后20项相关检查通过（含preflight回归）；本地未操作SLAI GPU。发布分支feat/flow-benchmark-slai-20261108，资源对照为双卡8CPU/128GiB与16CPU/256GiB；缓存、卡型及CPU/RAM共同变化的归因限制见FLOW_STARTUP_PROFILE.md。同步远程最新Z-Image padding修复后再发布，不更改本地正在运行的stagewise checkout。
+
+2026-11-08 SLAI双80GB/8vCPU/128GiB启动诊断：新增独立profile_flow_startup.py，默认只读模型header与容器配额；显式--load调用原PreferenceBackend并临时计时组件加载、GPU搬运、DDP，支持逐rank加载/CPU线程对照。单进程可选每分片至多64MiB只读探针，与加载测量互斥以避免预热干扰。逐rank新JSONL拒绝覆盖，不修改生产源码或checkpoint。debug新增可选smoke microbatch/累积，默认1/1和旧输出名保持；编号正式入口放行显式batch-size并自动保持原pair-view预算。11项相关CPU测试通过（debug、stagewise、计时工具），覆盖B1A2/B2A1等预算、正式K1/K2/K4累积32/16/8、加载包装失败后恢复与报告不覆盖；Bash/Python语法和diff检查通过。本地真实Z-Image header确认2 transformer分片11.46GiB、3 encoder分片7.49GiB，均BF16磁盘权重；未加载完整GPU模型、未操作SLAI或提交Slurm，根因与B2收益待远程测量。命令见FLOW_STARTUP_PROFILE.md。
+
 2026-11-08 发布前复核：13项preflight/receipt/真实tiny ZImage CPU检查在本地排队目录及远程分支7154f69的独立发布checkout均通过，更新monitor preflight测试fixture以包含zimage_compat.py源码身份。四个本地待运行配置及实际环境锁、模型/数据凭据绑定通过。65803/65804的两份修复前隐藏preflight.pkl在取得launcher/preflight文件锁并确认作业仍PENDING、无训练输出后改名保留；启动时重建缓存，65805/65806本来没有缓存。未取消、重提或修改Slurm作业；完整GPU训练未验证。SLAI更新后使用新run-tag，避免复用旧缓存和身份。
 
 2026-11-08 ZImage混合精度padding修复：保留FP32 transformer/LoRA、BF16 autocast与FP32 loss，在实例上回移Diffusers v0.40.0的torch.where padding；保留0.37.1其余sequence/mask语义，训练和评估加载共同应用，>=0.40.0保留原生方法。新增zimage_compat.py纳入训练、监控、评估/生成源码身份，不添加旧checkpoint恢复白名单。实际本地Flow环境Python3.10.19/torch2.6.0/diffusers0.37.1/peft0.17.1/transformers4.57.1下，3项真实tiny ZImage CPU回归通过（原版错误复现、三种权重/激活精度、reference/policy/EMA及梯度检查点反向、padding值/梯度/掩码与FP32一致性）；4项既有Flow回归和1项暂停/恢复测试通过。7份变更Python文件AST与git diff --check通过。未更新依赖、申请/取消作业或同步SLAI容器；完整GPU训练仍未验证。精度说明见FLOW.md，CPU验证命令见command.md。

@@ -17,6 +17,7 @@ if [[ ${1:-} == --help || ${1:-} == -h ]]; then
   echo 'Defaults: 50 steps, B1, accumulation1, 1024px, no generation/scoring, offline W&B; separate smoke output.'
   echo 'ZImage defaults 2xH100; SD3.5 defaults 4x5090. Use --stop-after-step 25 then omit it to verify resume.'
   echo 'Data: FLOW_DEBUG_PAIRS; length: FLOW_DEBUG_STEPS; identity: --run-tag (default predata-v1).'
+  echo 'Optional throughput probes: --smoke-batch-size N --smoke-accumulation-steps N; use distinct run tags.'
   exit 0
 fi
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"

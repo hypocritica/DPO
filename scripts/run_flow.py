@@ -17,9 +17,14 @@ from run_sdxl_h100 import prepare_output
 
 def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budget=128,
                  profile='h100', beta=None, steps=3200, stagewise=False, boundary=500,
-                 resources=None, smoke=False, recipe=None, batch_size=None, weight_dtype=None, aggregation='C', smoke_steps=2):
+                 resources=None, smoke=False, recipe=None, batch_size=None, weight_dtype=None, aggregation='C', smoke_steps=2,
+                 smoke_batch_size=1, smoke_accumulation_steps=1):
     if type(smoke_steps) is not int or not 1 <= smoke_steps <= 200:
         raise ValueError('smoke-steps must be an integer in 1..200')
+    if any(type(v) is not int or v < 1 for v in (smoke_batch_size, smoke_accumulation_steps)):
+        raise ValueError('smoke batch-size and accumulation must be positive integers')
+    if not smoke and (smoke_batch_size != 1 or smoke_accumulation_steps != 1):
+        raise ValueError('smoke batch-size/accumulation require --smoke')
     if not smoke and smoke_steps != 2:
         raise ValueError('smoke-steps requires --smoke')
     if recipe not in (None, 'paper-pilot', 'paper-v2'): raise ValueError('Unknown flow recipe')
@@ -89,9 +94,10 @@ def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budge
         t['stagewise'] = {'boundary':boundary,'objective':'dpo','target_margin':1.,'huber_delta':1.,'huber_weight':1.}
     if smoke:
         # Deliberately small compute smoke, separate config/run identity.
-        t.update(max_steps=smoke_steps, warmup_steps=0, batch_size=1, gradient_accumulation_steps=1,
+        t.update(max_steps=smoke_steps, warmup_steps=0, batch_size=smoke_batch_size,
+                 gradient_accumulation_steps=smoke_accumulation_steps,
                  checkpoint_every=1 if smoke_steps<=2 else 10, logging='jsonl')
-        t['comparison_budget'] = {'unit':'pair_views','per_update':world*k}
+        t['comparison_budget'] = {'unit':'pair_views','per_update':world*k*smoke_batch_size*smoke_accumulation_steps}
         c['evaluation'] = {'enabled':False}
     if algorithm == 'sft':
         points = sorted({p for p in t['lora_checkpoint_steps'] if p <= t['max_steps']} | {t['max_steps']})
@@ -143,6 +149,8 @@ def main():
     p.add_argument('--check-only', action='store_true')
     p.add_argument('--smoke', action='store_true')
     p.add_argument('--smoke-steps', type=int, default=2, help='1..200 updates for --smoke; default 2; debug launcher uses 50')
+    p.add_argument('--smoke-batch-size', type=int, default=1, help='Pairs per GPU for --smoke only; use a new run tag')
+    p.add_argument('--smoke-accumulation-steps', type=int, default=1, help='Accumulation for --smoke only; match B*accumulation in throughput comparisons')
     p.add_argument('--stop-after-step', type=int)
     p.add_argument('--execution', default='slurm', choices=['slurm','standalone'])
     p.add_argument('--run-label')
@@ -159,7 +167,8 @@ def main():
     c = build_config(a.family,a.algorithm,world=a.world_size,views=a.views,budget_unit=a.budget_unit,
         budget=a.budget,profile=a.profile,beta=a.beta,steps=a.steps,stagewise=a.stagewise,
         boundary=a.stage_boundary,resources=a.resources,smoke=a.smoke,recipe=a.recipe,batch_size=a.batch_size,
-        weight_dtype=a.weight_dtype,aggregation=a.aggregation,smoke_steps=a.smoke_steps)
+        weight_dtype=a.weight_dtype,aggregation=a.aggregation,smoke_steps=a.smoke_steps,
+        smoke_batch_size=a.smoke_batch_size,smoke_accumulation_steps=a.smoke_accumulation_steps)
     for option, key in ((a.learning_rate,'learning_rate'),(a.ema_decay,'ema_decay'),(a.linear_eta,'linear_eta')):
         if option is not None: c['training'][key] = option
     if a.seed is not None: c['seed'] = a.seed
@@ -205,6 +214,8 @@ def main():
     name += f'-stage{a.stage_boundary}' if a.stagewise else ''
     if a.smoke:
         name += '-smoke' + (str(a.smoke_steps) if a.smoke_steps != 2 else '')
+        if a.smoke_batch_size != 1 or a.smoke_accumulation_steps != 1:
+            name += f'-pv{c["training"]["comparison_budget"]["per_update"]}-acc{a.smoke_accumulation_steps}'
     name += ('-' + a.recipe if a.recipe else '') + '-' + a.run_tag
     output = (a.runs_root or Path(load_resources(a.resources)['RUNS_ROOT'])).resolve()/name
     frozen = a.config_dir.resolve()/f'local-{name}.json'
