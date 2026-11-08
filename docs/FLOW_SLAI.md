@@ -1,5 +1,7 @@
 # SLAI 部署与运行 Flow paper-v2
 
+2026-11-08：当前默认已更新为每卡B4、resident与连续训练；完整128 pair-views主实验及消融见[FLOW_EXPERIMENT_SUITE.md](FLOW_EXPERIMENT_SUITE.md)。下文旧B1/在线评估说明保留为历史配置记录。
+
 W&B离线记录、中途同步、图片和旧评估面板metadata修复见 [FLOW_WANDB.md](FLOW_WANDB.md)。
 paper-v2现在默认同时记录TensorBoard与W&B offline；已有独立环境需安装 `wandb==0.18.7`，新bootstrap会自动安装。
 

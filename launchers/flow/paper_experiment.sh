@@ -18,9 +18,9 @@ while [[ "${1:-}" == --internal-aggregation || "${1:-}" == --internal-boundary ]
 done
 profile=5090
 [[ "$family" == zimage ]] && profile=h100
-run_tag=flow-paper-v2
+run_tag=flow-b4-v1
 weight_dtype=
-batch_size=1
+batch_size=4
 forward=()
 usage() {
   cat <<EOF
@@ -31,9 +31,10 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
                             SD3.5 defaults 5090; ZImage defaults H100
   --weight-dtype DTYPE      Explicit model weight precision; ZImage defaults float32.
                             ZImage on 5090 requires --weight-dtype bfloat16.
-  --batch-size N           Pairs per GPU (default 1); accumulation preserves the recipe budget.
+  --batch-size N           Pairs per GPU (default 4); accumulation preserves the recipe budget.
                             Benchmark first and use a new run tag.
-  --run-tag TAG             Experiment version (default: flow-paper-v2).
+  --frozen-placement MODE  resident (default) or offload; no automatic OOM fallback.
+  --run-tag TAG             Experiment version (default: flow-b4-v1).
                             Reuse the same tag to resume automatically.
   --execution MODE          standalone (default) or slurm; resources already allocated
   --resources FILE          Resource-path configuration
@@ -95,6 +96,7 @@ args=(--family "$family" --algorithm "$algorithm" --recipe paper-v2
       --profile "$profile" --world-size "$world" --batch-size "$batch_size"
       --budget-unit "$budget_unit" --budget 128 --run-tag "$run_tag"
       --execution standalone --run-label "$family-$algorithm-k$views-$budget_unit-$profile-$run_tag"
+      --frozen-placement resident
       --model-report "$SCD_FLOW_REPORTS_ROOT/$family-model-validation.json")
 # Non-MVPO algorithms infer K1; their CLI --views default remains 2.
 [[ "$algorithm" == mvpo ]] && args+=(--views "$views" --aggregation "$aggregation")

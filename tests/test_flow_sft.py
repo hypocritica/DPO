@@ -134,8 +134,9 @@ class FlowSFTTests(unittest.TestCase):
             self.assertEqual(info['sampled_pair_rows_per_update'],1)
             self.assertEqual(info['effective_batch_size_pairs'],0)
             self.assertEqual(info['effective_batch_size_pair_views'],0)
-            log=list((root/'split').glob('metrics-*.jsonl'))[-1]
-            record=json.loads(log.read_text().splitlines()[-1])
+            records=[json.loads(line) for log in (root/'split').glob('metrics-*.jsonl')
+                     for line in log.read_text().splitlines() if line.strip()]
+            record=max(records,key=lambda row:row['step'])
             self.assertEqual(record['winner_images_seen'],2)
             self.assertEqual(record['pair_views_seen'],0)
             self.assertGreater(record['winner_images_per_second'],0)

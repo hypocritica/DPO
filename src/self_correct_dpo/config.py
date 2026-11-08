@@ -66,7 +66,7 @@ def add_training_arguments(parser):
     parser.add_argument('--objective', choices=['dpo', 'linear_dpo', 'sft', 'kto', 'mapo', 'dmpo', 'dspo'])
     parser.add_argument('--resources', help='Resource registry; default configs/resources.json')
     parser.add_argument('--method', choices=['dpo', 'multiview-B', 'multiview-C',
-                                           'multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian'])
+                                           'multiview-B-gaussian', 'multiview-C-gaussian', 'stagewise-C-gaussian', 'stagewise-B-gaussian'])
     parser.add_argument('--pretrained_model_name_or_path', '--model', dest='model_path')
     parser.add_argument('--model-revision')
     parser.add_argument('--data_path', '--pairs', dest='pairs')

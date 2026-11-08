@@ -1,3 +1,32 @@
+## 2026-11-08 Flow全套训练/消融：每卡B4，固定128 pair-views
+
+分支 `feat/flow-detached-eval-20261108`。这是当前推荐默认，后文旧B1/pairs说明作为历史记录保留。
+SD3.5默认4×5090，ZImage默认2×H100；普通DPO也是每卡B4，梯度累积分别8/16。
+MVPO K2累积4/8，K4累积2/4，K8累积1/2；所有主实验128 pair-views/update，不是128 pairs。
+全部编号入口默认resident/关闭offload；可覆盖batch/profile/placement并使用新tag，预算自动保持。
+
+```bash
+# 在已分配的对应GPU任务内，按DPO→Stage K2→Stage K4→LinearDPO连续执行：
+bash launchers/zimage/run_suite.sh main
+bash launchers/sd35/run_suite.sh main
+# 单项入口仍可直接运行，例如：
+bash launchers/zimage/01_dpo_k1.sh
+bash launchers/zimage/07_stagewise_mvpo_k2_views128.sh
+# 只读列出已写好的61个配方（不启动训练）：
+bash launchers/zimage/run_suite.sh all --list
+# 消融按需单独运行：
+bash launchers/zimage/run_suite.sh aggregation
+bash launchers/zimage/run_suite.sh views
+bash launchers/zimage/run_suite.sh boundary
+bash launchers/zimage/run_suite.sh beta
+bash launchers/zimage/run_suite.sh seeds
+```
+
+主实验、聚合×采样2×2、K1/2/4/8、boundary250/500/750、共同beta网格、训练seed、可选固定pairs补充均已写好。
+详见[docs/FLOW_EXPERIMENT_SUITE.md](docs/FLOW_EXPERIMENT_SUITE.md)。每项独立基座/优化器/RNG，启动加载一次；checkpoint保存不重载，评估另GPU。
+默认tag `flow-b4-v1`，同配方编号入口与suite共用输出；重跑跳过完成/恢复未完成，失败或暂停即停止序列。
+单卡K1探针不能保证多卡或K>1显存；不自动OOM降配。未操作本地排队作业或SLAI GPU。
+
 ## 2026-11-08 ZImage 单H100 B4显存/吞吐探针
 
 分支 `feat/flow-detached-eval-20261108`。在新目录更新源码后，在已分配的H100任务内运行：

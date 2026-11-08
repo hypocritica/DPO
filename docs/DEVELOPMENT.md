@@ -1,6 +1,10 @@
 2026-11-08验证：连续训练/独立评估与B4探针共30项CPU回归通过；同步修正旧storage兼容测试中遗漏的base_model/zimage_compat身份fixture。未执行完整模型GPU训练或评估。
 # Self Correct DPO 开发与实验约定
 
+本轮验证覆盖50项CPU检查；默认tag调整为flow-b4-v1以避免inline名称误带trainonly，并修正旧SFT测试按NFS glob顺序挑日志的假设；受影响13项最终重测全部通过，其余37项此前通过。两模型61配方均经真实shell参数与配置构造验证，全部Bash/Python语法、diff检查及原排队目录280文件指纹检查通过。
+
+2026-11-08 按用户最终更正统一为B4/128 pair-views（不是pairs）。所有Flow编号入口默认B4与resident，保持SD3.5四5090/ZImage双H100；新增两模型suite与缺失编号入口，共61个唯一配方/模型，覆盖main四组、Global/Stage×B/C、K2/4/8、边界、共同beta/seed网格与可选pairs补充。各独立实验复用原冻结/恢复/完成跳过，失败/暂停即停，list/plan只读；编号与suite默认tag一致。为完整2×2增加仅Flow DPO可用的stagewise-B-gaussian，保留同Stage C采样，仅修改聚合位置；默认C及diffusion目标不变。新增全部case的真实shell参数/实际配置CPU校验、预算与输出唯一性、B损失/梯度及tiny PEFT保存恢复检查。核心训练来源变化要求新实验保留新checkout；既有排队stagewise源码/配置不修改。完整GPU显存/效果未验证。详见FLOW_EXPERIMENT_SUITE.md。
+
 2026-11-08 按用户确认新增ZImage单H100 B4探针probe_zimage_b4_h100.sh/probe_zimage_b4.py，复用原SD35探针的配置/生产trainer/报告流程，保持原SD35入口默认不变。ZImage默认20步、B4/累积1/K1/1024，FP32 transformer+BF16 autocast、关闭offload、VAE chunk1与正式双H100一致；保留既有验证报告、独立tag/输出及OOM报告，只有最终保存、不自动启动正式实验。CPU检查覆盖实际新shell入口、正式精度/放置一致性及原B2/B4/OOM行为；未在H100实际加载或提交任务。
 
 2026-11-08 用户要求正式训练默认连续、另一GPU独立评估且不影响排队任务：在独立flow-wandb checkout的feat/flow-detached-eval-20261108实现paper-v2默认evaluation.enabled=false但保留面板/采样/八点LoRA保存，输出名增加trainonly；inline-evaluation显式恢复旧流程。新evaluate_flow.py/evaluate.sh按原子发布的永久step目录评估/等待，校验run及资产身份，复用基座pipeline和PickScore、切换小PEFT adapter，独立事务/曲线/W&B身份，保留渲染与评分恢复语义；不依赖滚动latest、不锁训练进程。render/metrics仅增加内部可注入入口，普通CLI默认行为保持。真实tiny PEFT与CPU生产保存/渲染评分事务检查通过，SLAI完整GPU评估未验证。检查时65803–65806均PENDING且引用原stagewise目录，其280份源码/冻结配置指纹在开发期间保持一致，未提交/取消/修改作业。另按用户B2截图确认B2常驻6步passed，给原探针增加可选batch-size4；不修改正式batch默认。部署与限制见FLOW_DETACHED_EVAL.md。

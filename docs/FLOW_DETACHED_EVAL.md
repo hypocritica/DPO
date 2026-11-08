@@ -37,8 +37,9 @@ bash launchers/zimage/01_dpo_k1.sh --run-tag flow-trainonly-v1
 
 新输出名自动增加-trainonly，避免与旧inline评估实验同名；原冻结配置继续拒绝不一致覆盖。
 两模型、DPO/MVPO B/C/Stagewise/LinearDPO/SFT的编号入口都通过paper-v2配置继承此默认。
-训练预算、精度、batch、seed、优化器、W&B/TensorBoard训练日志保持原配方。
---batch-size可在完成显存/吞吐测量后自行选择，不因本次评估解耦自动改变。
+训练精度、seed、优化器、W&B/TensorBoard训练日志保持原配方。
+后续全套实验更新已将编号入口默认改为每卡B4、resident，主实验固定128 pair-views；详见FLOW_EXPERIMENT_SUITE.md。
+--batch-size可在完成显存/吞吐测量后覆盖，累积自动维持对应入口的预算。
 
 保存仍为：
 

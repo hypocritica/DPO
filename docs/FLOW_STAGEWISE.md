@@ -1,5 +1,7 @@
 # Flow stagewise 实验（paper-v2）
 
+2026-11-08：当前默认已更新为每卡B4、resident与连续训练；完整128 pair-views主实验及消融见[FLOW_EXPERIMENT_SUITE.md](FLOW_EXPERIMENT_SUITE.md)。下文旧B1/在线评估说明保留为历史配置记录。
+
 本轮使用独立 `self_correct_dpo-flow-stagewise` checkout。旧 flow 目录的 HPDv3 准备和已提交训练继续使用原源码；本轮不修改或提交这些作业。旧 `paper-pilot` 入口保留，新增论文比较使用 `paper-v2` 和独立输出名。
 
 Stagewise 保持现有全局采样的单视图边际：先为每对抽取 schedule index 段，概率为 `boundary/1000` 与 `1-boundary/1000`，再让同一对的全部 K 个视图在该段独立抽 index 和高斯噪声。winner/loser 共享同视图的 index/noise，K 个 margin 先平均后计算一次 DPO 损失。默认 boundary=500，阶段概率各 50%；250/750 边界消融自动使用 25%/75% 或 75%/25%，不会将新边界仍强制各抽一半。

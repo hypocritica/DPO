@@ -1,0 +1,17 @@
+{
+  "extends": ["defaults.json", "models/zimage.json"],
+  "method": "stagewise-B-gaussian",
+  "training": {
+    "objective": "dpo",
+    "formal_arm": "B",
+    "noise_views": 2,
+    "batch_views": false,
+    "stagewise": {
+      "boundary": 500,
+      "objective": "dpo",
+      "target_margin": 1.0,
+      "huber_delta": 1.0,
+      "huber_weight": 1.0
+    }
+  }
+}

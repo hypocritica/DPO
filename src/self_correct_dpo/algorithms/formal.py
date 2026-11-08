@@ -43,9 +43,16 @@ def stagewise_terms(mean, low_stage, settings):
     return torch.where(use_huber, huber, dpo), torch.where(use_huber, huber_coefficient, dpo_coefficient)
 
 
-def stagewise_loss(logits, low_stage, settings):
+def stagewise_loss(logits, low_stage, settings, arm='C'):
     mean = logits.mean(1)
-    per_pair, coefficient = stagewise_terms(mean, low_stage, settings)
+    if arm == 'C':
+        per_pair, coefficient = stagewise_terms(mean, low_stage, settings)
+    elif arm == 'B' and settings['objective'] == 'dpo':
+        # LossAvg uses exactly the same stage/time/noise sampling as C.
+        per_pair = F.softplus(-logits).mean(1)
+        coefficient = -torch.sigmoid(-logits).mean(1)
+    else:
+        raise ValueError('Stagewise LossAvg supports DPO only')
     # All bucket sums divide by the full pair count. Fractions retain the
     # denominator needed to interpret them after microbatch/rank averaging.
     metrics = {'stage_low_fraction': low_stage.float().mean(),
@@ -55,14 +62,16 @@ def stagewise_loss(logits, low_stage, settings):
             metrics[f'stage_{label}_{name}_weighted'] = (value.detach() * mask).mean()
     return per_pair.mean(), metrics
 
-def stagewise_metrics(logits, prepared, settings):
+def stagewise_metrics(logits, prepared, settings, arm='C'):
     """Use physical noise labels on descending flow schedules.
 
     low_stage remains the historical index<boundary mask for RNG/checkpoint
     compatibility. Flow losses support DPO only, so relabelling diagnostics has
     no effect on their numerical objective.
     """
-    loss, metrics = stagewise_loss(logits, prepared['low_stage'], settings)
+    if arm == 'B' and prepared.get('stage_axis') != 'descending_flow_schedule_index':
+        raise ValueError('Stagewise LossAvg is a Flow-only ablation')
+    loss, metrics = stagewise_loss(logits, prepared['low_stage'], settings, arm)
     if prepared.get('stage_axis') == 'descending_flow_schedule_index':
         labels = {}
         for name, value in metrics.items():
@@ -80,9 +89,7 @@ def formal_loss(values, arm, beta, stagewise=None):
     mean = logits.mean(1)
     stage_metrics = {}
     if stagewise is not None:
-        if arm != 'C':
-            raise ValueError('stagewise requires formal_arm=C')
-        loss, stage_metrics = stagewise_metrics(logits, values['prepared'], stagewise)
+        loss, stage_metrics = stagewise_metrics(logits, values['prepared'], stagewise, arm)
     elif arm == 'B':
         loss = F.softplus(-logits).mean()
     elif arm == 'C':

@@ -40,8 +40,6 @@ def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budge
         raise ValueError('weight_dtype must be float32 or bfloat16')
     if aggregation not in ('B', 'C') or (algorithm != 'mvpo' and aggregation != 'C'):
         raise ValueError('B aggregation applies to MVPO only')
-    if stagewise and aggregation != 'C':
-        raise ValueError('Stagewise requires C aggregation')
     if family == 'sd35_medium' and profile not in ('h100', 'a800', '5090'):
         raise ValueError('Unknown SD35 GPU profile')
     if type(views) is not int or views < 1: raise ValueError('views must be a positive integer')
@@ -93,7 +91,7 @@ def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budge
             f'Aggregation={aggregation}; weight_dtype={c["model"].get("transformer_dtype", t["dtype"])}.')
     if beta is not None: t['beta'] = beta
     if stagewise:
-        c['method'] = 'stagewise-C-gaussian'
+        c['method'] = f'stagewise-{aggregation}-gaussian'
         t['stagewise'] = {'boundary':boundary,'objective':'dpo','target_margin':1.,'huber_delta':1.,'huber_weight':1.}
     if smoke:
         # Deliberately small compute smoke, separate config/run identity.
