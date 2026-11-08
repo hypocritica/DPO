@@ -459,7 +459,7 @@ def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_
     return run
 
 
-def main():
+def main(argv=None, *, pipeline_loader=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--prompts", required=True)
@@ -471,7 +471,7 @@ def main():
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--execution", choices=["slurm", "standalone"], default="slurm")
     parser.add_argument("--run-label", help="Required for explicitly authorized standalone GPU execution")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.execution == "standalone" and not args.run_label:
         parser.error("--execution standalone requires --run-label")
     config, full_suite = load_config(args.config), load_suite(args.prompts)
@@ -524,7 +524,7 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("No CUDA device available")
     started = time.time()
-    pipe = load_pipeline(config, args.arm, torch)
+    pipe = (pipeline_loader or load_pipeline)(config, args.arm, torch)
     truncated=check_prompt_lengths(pipe, suite, sampling, model["family"])
     scheduler_config = canonical_scheduler_config(pipe.scheduler.config)
     if run is not None:

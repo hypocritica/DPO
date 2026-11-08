@@ -1,3 +1,16 @@
+# 正式训练默认连续执行，评估另用GPU（2026-11-08）
+
+发布分支feat/flow-detached-eval-20261108。新paper-v2默认evaluation.enabled=false，
+保留完整评估配方和所有LoRA/恢复快照；保存不重启训练，原编号入口不需再加--no-evaluation。
+新输出名包含-trainonly；--inline-evaluation显式恢复旧分段方式。
+独立GPU运行`bash launchers/flow/evaluate.sh --run 实际训练输出目录 --watch --report-to all`，
+基座及PickScore各加载一次，切换永久快照；支持恢复、只读计划、独立结果与W&B身份。
+旧四项排队作业65803–65806继续使用原stagewise checkout，不修改其代码、配置、缓存或作业。
+请按[FLOW_DETACHED_EVAL.md](docs/FLOW_DETACHED_EVAL.md)在新源码目录部署，不覆盖旧目录。
+
+5090 B2常驻已由用户截图实测passed；B4仍需实测，现可用
+`bash launchers/flow/probe_sd35_b2_5090.sh --batch-size 4`。正式训练默认batch保持原值。
+
 # 单张5090：SD3.5关闭offload、B2快速实测（2026-11-08）
 
 在SLAI已分配单张5090的任务内运行；先结束当前checkout的训练再更新：

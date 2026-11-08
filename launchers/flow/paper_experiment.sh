@@ -44,6 +44,8 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
   --runs-root DIR           Persistent experiment output root
   --config-dir DIR          Frozen configuration directory
   --stop-after-step N       Pause after an optimizer step
+  --inline-evaluation      Opt into pause/evaluate/reload; default trains continuously.
+                            Use evaluate.sh on another GPU for independent evaluation.
   --report-to all|wandb     paper-v2 defaults all: TensorBoard plus offline W&B
   --wandb-project NAME      Default mvpo-flow; use the same project on both servers
   --wandb-group NAME        Comparison group (default family/dataset/budget/seed)

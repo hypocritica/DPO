@@ -40,6 +40,15 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(training['comparison_budget']['per_update'], 2)
             self.assertFalse(config['evaluation']['enabled'])
             self.assertFalse((root / 'runs').exists())
+            variant = command.copy()
+            variant[variant.index('fixture')] = 'fixture-b4'
+            variant += ['--batch-size', '4']
+            check = subprocess.run(variant, cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            config4 = json.loads((root / 'reports/fixture-b4/config.json').read_text())
+            self.assertEqual(config4['training']['batch_size'], 4)
+            self.assertFalse(config4['training']['offload_frozen'])
+            self.assertEqual(config4['training']['comparison_budget']['per_update'], 4)
             self.assertNotEqual(subprocess.run(command, cwd=ROOT, env=environment, capture_output=True).returncode, 0)
             self.assertEqual(config_file.read_bytes(), original)
 

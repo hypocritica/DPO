@@ -119,7 +119,7 @@ class SourceCompatibility(unittest.TestCase):
     def test_legacy_render_identity_and_pending_records_remain_valid(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            arguments = {'config': {'sampling': 'unchanged'}, 'arm': 'base', 'suite': [],
+            arguments = {'config': {'sampling': 'unchanged', 'base_model': 'fixture-base'}, 'arm': 'base', 'suite': [],
                          'full_suite_id': 'suite', 'shard': {}, 'base_identity': {}, 'model_identity': {},
                          'suite_indices': None}
             run = {**arguments, 'suite_id': digest([]), 'render_sha256': SOURCE_HASHES['render.py']['original'],
@@ -128,7 +128,7 @@ class SourceCompatibility(unittest.TestCase):
             write_json(root / 'run.json', run)
             self.assertEqual(render.validate_resume_run(root, **arguments), run)
             with self.assertRaisesRegex(ValueError, 'config changed'):
-                render.validate_resume_run(root, **{**arguments, 'config': {'sampling': 'changed'}})
+                render.validate_resume_run(root, **{**arguments, 'config': {'sampling': 'changed', 'base_model': 'fixture-base'}})
 
     @patch('self_correct_dpo.evaluation.runner.sha256', historical_fixed_sha256)
     def test_legacy_evaluation_identity_is_kept_without_rewriting_metadata(self):
@@ -138,7 +138,7 @@ class SourceCompatibility(unittest.TestCase):
             model = {'family': 'sd15', 'path': 'same-model'}
             inputs = {'prompts': 1}
             sampling = {'seeds': [17]}
-            names = ('evaluation.py', 'render.py', 'metrics.py', 'scorers.py', 'common.py')
+            names = ('evaluation.py', 'render.py', 'metrics.py', 'scorers.py', 'common.py', 'zimage_compat.py')
             previous = {name: SOURCE_HASHES[name]['original'] if name in SOURCE_HASHES
                         else sha256(source_file(name)) for name in names}
             identity = {'inputs': inputs, 'config': {'model': model, 'sampling': sampling},

@@ -19,11 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'scripts')]
 
 
-def make_config(steps, resources, pairs, model, model_report):
+def make_config(steps, resources, pairs, model, model_report, batch_size=2):
     from run_flow import build_config
     config = build_config('sd35_medium', 'dpo', world=1, profile='5090',
                           resources=resources, smoke=True, smoke_steps=steps,
-                          smoke_batch_size=2, smoke_accumulation_steps=1)
+                          smoke_batch_size=batch_size, smoke_accumulation_steps=1)
     report = json.loads(model_report.read_text())
     if report.get('status') != 'passed':
         raise ValueError('Expected the existing passed SD3.5 model validation report')
@@ -50,6 +50,7 @@ def summarize_updates(run):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--steps', type=int, default=6, help='3..20 optimizer updates; default 6')
+    parser.add_argument('--batch-size', type=int, choices=(2, 4), default=2, help='Pairs per GPU; default B2, optional B4')
     parser.add_argument('--tag', default=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:6])
     parser.add_argument('--resources', default=os.environ.get('SCD_RESOURCES', str(ROOT / 'configs/resources-slai-flow.json')))
     parser.add_argument('--model', type=Path)
@@ -69,16 +70,16 @@ def main():
     resources = load_resources(args.resources)
     model = (args.model or Path(resources['SD35_MODEL'])).expanduser().resolve()
     config = make_config(args.steps, args.resources, args.pairs.expanduser().resolve(),
-                         model, args.model_report.expanduser().resolve())
+                         model, args.model_report.expanduser().resolve(), args.batch_size)
     report_dir = args.report_root.expanduser().resolve() / args.tag
-    run = (args.runs_root or Path(resources['RUNS_ROOT'])).expanduser().resolve() / ('sd35-b2-resident-1gpu-' + args.tag)
+    run = (args.runs_root or Path(resources['RUNS_ROOT'])).expanduser().resolve() / (f'sd35-b{args.batch_size}-resident-1gpu-' + args.tag)
     if run.exists():
         raise FileExistsError(f'Existing run; use a new tag: {run}')
     report_dir.mkdir(parents=True, exist_ok=False)
     config_path = report_dir / 'config.json'
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     print(f'Probe report directory: {report_dir}\nTraining output: {run}', flush=True)
-    print('Settings: one logical GPU 0; SD3.5 DPO K1; 1024px; BF16; B2; accumulation 1; offload OFF; VAE chunk 1.', flush=True)
+    print(f'Settings: one logical GPU 0; SD3.5 DPO K1; 1024px; BF16; B{args.batch_size}; accumulation 1; offload OFF; VAE chunk 1.', flush=True)
     if args.config_only:
         return 0
     from self_correct_dpo.common import require_gpu_allocation

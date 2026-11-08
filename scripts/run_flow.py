@@ -85,6 +85,9 @@ def build_config(family, algorithm, *, world=2, views=2, budget_unit=None, budge
         c['model']['validation_report'] = str(Path(c['model']['path'])/'flow-validation-report.json')
         t.update(preflight='once', offload_frozen=profile == '5090', vae_batch_size=1,
                  checkpoint_every=200, full_checkpoint_every=400, lora_checkpoint_every=400)
+        # Keep the held-out panel/sampling recipe for a separate evaluation GPU.
+        # Saving adapters does not require ending the training process.
+        c['evaluation']['enabled'] = False
         c['experiment_note'] += (' paper-v2: certified prepared inputs; no policy EMA. '
             'Linear-DPO alone retains its algorithmic EMA reference. '
             f'Aggregation={aggregation}; weight_dtype={c["model"].get("transformer_dtype", t["dtype"])}.')
@@ -132,7 +135,9 @@ def main():
     p.add_argument('--ema-decay', type=float)
     p.add_argument('--linear-eta', type=float)
     p.add_argument('--frozen-placement', choices=['resident','offload'])
-    p.add_argument('--no-evaluation', action='store_true')
+    evaluation = p.add_mutually_exclusive_group()
+    evaluation.add_argument('--no-evaluation', action='store_true', help='Continuous training; paper-v2 default')
+    evaluation.add_argument('--inline-evaluation', action='store_true', help='Opt into the old pause/evaluate/reload workflow')
     p.add_argument('--steps', type=int, default=3200)
     p.add_argument('--stagewise', action='store_true')
     p.add_argument('--stage-boundary', type=int, default=500)
@@ -173,7 +178,10 @@ def main():
         if option is not None: c['training'][key] = option
     if a.seed is not None: c['seed'] = a.seed
     if a.frozen_placement: c['training']['offload_frozen'] = a.frozen_placement == 'offload'
-    if a.no_evaluation: c['evaluation'] = {'enabled':False}
+    if a.no_evaluation: c['evaluation']['enabled'] = False
+    if a.inline_evaluation:
+        if a.smoke: p.error('--inline-evaluation is not supported by smoke runs')
+        c['evaluation']['enabled'] = True
     if a.report_to or a.recipe == 'paper-v2':
         c['training']['logging'] = a.report_to or 'all'
         c['training']['wandb'] = {
@@ -202,7 +210,7 @@ def main():
     if a.recipe == 'paper-v2' or a.model_report:
         c['model']['validation_report'] = str((a.model_report or Path(c['model']['path'])/'flow-validation-report.json').expanduser().resolve())
     if a.monitor_prompts and not a.smoke: c['evaluation']['prompts'] = str(a.monitor_prompts.expanduser().resolve())
-    if a.scorers_config and c.get('evaluation', {}).get('enabled'):
+    if a.scorers_config and c.get('evaluation', {}).get('sampling'):
         c['evaluation']['scorers_config'] = str(a.scorers_config.expanduser().resolve())
     k = c['training']['noise_views']
     name_steps = a.smoke_steps if a.smoke and a.smoke_steps != 2 else a.steps
@@ -210,6 +218,8 @@ def main():
     if a.recipe == 'paper-v2':
         precision = c['model'].get('transformer_dtype', c['training']['dtype'])
         name += f'-{a.aggregation}-{precision}'
+        if not c['evaluation'].get('enabled'):
+            name += '-trainonly'
         print(f'Profile: {a.world_size}x{a.profile}; weights: {precision}; policy EMA: disabled; reference: {c["training"]["reference_mode"]}', flush=True)
     name += f'-stage{a.stage_boundary}' if a.stagewise else ''
     if a.smoke:
