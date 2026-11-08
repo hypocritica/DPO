@@ -37,8 +37,11 @@ class FlowSuiteTests(unittest.TestCase):
             for family, world in (('sd35', 4), ('zimage', 2)):
                 paths = set()
                 for name, case in suite.CASES.items():
+                    # B4 pair-views cannot represent a whole pair at K8.
+                    microbudget = 8 if case['unit'] == 'pair_views' and case['k'] == 8 else 4
+                    options = ['--batch-size', str(microbudget)] if microbudget != 4 else []
                     cmd = suite.command(family, name, forwarded=['--config-only', '--config-dir',
-                        str(root / 'configs'), '--runs-root', str(root / 'runs')])
+                        str(root / 'configs'), '--runs-root', str(root / 'runs'), *options])
                     result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, f'{family}/{name}: {result.stderr}')
                     argv = json.loads(result.stdout)
@@ -53,10 +56,12 @@ class FlowSuiteTests(unittest.TestCase):
                     self.assertNotIn(path.name, paths, f'duplicate identity: {family}/{name}')
                     paths.add(path.name)
                     t = config['training']
-                    self.assertEqual((t['world_size'], t['batch_size'], t['noise_views']), (world, 4, case['k']))
+                    pairs = microbudget // case['k'] if case['unit'] == 'pair_views' else microbudget
+                    self.assertEqual((t['world_size'], t['batch_size'], t['noise_views']), (world, pairs, case['k']))
                     self.assertEqual(t['comparison_budget'], dict(unit=case['unit'], per_update=128))
-                    self.assertEqual(world * 4 * t['gradient_accumulation_steps'] *
+                    self.assertEqual(world * pairs * t['gradient_accumulation_steps'] *
                                      (case['k'] if case['unit']=='pair_views' else 1), 128)
+                    self.assertEqual(t['gradient_accumulation_steps'], 128 // (world * microbudget))
                     self.assertEqual(t['formal_arm'], case['arm'])
                     self.assertEqual('stagewise' in t, case['stage'])
                     if case['stage']:
@@ -84,15 +89,31 @@ class FlowSuiteTests(unittest.TestCase):
                 ('sd35','01_dpo_k1.sh',1,'C',4),
                 ('zimage','08_stagewise_mvpo_k4_views128.sh',4,'C',4),
                 ('zimage','16_stagewise_lossavg_k2_views128.sh',2,'B',4),
-                ('sd35','18_stagewise_lossavg_k8_views128.sh',8,'B',2)):
+                ('sd35','18_stagewise_lossavg_k8_views128.sh',8,'B',8)):
                 folder = root / f'{family}-{script}'
                 result = subprocess.run(['bash',str(ROOT/'launchers'/family/script), '--config-only',
                     '--config-dir',str(folder),'--runs-root',str(root/'runs'),
                     '--batch-size',str(batch)], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 c=json.loads(next(folder.glob('*.json')).read_text());t=c['training']
-                self.assertEqual((t['batch_size'],t['noise_views'],t['formal_arm']),(batch,k,arm))
-                self.assertEqual(t['world_size']*batch*k*t['gradient_accumulation_steps'],128)
+                pairs = batch // k
+                self.assertEqual((t['batch_size'],t['noise_views'],t['formal_arm']),(pairs,k,arm))
+                self.assertEqual(t['world_size']*pairs*k*t['gradient_accumulation_steps'],128)
+
+    def test_microbatch_view_budget_rejects_fractional_pairs_before_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env = dict(os.environ, SCD_FLOW_PYTHON=sys.executable, SCD_FLOW_CONDA_SH='')
+            for k, budget in ((2, '3'), (4, '2'), (8, '4'), (2, '0'), (2, '-4'), (2, 'bad')):
+                folder = root / f'k{k}-b{budget}'
+                result = subprocess.run(['bash', str(ROOT/'launchers/flow/paper_experiment.sh'),
+                    'zimage', 'mvpo', str(k), 'pair_views', 'true', f'--batch-size={budget}',
+                    '--config-only', '--config-dir', str(folder), '--runs-root', str(root/'runs')],
+                    env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('--batch-size', result.stderr)
+                self.assertFalse(folder.exists())
+            self.assertFalse((root/'runs').exists())
 
     def test_stage_lossavg_matches_same_view_loss_and_gradient_with_k1_initial_checks(self):
         prepared={'low_stage':torch.tensor([True,False]),'stage_axis':'descending_flow_schedule_index'}

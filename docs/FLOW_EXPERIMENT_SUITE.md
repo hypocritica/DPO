@@ -1,29 +1,35 @@
 # Flow B4 / 128 pair-views 实验入口
 
-2026-11-08 新版默认：**所有方法每卡microbatch=4，主实验固定128 pair-views/optimizer update**。
-这里B4是每卡偏好对数；梯度累积、全局pairs、pair-views是不同量。
-SD3.5默认4×5090，ZImage默认2×H100。所有编号入口默认关闭offload，沿用1024、梯度检查点、VAE chunk1。
-SD3.5为BF16权重/activation，ZImage为FP32 transformer权重+BF16 autocast。
-这是用户指定的待实测默认，不代表B4已经在全部K/算法/多卡配置上验证通过。
+2026-11-08 修正：**主实验每卡每个microbatch固定4 pair-views，所有方法每次optimizer update固定128 pair-views**。
+编号入口/suite的 `--batch-size 4` 表示每卡microbatch的pair-view预算；MVPO按 `pairs=4/K` 转换后传给底层训练入口。
+底层 `scripts/run_flow.py --batch-size` 及冻结配置 `training.batch_size` 继续表示pairs，不改变其接口。
+SD3.5默认4×5090，ZImage默认2×H100；1024、梯度检查点、resident、VAE chunk1及原精度保持。
 
-| K | 每步pairs | 每步pair-views | SD3.5累积（4卡×B4） | ZImage累积（2卡×B4） |
-|---|---:|---:|---:|---:|
-| 1（DPO/LinearDPO） | 128 | 128 | 8 | 16 |
-| 2 | 64 | 128 | 4 | 8 |
-| 4 | 32 | 128 | 2 | 4 |
-| 8 | 16 | 128 | 1 | 2 |
+| K | 每卡microbatch pairs | 每卡microbatch pair-views | 全局pairs/update | SD3.5累积（4卡） | ZImage累积（2卡） |
+|---|---:|---:|---:|---:|---:|
+| 1（DPO/LinearDPO） | 4 | 4 | 128 | 8 | 16 |
+| 2 | 2 | 4 | 64 | 8 | 16 |
+| 4 | 1 | 4 | 32 | 8 | 16 |
+
+DPO K1的最终配置不变。K8无法在4 pair-views里放入一个完整pair，默认启动会在配置写入前拒绝；显式 `--batch-size 8` 才能运行K8，此时是8 pair-views/microbatch的独立预算，不再与B4组等microbatch。
+可选 `pairs128` 补充入口不做上述除K换算，`--batch-size` 仍表示每卡pairs，沿用原B4配置。
+固定microbatch pair-views限制带梯度的图像视图数量，但不保证不同K的实测显存完全一致；完整GPU仍需验证。
 
 固定pair-view是代理计算预算，实际GPU时间、启动、保存和评估成本仍须另报。
 SFT是独立winner-only基线，每步128张winner，不把它宣称为与DPO等计算量。
 
 ## 更新与主实验
 
-在上次新建的SLAI目录更新；已运行/准备续训的实验保留原checkout及版本。
+修复分支为 `fix/flow-microbatch-pair-views-20261108`；在独立目录部署。已运行/准备续训的DPO保留原checkout及版本。
 本地65803–65806引用的stagewise目录不在本次修改范围内。
 
 ```bash
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-trainonly
-git pull --ff-only
+cd /mnt/afs/L202500030/xietianyu/workspace
+git clone --depth 1 --single-branch --branch fix/flow-microbatch-pair-views-20261108 \
+  https://github.com/hypocritica/DPO.git DPO-flow-microbatch
+cd DPO-flow-microbatch
+mkdir -p reports/slai
+cp ../DPO-flow-trainonly/reports/slai/*-model-validation.json reports/slai/
 ```
 
 如果首次部署，见[独立目录与验证报告复用](FLOW_DETACHED_EVAL.md)。不需要重下模型/数据或重建环境。
@@ -103,12 +109,12 @@ beta/seed变体自动在tag后增加对应后缀，避免与默认配方同名�
 
 ```bash
 bash launchers/zimage/run_suite.sh stage-c-k2 --beta 1000 --run-tag beta1000-v1
-bash launchers/zimage/run_suite.sh main --batch-size 2 --run-tag b2-views128-v1
+bash launchers/zimage/run_suite.sh stage-c-k2,stage-c-k4 --batch-size 4 --run-tag flow-microviews4-v1
 bash launchers/sd35/run_suite.sh main --profile h100 --run-tag sd35-h100-v1
 bash launchers/sd35/run_suite.sh stage-c-k4 --frozen-placement offload --run-tag offload-k4-v1
 ```
 
-batch覆盖会自动重算累积以维持128 pair-views；不自动改变K、LR、beta或权重精度，不静默OOM降配。
+pair_views编号入口先用batch预算除K得到整数pairs，再由底层计算累积；相同batch预算下K1/K2/K4累积相同。除不尽会明确拒绝，不做向下取整或自动增加预算。pairs补充仍按原pairs计数。
 改配置必须用新tag；冻结检查会拒绝在同一输出中混用超参数。单卡DPO K1 B4通过并不能保证多视图或DDP显存足够。
 
 `--config-only`可生成所选配方的冻结配置，不读取模型权重或启动GPU；`--check-only`走原一次性资产校验。
@@ -116,7 +122,7 @@ batch覆盖会自动重算累积以维持128 pair-views；不自动改变K、LR�
 
 ## 更多单独编号入口
 
-下列文件在两个模型目录都存在，均默认B4；10/11为原SD3.5边界脚本并补齐ZImage对应入口。
+下列文件在两个模型目录都存在，pair_views入口默认每microbatch 4 pair-views（K8须显式改预算），pairs入口默认4 pairs；10/11为原SD3.5边界脚本并补齐ZImage对应入口。
 
 | 文件名 | 含义 |
 |---|---|
@@ -134,5 +140,5 @@ batch覆盖会自动重算累积以维持128 pair-views；不自动改变K、LR�
 
 Stage B只支持Flow DPO：与Stage C采用完全相同的阶段/时间/噪声采样，只把softplus(-mean margin)改为mean(softplus(-margin))。
 它用于补齐采样×聚合的2×2消融，不改变已有Stage C或diffusion Huber目标。
-CPU检查覆盖两模型全部61配方的真实shell参数与配置构造、预算/输出身份、Stage B损失/梯度与真实tiny PEFT保存恢复。
+CPU检查覆盖两模型全部61配方的真实shell参数与配置构造（K8显式用8预算）、预算/输出身份、非法预算提前拒绝、Stage B损失/梯度与真实tiny PEFT保存恢复。
 完整模型GPU训练及新增Stage B的实际生成效果仍须在SLAI验证。

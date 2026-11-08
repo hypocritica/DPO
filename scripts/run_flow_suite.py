@@ -1,6 +1,7 @@
 """Run named Flow experiments on allocated GPUs; list/plan without loading models.
 
-Default: B4, 128 pair-views/update, continuous training and separate evaluation.
+Default: 4 pair-views/GPU/microbatch, 128 pair-views/update; K1 stays B4.
+Pair-budget supplements keep 4 pairs/GPU/microbatch.
 Every experiment has its own optimizer, RNG and output; reruns resume/skip through
 the existing launcher. Each independent experiment loads its base once.
 """
@@ -112,7 +113,9 @@ def main(argv=None):
              'command': command(args.family, name, args.run_tag, forwarded)} for name in selected]
     if args.list:
         print('Groups: ' + ', '.join(f'{g}({len(v)})' for g, v in GROUPS.items()))
-        print('Defaults: B4 per GPU; SD3.5 4x5090 / ZImage 2xH100; 128 pair-views; resident frozen modules.')
+        print('Defaults: 4 pair-views/GPU/microbatch (K1/K2/K4: 4/2/1 pairs); '
+              'SD3.5 4x5090 / ZImage 2xH100; 128 pair-views/update; resident frozen modules. '
+              'K8 needs --batch-size 8 or another exact multiple of 8. Pairs recipes keep B4.')
         print('case | objective | K | aggregation | sampling | budget')
         for row in plan:
             print(f'{row["case"]} | {row["algorithm"]} | {row["k"]} | {row["arm"]} | '

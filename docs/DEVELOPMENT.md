@@ -1,4 +1,6 @@
 2026-11-08验证：连续训练/独立评估与B4探针共30项CPU回归通过；同步修正旧storage兼容测试中遗漏的base_model/zimage_compat身份fixture。未执行完整模型GPU训练或评估。
+
+2026-11-08 修正microbatch预算：在独立fix/flow-microbatch-pair-views-20261108分支与self_correct_dpo-flow-microbatch目录，仅修改编号入口/suite的预算换算。pair_views配方把--batch-size视作每卡microbatch pair-view预算，MVPO传给底层的pairs=N/K；K2/K4为2/1 pairs且双H100累积均16，DPO K1最终配置及底层run_flow/trainer/算法不变。拒绝非正数或除不尽（B4/K8），pairs128补充仍按pairs。使用新目录/新tag和各容器的数据stat报告；不修改既有DPO源码目录、配置、环境或作业。13项既有CPU回归通过（suite 6/debug 7），覆盖两模型全部61配方（K8显式预算8）、真实编号/suite配置、非法预算、tiny PEFT恢复；另对DPO K1新旧完整冻结配置用相同资产路径逐字段比对一致，K2/K4实际配置分别B2/B1、累积均16。Bash语法/AST/diff检查通过；未运行完整GPU或提交作业。运行命令见command.md首节。
 # Self Correct DPO 开发与实验约定
 
 2026-11-08 SLAI ZImage加载排查：实际数据三文件SHA256均匹配，仅mtime不同，用户已成功重绑；随后两个worker在FUSE/页等待且映射text_encoder三分片，后续日志确认加载继续完成，不能宣称死锁。新增默认启动阶段JSON日志及首个update的microbatch进度，记录rank/PID/UTC和主机耗时；不读取额外权重、不强制CUDA同步、不碰RNG和训练预算。旧进程仅用已有manifest/metrics粗定位，新日志需下次在独立checkout的新实验使用；不放宽源码恢复身份，不修改既有排队checkout或SLAI活动任务。11项现有CPU回归通过，覆盖once预检、全程与暂停恢复的权重/优化器/RNG一致性、tiny PEFT Stage B恢复及原加载诊断工具；未执行完整模型GPU训练。命令见command.md。

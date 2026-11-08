@@ -1,3 +1,43 @@
+## 2026-11-08 修正MVPO：每个microbatch固定4 pair-views
+
+独立分支 `fix/flow-microbatch-pair-views-20261108`。此前Flow编号入口把B4当作4 pairs并随K减少累积，不符合本实验要求；本节取代下文旧B4说明。
+仅在编号入口/suite换算pairs，底层trainer/算法/精度/预算接口不变。K1每卡4 pairs、K2每卡2 pairs、K4每卡1 pair；ZImage双H100都累积16次、128 pair-views/update。DPO K1配置不变，正在运行的DPO继续保留原目录和版本。
+
+单独部署修复版本（不在正在跑DPO的目录切分支或拉取）：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace
+git clone --depth 1 --single-branch --branch fix/flow-microbatch-pair-views-20261108 \
+  https://github.com/hypocritica/DPO.git DPO-flow-microbatch
+cd DPO-flow-microbatch
+mkdir -p reports/slai
+cp ../DPO-flow-trainonly/reports/slai/zimage-model-validation.json reports/slai/
+```
+
+以下在已分配的双H100任务内运行。每个容器分别生成自己的stat绑定报告；复用原模型、数据和mvpo-flow环境。
+
+```bash
+source /mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh
+conda activate mvpo-flow
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-microbatch
+
+flow_case=stage-c-k2  # K4任务改为stage-c-k4
+flow_receipt="$PWD/reports/slai/data-${flow_case}-microviews4-v1.json"
+python scripts/rebind_flow_data_receipt.py \
+  --pairs /mnt/aoss/xietianyu/datasets/hpdv3/prepared-sub-flow-v2/pairs.jsonl \
+  --out "$flow_receipt" &&
+bash launchers/zimage/run_suite.sh "$flow_case" \
+  --profile h100 --batch-size 4 \
+  --data-report "$flow_receipt" \
+  --run-tag flow-microviews4-v1
+```
+
+K2输出名含 `k2-pair_views128-2h100-b2`，K4含 `k4-pair_views128-2h100-b1`，不会接着旧B4失败输出续训。
+编号入口的--batch-size现在是pair_views配方每卡microbatch的pair-view预算；底层run_flow.py及冻结training.batch_size仍是pairs。
+K8在预算4时拒绝；如需K8须显式--batch-size 8，不能宣称同4-view microbatch。pairs128补充入口保留原4 pairs语义。
+CPU可用--config-only检查上述最终配置；未在SLAI完整GPU验证显存。
+详见[docs/FLOW_EXPERIMENT_SUITE.md](docs/FLOW_EXPERIMENT_SUITE.md)。
+
 ## 2026-11-08 Flow启动进度日志
 
 新启动的训练默认打印JSON阶段日志（event=startup），包含phase、begin/done/error、rank、PID、UTC时间和完成耗时。

@@ -31,8 +31,10 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
                             SD3.5 defaults 5090; ZImage defaults H100
   --weight-dtype DTYPE      Explicit model weight precision; ZImage defaults float32.
                             ZImage on 5090 requires --weight-dtype bfloat16.
-  --batch-size N           Pairs per GPU (default 4); accumulation preserves the recipe budget.
-                            Benchmark first and use a new run tag.
+  --batch-size N           Per-GPU microbatch budget (default 4): pair-views for
+                            pair_views recipes, pairs for pairs recipes.
+                            MVPO uses N/K pairs; N must be divisible by K.
+                            K1 is unchanged. Use a new run tag after changes.
   --frozen-placement MODE  resident (default) or offload; no automatic OOM fallback.
   --run-tag TAG             Experiment version (default: flow-b4-v1).
                             Reuse the same tag to resume automatically.
@@ -80,6 +82,21 @@ while (( $# )); do
     *) forward+=("$1"); shift ;;
   esac
 done
+if [[ ! "$batch_size" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--batch-size must be a positive integer." >&2
+  exit 2
+fi
+# Keep each microbatch's pair-view count fixed as K grows. run_flow.py's
+# lower-level --batch-size still counts pairs; convert only at this entry point.
+microbatch_budget=$batch_size
+if [[ "$budget_unit" == pair_views && "$algorithm" == mvpo ]]; then
+  if (( microbatch_budget % views != 0 )); then
+    echo "--batch-size $microbatch_budget pair-views must be divisible by K=$views; fractional pairs are not supported. Use an explicit multiple of K (e.g. --batch-size $views) and a new run tag." >&2
+    exit 2
+  fi
+  batch_size=$((microbatch_budget / views))
+  echo "Microbatch/GPU: $batch_size pairs x K=$views = $microbatch_budget pair-views ($((2 * microbatch_budget)) image-views); update budget: 128 pair-views." >&2
+fi
 case "$profile" in
   5090) world=4 ;;
   h100|a800) world=2 ;;
