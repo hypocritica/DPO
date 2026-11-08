@@ -1,3 +1,28 @@
+## 2026-11-08 SD3截断日志修复与Stage C K2原命令
+
+本次仅同步根目录 `train.py` 的日志过滤：首次截断由rank 0输出一条简短提示，不再反复打印整段CLIP/T5 caption和padding。其他warning/error、截断统计、token长度、训练源码、冻结配置和恢复身份保持原样。日志过滤不会改变embedding或训练数学结果；原有CLIP77/T5256截断仍会丢失超限文本信息，不等于保证截断对效果没有影响。已启动的Python进程不会热加载该修复，无需为刷屏中断DPO。
+
+以下命令保持原入口和run-tag，明确设置 `flow_case=stage-c-k2`。SD3.5四5090，每卡2 pairs×K2=4 pair-views，累积8次，合计128 pair-views/update；Stage C、boundary500、3200步、latest200及永久保存计划沿用原配置。
+
+```bash
+source /mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh
+conda activate mvpo-flow
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-microbatch
+
+flow_case=stage-c-k2
+flow_receipt="$PWD/reports/slai/data-sd35-${flow_case}-microviews4-v1.json"
+
+python scripts/rebind_flow_data_receipt.py \
+  --pairs /mnt/aoss/xietianyu/datasets/hpdv3/prepared-sub-flow-v2/pairs.jsonl \
+  --out "$flow_receipt" &&
+bash launchers/sd35/run_suite.sh "$flow_case" \
+  --profile 5090 --batch-size 4 \
+  --data-report "$flow_receipt" \
+  --run-tag flow-microviews4-v1
+```
+
+修复只需将更新后的根目录 `train.py` 同步到SLAI同名文件；不要复制整个trainonly目录或替换 `src/self_correct_dpo/train.py` / `models.py`，以保留microbatch的预算换算和既有实验身份。原模型验证报告 `reports/slai/sd35_medium-model-validation.json` 及已通过的数据准备仍需存在；rebind仅在原数据三文件SHA256一致时重绑stat。当前容器中已有同名报告但stat不同会拒绝覆盖，保留旧报告并换独立报告文件名。已有完整checkpoint按原run-tag自动latest恢复。
+
 ## 2026-11-08 临时双H100：ZImage Stage C K4，latest每100步
 
 在独立DPO-flow-microbatch目录更新fix/flow-microbatch-pair-views-20261108分支，使用现有启动器参数--latest-checkpoint-every 100。
