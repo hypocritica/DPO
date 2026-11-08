@@ -100,6 +100,58 @@ class FlowSuiteTests(unittest.TestCase):
                 self.assertEqual((t['batch_size'],t['noise_views'],t['formal_arm']),(pairs,k,arm))
                 self.assertEqual(t['world_size']*pairs*k*t['gradient_accumulation_steps'],128)
 
+    def test_latest_checkpoint_interval_preserves_snapshots_and_auto_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shim = root/'python'
+            shim.write_text(f'#!{sys.executable}\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            shim.chmod(0o755)
+            env = dict(os.environ, SCD_FLOW_PYTHON=str(shim), SCD_FLOW_CONDA_SH='',
+                       SCD_RESOURCES=str(ROOT/'configs/resources-slai-flow.json'))
+            shell = suite.command('zimage', 'stage-c-k4', tag='latest100-v1', forwarded=[
+                '--config-only', '--config-dir', str(root/'configs'), '--runs-root', str(root/'runs'),
+                '--latest-checkpoint-every', '100'])
+            result = subprocess.run(shell, env=env, capture_output=True, text=True, check=True)
+            argv = json.loads(result.stdout)[2:]
+            with patch.object(sys, 'argv', ['run_flow.py', *argv]), redirect_stdout(io.StringIO()):
+                run_flow.main()
+            frozen = next((root/'configs').glob('*.json'))
+            config = json.loads(frozen.read_text())
+            training = config['training']
+            self.assertEqual((training['batch_size'], training['noise_views'], training['gradient_accumulation_steps']), (1,4,16))
+            baseline = run_flow.build_config('zimage','mvpo',world=2,views=4,recipe='paper-v2',
+                                              batch_size=1,stagewise=True,
+                                              resources=str(ROOT/'configs/resources-slai-flow.json'))['training']
+            self.assertEqual(baseline['checkpoint_every'], 200)
+            self.assertEqual(training['checkpoint_every'], 100)
+            for key in ('full_checkpoint_every','lora_checkpoint_every','lora_checkpoint_steps'):
+                self.assertEqual(training[key], baseline[key])
+            output = root/'runs'/frozen.stem.removeprefix('local-')
+            (output/'checkpoints').mkdir(parents=True)
+            (output/'training.json').write_text(json.dumps({'config':config}))
+            (output/'checkpoints/latest.json').write_text('{}')
+            argv.remove('--config-only')
+            with patch.object(sys, 'argv', ['run_flow.py', *argv]), \
+                 patch.object(run_flow,'prepare_output',return_value=False), \
+                 patch('self_correct_dpo.evaluation.runner.run_command') as run, \
+                 redirect_stdout(io.StringIO()):
+                run_flow.main()
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--resume_from_checkpoint')+1], 'latest')
+            self.assertEqual(Path(command[command.index('--config')+1]), frozen)
+            # Reusing this run tag with a different cadence must not overwrite it.
+            argv[argv.index('--latest-checkpoint-every')+1] = '50'
+            with patch.object(sys, 'argv', ['run_flow.py', *argv]), redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError,'Frozen configuration differs'):
+                    run_flow.main()
+            self.assertEqual(json.loads(frozen.read_text()), config)
+            for value in ('0', '-1'):
+                argv[argv.index('--latest-checkpoint-every')+1] = value
+                with patch.object(sys, 'argv', ['run_flow.py', *argv]), redirect_stdout(io.StringIO()), \
+                     patch('sys.stderr',new=io.StringIO()), self.assertRaises(SystemExit) as error:
+                    run_flow.main()
+                self.assertEqual(error.exception.code, 2)
+
     def test_microbatch_view_budget_rejects_fractional_pairs_before_writes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

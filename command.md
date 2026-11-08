@@ -1,3 +1,31 @@
+## 2026-11-08 临时双H100：ZImage Stage C K4，latest每100步
+
+在独立DPO-flow-microbatch目录更新fix/flow-microbatch-pair-views-20261108分支，使用现有启动器参数--latest-checkpoint-every 100。
+只覆盖training.checkpoint_every；永久完整checkpoint仍每400步，原八个LoRA保存点保持。未传参数的实验仍每200步更新latest。
+
+```bash
+source /mnt/afs/L202500030/xietianyu/miniconda3/etc/profile.d/conda.sh
+conda activate mvpo-flow
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-flow-microbatch
+git -c safe.directory="$PWD" pull --ff-only origin fix/flow-microbatch-pair-views-20261108
+
+flow_case=stage-c-k4
+flow_receipt="$PWD/reports/slai/data-${flow_case}-microviews4-ckpt100-v1.json"
+python scripts/rebind_flow_data_receipt.py \
+  --pairs /mnt/aoss/xietianyu/datasets/hpdv3/prepared-sub-flow-v2/pairs.jsonl \
+  --out "$flow_receipt" &&
+bash launchers/zimage/run_suite.sh "$flow_case" \
+  --profile h100 --batch-size 4 \
+  --latest-checkpoint-every 100 \
+  --data-report "$flow_receipt" \
+  --run-tag flow-microviews4-ckpt100-v1
+```
+
+每100个optimizer updates原子更新checkpoints/latest.json，包含LoRA、optimizer、scheduler、各rank RNG及训练进度；不是每100个microbatches，也不是仅保存LoRA。
+正常的永久保存安排不变；SIGTERM按既有逻辑在update边界尝试保存，SIGKILL/直接回收只能恢复最近完整提交的状态。
+恢复时保留代码、完整输出目录和一致资产/环境，以同样训练参数、checkpoint参数和run-tag重跑最后的bash命令，现有启动器自动latest续训。
+新实验使用独立ckpt100 tag；不在已启动的200步实验中修改冻结配置。首次保存前被回收仍需从头开始。
+
 ## 2026-11-08 修正MVPO：每个microbatch固定4 pair-views
 
 独立分支 `fix/flow-microbatch-pair-views-20261108`。此前Flow编号入口把B4当作4 pairs并随K减少累积，不符合本实验要求；本节取代下文旧B4说明。

@@ -133,6 +133,8 @@ def main():
     p.add_argument('--ema-decay', type=float)
     p.add_argument('--linear-eta', type=float)
     p.add_argument('--frozen-placement', choices=['resident','offload'])
+    p.add_argument('--latest-checkpoint-every', type=int,
+                   help='Save full rolling resume state every N optimizer updates; permanent snapshots keep their recipe schedule')
     evaluation = p.add_mutually_exclusive_group()
     evaluation.add_argument('--no-evaluation', action='store_true', help='Continuous training; paper-v2 default')
     evaluation.add_argument('--inline-evaluation', action='store_true', help='Opt into the old pause/evaluate/reload workflow')
@@ -164,6 +166,8 @@ def main():
     p.add_argument('--wandb-mode', choices=['offline', 'online', 'disabled'], default='offline')
     p.add_argument('--wandb-images', type=int, default=8, help='Evaluation images per point, 0 disables media logging')
     a = p.parse_args()
+    if a.latest_checkpoint_every is not None and a.latest_checkpoint_every < 1:
+        p.error('--latest-checkpoint-every must be a positive integer')
     if not 0 <= a.wandb_images <= 64: p.error('--wandb-images must be between 0 and 64')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',a.run_tag): p.error('Invalid run-tag')
     a.budget_unit = a.budget_unit or ('pairs' if a.recipe == 'paper-pilot' or a.algorithm == 'sft' else 'pair_views')
@@ -172,6 +176,8 @@ def main():
         boundary=a.stage_boundary,resources=a.resources,smoke=a.smoke,recipe=a.recipe,batch_size=a.batch_size,
         weight_dtype=a.weight_dtype,aggregation=a.aggregation,smoke_steps=a.smoke_steps,
         smoke_batch_size=a.smoke_batch_size,smoke_accumulation_steps=a.smoke_accumulation_steps)
+    if a.latest_checkpoint_every is not None:
+        c['training']['checkpoint_every'] = a.latest_checkpoint_every
     for option, key in ((a.learning_rate,'learning_rate'),(a.ema_decay,'ema_decay'),(a.linear_eta,'linear_eta')):
         if option is not None: c['training'][key] = option
     if a.seed is not None: c['seed'] = a.seed

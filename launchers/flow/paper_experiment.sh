@@ -36,6 +36,9 @@ Recipe: $family / $algorithm / K=$views / $budget_unit=128 / stagewise=$stage
                             MVPO uses N/K pairs; N must be divisible by K.
                             K1 is unchanged. Use a new run tag after changes.
   --frozen-placement MODE  resident (default) or offload; no automatic OOM fallback.
+  --latest-checkpoint-every N
+                            Full latest resume state every N updates (default 200);
+                            permanent/LoRA snapshot schedules stay unchanged.
   --run-tag TAG             Experiment version (default: flow-b4-v1).
                             Reuse the same tag to resume automatically.
   --execution MODE          standalone (default) or slurm; resources already allocated
