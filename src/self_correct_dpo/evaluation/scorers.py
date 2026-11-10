@@ -11,7 +11,7 @@ from pathlib import Path
 from self_correct_dpo.common import artifact_identity, digest, sha256
 
 DEFAULT_METRICS = ('pickscore', 'clip', 'hpsv2', 'aesthetic')
-METRICS = (*DEFAULT_METRICS, 'hpsv3', 'image_reward')
+METRICS = (*DEFAULT_METRICS, 'hpsv3', 'image_reward', 'unifiedreward')
 
 
 def scorer_identity(metric, spec):
@@ -21,7 +21,11 @@ def scorer_identity(metric, spec):
                 'hpsv2':('checkpoint','open_clip_source'),
                 'aesthetic':('model','processor','checkpoint'),
                 'hpsv3':('source','model','checkpoint','config'),
-                'image_reward':('source','checkpoint','config','tokenizer')}[metric]
+                'image_reward':('source','checkpoint','config','tokenizer'),
+                'unifiedreward':('source','model')}[metric]
+    if metric == 'unifiedreward':
+        from self_correct_dpo.evaluation.unified_reward import validate_spec
+        validate_spec(spec)
     if metric in ('hpsv3','image_reward'):
         from self_correct_dpo.evaluation.optional_scorers import validate_spec
         validate_spec(metric,spec)
@@ -31,6 +35,10 @@ def scorer_identity(metric, spec):
     for key in required:
         path = Path(spec[key]).resolve(strict=True)
         if key == 'source':
+            if metric == 'unifiedreward':
+                from self_correct_dpo.evaluation.unified_reward import REFERENCE_SCRIPT
+                assets[key] = {name: sha256(path / name) for name in (REFERENCE_SCRIPT, '.scd-source-revision')}
+                continue
             package=path/('hpsv3' if metric=='hpsv3' else 'ImageReward')
             assets[key]={str(p.relative_to(path)):sha256(p) for p in sorted(package.rglob('*'))
                          if p.is_file() and p.suffix in {'.py','.yaml','.json'}}
@@ -66,6 +74,14 @@ def scorer_identity(metric, spec):
             'source_sha256':sha256(__file__)}
     if metric in ('hpsv3','image_reward'):
         result['adapter_sha256']=sha256(source_file('optional_scorers.py'))
+    if metric == 'unifiedreward':
+        from self_correct_dpo.evaluation.unified_reward import SCALE, TEMPLATE
+        result.update(version='UnifiedReward-2.0-qwen-7b', scale=SCALE,
+                      text_truncation='no silent truncation; official ACS prompt',
+                      template_sha256=digest(TEMPLATE),
+                      adapter_sha256=sha256(source_file('unified_reward.py')),
+                      decoding={'do_sample': False, 'max_new_tokens': spec.get('max_new_tokens', 4096)},
+                      image_convention='RGB JPEG quality=95, official 2.0 client convention')
     return result
 
 
@@ -100,6 +116,9 @@ def _open_clip(source):
 
 
 def load_scorer(metric, spec, device='cuda'):
+    if metric == 'unifiedreward':
+        from self_correct_dpo.evaluation.unified_reward import load_scorer as load_unifiedreward
+        return load_unifiedreward(spec, device=device)
     if metric in ('hpsv3','image_reward'):
         from self_correct_dpo.evaluation.optional_scorers import load_optional_scorer
         return load_optional_scorer(metric,spec,device=device)

@@ -1,5 +1,11 @@
 # Self Correct DPO
 
+本 checkout 新增[四模型分阶段评估](docs/UNIFIED_EVALUATION.md)：`evaluate_suite.py`
+支持 SD1.5 / SDXL / SD3.5 Medium / Z-Image Base 的 checkpoint 发现与筛选、固定计划、
+先生成后评分、结果汇总和展示图预览。保留原表五指标，另接入 HPSv3、UnifiedReward、
+GenEval、DPG-Bench。SLAI 部署、缺失模型下载和分环境运行见 [command.md](command.md)
+第一节；本次仅轻量验证，完整 GPU 推理需在 SLAI 做 smoke。
+
 SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 rollout 的普通高斯 B/C、视图合批和纯 DPO。支持任意正整数 K、单机 2/4/8 卡、Accelerate 启动、TensorBoard/W&B，以及每 200 步完整续训保存。
 
 - [开发与双服务器实验约定](docs/DEVELOPMENT.md)
@@ -25,7 +31,7 @@ RTX5090依赖采用官方PyTorch2.14.1/cu130、torchvision0.29.1/cu130和NCCL2.3
 
 训练启动并行执行配置检查与清单加载，默认8线程抽查8张图片并覆盖各 split 首对，最多14张；实际训练读取时继续核对 SHA256。已移除自动逐卡 CUDA 自测、重复的训练行检查、全图 inventory 和校验缓存协议，默认不会自动完整读取所有图片。需要完整审计时显式运行 `python scripts/check_training_data.py --pairs /实际路径/pairs.jsonl --mode full`；具体说明见 [command.md](command.md)。
 
-商汤大装置首次部署按 [command.md](command.md) 从上到下执行：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
+以下为历史训练部署流程；本分支的统一 evaluation 请使用 [command.md](command.md) 第一节中的独立分支与目录。训练部署流程为：更新 main → 激活 dpo 环境 → 资源/CUDA检查 → 一次性数据准备 → 两步纯 DPO 暂停及恢复 → 正式纯 DPO → 多视图 B/C 对照。资源检查入口为 `python scripts/check_deployment.py --stage assets --gpu --world-size 2`，仅在远程已分配 GPU 的容器里加 `--gpu`。
 
 数据准备独立使用 [launchers/acp_prepare_data.sh](launchers/acp_prepare_data.sh)，例如 `bash launchers/acp_prepare_data.sh pickapic sd15` 或 `hpdv3 sd15`；已完成输出自动复用。SD1.5 纯 DPO 双卡正式训练使用 [launchers/acp_sd15_dpo_2gpu.sh](launchers/acp_sd15_dpo_2gpu.sh)，10000步、每卡2对、累积64、全局256对。两个双卡训练入口共用 `acp_common.sh` 的环境、日志、资源检查、冻结配置和恢复流程。GPU 启动命令及旧容器脚本备份见 [command.md](command.md)。原8卡入口保留。
 

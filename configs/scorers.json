@@ -26,6 +26,16 @@
       "batch_size": 1,
       "disable_flash_attn2": true
     },
+    "unifiedreward": {
+      "source": "${UNIFIED_REWARD_SOURCE}",
+      "source_revision": "ff6f520247a2d36e2aff7b2ba53a935afd437f66",
+      "model": "${UNIFIED_REWARD_MODEL}",
+      "model_revision": "f14142a59d75cbdf8c0de75aa942f135e4bd3a70",
+      "aggregation": "arithmetic_mean_of_alignment_coherence_style",
+      "dtype": "bfloat16",
+      "batch_size": 1,
+      "max_new_tokens": 4096
+    },
     "image_reward": {
       "source": "${IMAGE_REWARD_MODEL_DIR}/source",
       "checkpoint": "${IMAGE_REWARD_MODEL_DIR}/ImageReward.pt",

@@ -1,0 +1,14 @@
+{
+  "geneval": {
+    "repo": "${GENEVAL_REPO}",
+    "model_dir": "${GENEVAL_MODEL_DIR}",
+    "model_config": "${GENEVAL_MODEL_CONFIG}",
+    "clip_checkpoint": "${GENEVAL_CLIP_MODEL}",
+    "allow_smoke": false
+  },
+  "dpg": {
+    "repo": "${DPG_REPO}",
+    "model_dir": "${DPG_MODEL_DIR}",
+    "allow_smoke": false
+  }
+}

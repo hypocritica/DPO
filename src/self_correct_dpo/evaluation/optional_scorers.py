@@ -4,6 +4,7 @@ Each scorer can run in its own Python environment. No private scoring service,
 download wrapper or replacement reward is used.
 """
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -25,13 +26,31 @@ def validate_spec(metric,spec):
         raise ValueError('Scorer python must be an executable in the chosen project environment')
     if type(spec.get('batch_size',1)) is not int or spec.get('batch_size',1)<1:
         raise ValueError('Scorer batch_size must be positive')
-    if metric=='hpsv3': hps_config(spec)
+    if metric=='hpsv3':
+        hps_config(spec)
+        model = Path(spec['model'])
+        for name in ('config.json', 'preprocessor_config.json', 'tokenizer_config.json', 'tokenizer.json'):
+            if not (model / name).is_file():
+                raise ValueError(f'HPSv3 local Qwen2-VL base is incomplete: {name}')
+        if json.loads((model / 'config.json').read_text()).get('model_type') != 'qwen2_vl':
+            raise ValueError('The pinned official HPSv3 source requires Qwen2-VL-7B-Instruct, not Qwen2.5-VL')
+        index = model / 'model.safetensors.index.json'
+        if index.is_file():
+            shards = set(json.loads(index.read_text()).get('weight_map', {}).values())
+            if not shards or any(not (model / name).resolve().is_relative_to(model.resolve()) or not (model / name).is_file() for name in shards):
+                raise ValueError('HPSv3 Qwen2-VL weight index has missing or invalid shards')
+        elif not (model / 'model.safetensors').is_file():
+            raise ValueError('HPSv3 requires complete local Qwen2-VL base weights')
 
 
 def hps_config(spec):
     import yaml
     config=yaml.safe_load(Path(spec['config']).read_text())
     if not isinstance(config,dict): raise ValueError('HPSv3 configuration must be a YAML mapping')
+    for key, expected in {'rm_head_type': 'ranknet', 'output_dim': 2, 'use_special_tokens': True,
+                          'reward_token': 'special', 'lora_enable': False}.items():
+        if config.get(key) != expected:
+            raise ValueError(f'Official HPSv3 mu protocol requires {key}={expected!r}')
     config['model_name_or_path']=str(Path(spec['model']).resolve(strict=True))
     if type(spec.get('disable_flash_attn2',True)) is not bool:
         raise ValueError('disable_flash_attn2 must be boolean')

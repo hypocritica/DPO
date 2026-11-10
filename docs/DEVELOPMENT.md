@@ -1,5 +1,20 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-11 四模型分阶段评估
+
+在独立 `self_correct_dpo_eval` checkout 新增 `evaluate_suite.py`，提供list/plan/generate/
+score/summarize/gallery。保留原SD1.5/SDXL配置与五指标尺度，接入Flow的SD3.5 Medium /
+Z-Image Base renderer、固定UnifiedReward 2.0 ACS、官方GenEval和DPG。评分只消费完整
+render，不依赖训练目录、adapter或生成模型；输入/权重/代码变化拒绝混用，展示选择不改变
+统计分母。可用多个独立Python环境和已分配GPU分片执行，禁止运行时自动下载。
+
+DPG读取保留全部CSV行，修正固定上游跳过首题的行为，独立记录协议名和分项局限。
+真实固定source准备核验553条GenEval、1065条DPG及14392题；官方函数签名/聚合用CPU
+fixture检查。新增checkpoint/阶段生命周期/评分资产/专项适配测试，旧batch、storage、
+配置及数据检查回归通过；Flow tiny测试使用已有现代环境。没有安装环境、下载模型、
+提交GPU或运行真实完整评分器。SLAI命令及依赖候选集中在command.md第一节。
+不扩大旧AOSS源码白名单，旧输出仍用原checkout恢复，不更新运行中的训练代码。
+
 ## 2026-11-01 独立 checkpoint 评估分支
 
 `feat/checkpoint-benchmark-eval` 基于 `9730dab`，单独 checkout 维护 `evaluate_batch.py` 和 `requirements-eval.txt`。默认九个已选 SD1.5 run，5000/6000/7000/9000 步，五指标与三套可选提示词；旧训练入口、配置、checkpoint 和 AOSS 兼容白名单不变。新分支只用于独立评估，使用新输出目录，不承担旧训练/监控的源码迁移。

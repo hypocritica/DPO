@@ -1,3 +1,247 @@
+## 四模型统一评估：先生成，再评分（2026-11-11）
+
+新入口 `evaluate_suite.py` 支持 SD1.5 / SDXL / SD3.5 Medium / Z-Image Base。
+这部分代码在独立 evaluation checkout 中；旧入口和下文旧实验命令保留。
+完整协议、采样数量与恢复边界见 [UNIFIED_EVALUATION.md](docs/UNIFIED_EVALUATION.md)，
+模型资产见 [EVALUATION_ASSETS.md](docs/EVALUATION_ASSETS.md)，专项评测见
+[COMPOSITIONAL_EVALUATION.md](docs/COMPOSITIONAL_EVALUATION.md)。
+
+以下是交给 SLAI 的命令，没有在本次整理中执行下载、环境安装或 GPU 评测。
+生成/评分命令只应在 SLAI 已分配 GPU 的容器中执行；不需要在那边套用 irip Slurm。
+部署分支为 `feat/unified-evaluation-slai-20261111`；旧分支不包含这个统一入口。
+
+### 0. 同步独立代码目录与私有资源
+
+在 SLAI 克隆独立评估目录，保留已有 `eval` 环境。代码仓库包含源码、配置和文档；
+模型权重、训练run和checkpoint继续通过资源路径读取，不上传GitHub。
+目标目录需尚不存在；已有旧的 `DPO-eval-v1` 可以继续保留。
+
+```bash
+git clone --branch feat/unified-evaluation-slai-20261111 --single-branch \
+  https://github.com/hypocritica/DPO.git \
+  /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+git rev-parse HEAD
+conda activate eval
+python scripts/check_eval_environment.py
+```
+
+根据 SLAI 实际挂载编辑 `configs/resources.local.json`；最少核对 `WORKSPACE`、
+`RUNS_ROOT`、`MODELS_ROOT`、`DATASETS_ROOT`、`EVALUATIONS_ROOT`。
+已有模型用相应资源键指向现有目录，不重复下载。`RUNS_ROOT` 可以包含多层run目录。
+不要用共享环境或运行中的训练环境安装下列依赖。
+
+```bash
+source paths.sh
+df -h "$WORKSPACE" "$MODELS_ROOT" "$DATASETS_ROOT"
+python evaluate_suite.py list --runs-root "$RUNS_ROOT"
+python evaluate_suite.py list --run-glob 'sd15-*' 'sdxl-*'
+python evaluate_suite.py list --families sd35_medium zimage --json
+```
+
+如果资源目录还不存在，先对已有父目录执行 `df -h`。`list` 只需标准库；模型和评分器
+尚未下载也能列出checkpoint。私有资源表可用 `SCD_RESOURCES=/absolute/path/resources.json`
+或各统一入口的 `--resources` 选择。基座路径仍以各run的training.json为准。
+
+### 1. 按需准备环境
+
+SD1.5/SDXL与原五指标继续使用下节已有 `eval` 环境与 `requirements-eval.txt`，无需重建。
+原五指标也可以在这个环境中给SD3.5/Z-Image已经生成的图片评分，不加载新生成模型。
+现代生成环境单独建立；如果已有匹配的Flow环境可直接复用其绝对Python路径。
+以下现代环境采用项目已有 SLAI 5090 runtime pin，HPSv3和UnifiedReward也各自独立：
+
+```bash
+conda create -n scd-eval-flow python=3.10 -y
+conda activate scd-eval-flow
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.14.1+cu130 torchvision==0.29.1+cu130 nvidia-nccl-cu13==2.30.7
+python -m pip install -r requirements-eval-flow.txt
+python -m pip check
+PYTHONPATH=src python -c "from self_correct_dpo.evaluation.render import check_dependencies; print(check_dependencies('zimage', peft=True))"
+
+conda create -n scd-hpsv3 python=3.10 -y
+conda activate scd-hpsv3
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.14.1+cu130 torchvision==0.29.1+cu130 nvidia-nccl-cu13==2.30.7
+DS_BUILD_OPS=0 python -m pip install -r requirements-hpsv3.txt
+python -m pip check
+
+conda create -n scd-unifiedreward python=3.10 -y
+conda activate scd-unifiedreward
+python -m pip install --extra-index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.14.1+cu130 torchvision==0.29.1+cu130 nvidia-nccl-cu13==2.30.7
+python -m pip install -r requirements-unifiedreward.txt
+python -m pip check
+```
+
+GenEval/DPG的下面组合是核验官方依赖来源后的 **H100部署候选**，尚未做实际GPU
+验证；不要将其当作5090可用配方。GenEval使用官方存在的MMCV1.7.2 wheel，区别于
+原论文环境1.7.1，这个环境差异会记录到结果中。不要 `pip install -e .`，以免项目的
+现代torch依赖覆盖旧检测器环境。
+
+```bash
+conda create -n scd-geneval python=3.10 pip=24.0 -y
+conda activate scd-geneval
+python -m pip install torch==2.0.0 torchvision==0.15.1 --index-url https://download.pytorch.org/whl/cu118
+python -m pip install --only-binary=mmcv-full mmcv-full==1.7.2 \
+  -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.0.0/index.html
+python -m pip install -r requirements-geneval.txt
+python -m pip check
+
+conda create -n scd-dpg python=3.10 pip=24.0 -y
+conda activate scd-dpg
+python -m pip install torch==2.0.0 torchvision==0.15.1 --index-url https://download.pytorch.org/whl/cu118
+python -m pip install pip==24.0 setuptools==68.2.2 wheel==0.41.3 Cython==0.29.37 numpy==1.26.4
+python -m pip install --no-build-isolation -r requirements-dpg.txt
+python -m pip check
+```
+
+### 2. 下载缺失资产，准备官方prompt
+
+HF metadata/download脚本需 `huggingface-hub`，可在已有 `eval` 环境运行。
+`list` 不联网，`plan` 仅查小型元数据与空间；只有 `download` 才下载权重。
+HPSv3权重约16.58GB、Qwen2-VL base约16.59GB、UnifiedReward约16.60GB，
+不要将HPSv3误认为只需一个小文件。下载前在SLAI刷新磁盘空间，优先复用缓存。
+
+```bash
+conda activate eval
+source paths.sh
+python scripts/download_assets.py list
+python scripts/download_assets.py plan hpsv3 hpsv3-base unifiedreward
+# 在SLAI确认plan的目标路径及磁盘空间后，仅下载缺失项：
+python scripts/download_assets.py download hpsv3 hpsv3-base unifiedreward
+bash scripts/download_sources.sh hpsv3 "$HPSV3_MODEL_DIR/source"
+bash scripts/download_sources.sh unifiedreward "$UNIFIED_REWARD_SOURCE"
+
+python scripts/download_assets.py plan geneval-detector geneval-clip dpg-mplug
+python scripts/download_assets.py download geneval-detector geneval-clip dpg-mplug
+bash scripts/download_sources.sh geneval "$GENEVAL_REPO"
+bash scripts/download_sources.sh dpg "$DPG_REPO"
+bash scripts/download_sources.sh mmdetection "$MMDETECTION_REPO"
+
+python scripts/prepare_eval_prompts.py --download-sdpo
+python scripts/prepare_compositional_prompts.py --benchmark geneval --out "$BENCHMARKS_ROOT/geneval"
+python scripts/prepare_compositional_prompts.py --benchmark dpg --out "$BENCHMARKS_ROOT/dpg"
+```
+
+已有source目录会拒绝覆盖，核对commit后复用。已有旧五指标缺资源时仍使用下节原下载
+说明（PickScore、HPSv2、CLIP-H/L、aesthetic、ImageReward）；新下载命令不会替它们
+隐式补装。Z-Image Base若缺失可用 `plan zimage` / `download zimage`，不是Turbo。
+HF连接使用实际可用的 `HF_ENDPOINT`；不要关闭TLS验证。
+
+### 3. 固定评估计划
+
+这里示范所有匹配run的最新一个永久checkpoint；实际先用 `list` 精确筛选run名称。
+`plan`不需要评分模型，不做推理。三套旧面板是487/3200/1632条；每个任务的预计图片
+数在输出中列明。不要在很多run上跳过预览就生成所有历史checkpoint。
+
+```bash
+source paths.sh
+SCD_EVAL_OUT="$EVALUATIONS_ROOT/paper-eval-v2"
+python evaluate_suite.py plan --run-glob 'sd15-*' 'sdxl-*' 'sd35-*' 'zimage-*' \
+  --latest 1 --include-base --benchmarks pickv2 hpsv2 partiprompts geneval dpg \
+  --out "$SCD_EVAL_OUT" --dry-run
+python evaluate_suite.py plan --run-glob 'sd15-*' 'sdxl-*' 'sd35-*' 'zimage-*' \
+  --latest 1 --include-base --benchmarks pickv2 hpsv2 partiprompts geneval dpg \
+  --out "$SCD_EVAL_OUT"
+```
+
+可改成 `--steps 5000 7000 9000` 精确选择；或
+`--min-step 4000 --max-step 10000 --every 2000`。新增/删减步骤、换seed或改采样参数
+都使用新 `--out`；正式生图前再次检查冻结计划。默认原表旧模型每prompt1张，新模型
+及GenEval/DPG每prompt4张；旧表改多seed需另一个明确命名的协议版本。
+
+### 4. 只生成图片（无需先下载reward）
+
+```bash
+conda activate eval
+python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd15 sdxl --check-only
+python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd15 sdxl --gpus 0,1
+
+conda activate scd-eval-flow
+python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd35_medium zimage --check-only
+python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd35_medium zimage --gpus 0,1
+```
+
+以上第二条/第四条是将来在已分配GPU内执行的正式生成示例，本次未运行。先用小面板
+smoke验证环境再跑正式计划；本节末尾有小面板准备方式。只有1张卡时去掉 `--gpus`
+并用平台提供的 `CUDA_VISIBLE_DEVICES`；任务中断后原命令恢复，不删图片。
+
+在SLAI任务配置里直接填写启动命令时，可以使用绝对路径，不依赖交互shell变量：
+
+```bash
+exec conda run --no-capture-output -n scd-eval-flow \
+  python /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/evaluate_suite.py generate \
+  --out /mnt/aoss/xietianyu/self_correct/evaluations/paper-eval-v2 \
+  --families sd35_medium zimage --gpus 0,1
+```
+
+将输出路径替换为已检查的实际plan；评分任务同样使用相应环境名和 `score` 子命令。
+
+### 5. 对同一批图片分别评分
+
+各命令在对应环境里运行，因此无需把所有依赖塞进一个环境。也可以在私有scorers /
+compositional配置中设置每项的绝对 `python`，或使用阶段命令的 `--python`。
+每条命令先加 `--check-only` 可检查图片及本地资产；去掉后才实际执行评分。
+
+```bash
+conda activate eval
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --benchmarks pickv2 hpsv2 partiprompts \
+  --metric-group legacy --gpus 0,1
+
+conda activate scd-hpsv3
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --families sd35_medium zimage \
+  --benchmarks pickv2 hpsv2 partiprompts --metrics hpsv3 --gpus 0,1
+
+conda activate scd-unifiedreward
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --families sd35_medium zimage \
+  --benchmarks pickv2 hpsv2 partiprompts --metrics unifiedreward --gpus 0,1
+
+conda activate scd-geneval
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --benchmarks geneval --metrics geneval --gpus 0,1
+
+conda activate scd-dpg
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --benchmarks dpg --metrics dpg --gpus 0,1
+```
+
+HPSv3分数取mu；UnifiedReward列名写 **UnifiedReward 2.0 ACS mean**，保留Alignment /
+Coherence / Style分项。GenEval是专用类别宏平均；DPG修正官方CSV首行读取问题，
+完整评估1065题，协议名 `dpg-complete-csv-four-samples-v1`，不能声称精确复现历史漏题分数。
+所有seed均进入定量结果，不做best-of筛选。
+
+### 6. 汇总、看图和选展示样例
+
+```bash
+python evaluate_suite.py summarize --out "$SCD_EVAL_OUT"
+python evaluate_suite.py summarize --out "$SCD_EVAL_OUT" --benchmarks pickv2 hpsv2 partiprompts \
+  --metric-group legacy --summary-name legacy-table
+python evaluate_suite.py gallery --out "$SCD_EVAL_OUT" --benchmarks partiprompts --limit 200
+# 从第一次gallery的selection.json读取实际scene_id后，做匹配prompt/seed的展示选择：
+python evaluate_suite.py gallery --out "$SCD_EVAL_OUT" --gallery-name selected-v1 \
+  --scene-id REPLACE_WITH_SCENE_ID --seed 17 --limit 32
+```
+
+`summary.csv/json`有完成状态、缺失项和失败原因；未完成时 `summarize` 返回1。
+`galleries/<name>/index.html`按相对路径引用原图，`selection.json`保存完整来源。
+筛选gallery不会删图、改评分或更改样本数；精选展示应说明选样规则，并排比较优先同prompt/seed。
+
+### 7. 首次部署用小面板smoke
+
+只准备数据与配置，下面两步本身不使用GPU。独立smoke输出不能混进正式计划。
+
+```bash
+python scripts/prepare_eval_prompts.py --source-dir "$BENCHMARKS_ROOT/sd15/paper-eval/sources" \
+  --smoke-prompts 2 --out "$BENCHMARKS_ROOT/paper-smoke"
+python evaluate_suite.py plan --run-glob 'REPLACE_WITH_ONE_EXACT_RUN' --steps 0 \
+  --benchmarks pickv2 --prompts-root "$BENCHMARKS_ROOT/paper-smoke" \
+  --seeds 17 29 --out "$EVALUATIONS_ROOT/smoke-rewards-v1"
+```
+
+然后针对该smoke输出执行对应family的generate和各metric的score，一次一个环境。
+GenEval/DPG需另用 `prepare_compositional_prompts.py --smoke-prompts 2` 准备小面板，
+复制suite配置将相应benchmark路径指向小面板，评分私有配置设 `allow_smoke: true`；
+仍保留4个seed。专项结果会标记 `smoke-only`，正式配置拒绝不完整面板。
+
 ## 九个 SD1.5 实验的 checkpoint 五指标评估
 
 使用独立分支 `feat/checkpoint-benchmark-eval` 和独立 checkout `DPO-eval-v1`。不要更新正在训练的目录。完整资产检查、两图 smoke、指标口径、恢复与汇总说明见 [checkpoint 评估文档](docs/CHECKPOINT_EVALUATION.md)。

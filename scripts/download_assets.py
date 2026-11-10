@@ -6,12 +6,15 @@ HF_ENDPOINT can override the default https://hf-mirror.com mirror.
 """
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import sys
 import tarfile
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from self_correct_dpo.common import output_lock
@@ -32,6 +35,8 @@ ASSETS = {
     'sdxl-vae': ('madebyollin/sdxl-vae-fp16-fix', 'model', 'SDXL_VAE', None, ['config.json', 'diffusion_pytorch_model.safetensors']),
     'sd3': ('stabilityai/stable-diffusion-3-medium-diffusers', 'model', 'SD3_MODEL', 'SD3_REVISION', None),
     'sd35': ('stabilityai/stable-diffusion-3.5-medium', 'model', 'SD35_MODEL', 'SD35_REVISION', None),
+    'zimage': ('Tongyi-MAI/Z-Image', 'model', 'ZIMAGE_MODEL', 'ZIMAGE_REVISION', None),
+    'zimage-turbo': ('Tongyi-MAI/Z-Image-Turbo', 'model', 'ZIMAGE_TURBO_MODEL', 'ZIMAGE_TURBO_REVISION', None),
     'pickscore': ('yuvalkirstain/PickScore_v1', 'model', 'PICKSCORE_MODEL', None, ['config.json', 'model.safetensors', 'pytorch_model.bin']),
     'pickscore-processor': ('laion/CLIP-ViT-H-14-laion2B-s32B-b79K', 'model', 'PICKSCORE_PROCESSOR', None,
                            ['*.json', 'vocab.json', 'merges.txt', 'tokenizer.model']),
@@ -40,11 +45,29 @@ ASSETS = {
     'clip-l14': ('openai/clip-vit-large-patch14', 'model', 'AESTHETIC_CLIP_MODEL', None,
                  ['*.json', 'vocab.json', 'merges.txt', 'model.safetensors', 'pytorch_model.bin']),
     'hpsv2': ('xswu/HPSv2', 'model', 'HPSV2_MODEL_DIR', None, ['HPS_v2_compressed.pt']),
-    'hpsv3': ('MizzenAI/HPSv3', 'model', 'HPSV3_MODEL_DIR', None, ['HPSv3.safetensors','config.json']),
-    'hpsv3-base': ('Qwen/Qwen2-VL-7B-Instruct', 'model', 'HPSV3_BASE_MODEL', None, ['*.json','*.safetensors','*.txt','*.model']),
+    'hpsv3': ('MizzenAI/HPSv3', 'model', 'HPSV3_MODEL_DIR', 'HPSV3_REVISION', ['HPSv3.safetensors','config.json']),
+    'hpsv3-base': ('Qwen/Qwen2-VL-7B-Instruct', 'model', 'HPSV3_BASE_MODEL', 'HPSV3_BASE_REVISION', ['*.json','*.safetensors','*.txt','*.model']),
+    'unifiedreward': ('CodeGoat24/UnifiedReward-2.0-qwen-7b', 'model', 'UNIFIED_REWARD_MODEL', 'UNIFIED_REWARD_REVISION',
+                      ['*.json', '*.safetensors', '*.txt', '*.model', 'README.md']),
     'image-reward': ('zai-org/ImageReward', 'model', 'IMAGE_REWARD_MODEL_DIR', None, ['ImageReward.pt','med_config.json']),
     'image-reward-tokenizer': ('google-bert/bert-base-uncased', 'model', 'IMAGE_REWARD_TOKENIZER', None, ['*.json','vocab.txt']),
 }
+
+# Official evaluator assets outside Hugging Face. These are fetched only by an
+# explicit download command; list is offline, plan reads small metadata only.
+URL_ASSETS = {
+    'geneval-detector': {
+        'directory_key': 'GENEVAL_MODEL_DIR',
+        'filename': 'mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.pth',
+        'url': 'https://download.openmmlab.com/mmdetection/v2.0/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco_20220504_001756-743b7d99.pth',
+        'sha256_prefix': '743b7d99'},
+    'geneval-clip': {
+        'file_key': 'GENEVAL_CLIP_MODEL',
+        'url': 'https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt',
+        'sha256_prefix': 'b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836'},
+}
+DPG_REPOSITORY = 'damo/mplug_visual-question-answering_coco_large_en'
+DPG_REVISION = 'v1.0.0'
 
 
 def env_path(name):
@@ -55,6 +78,11 @@ def env_path(name):
 
 
 def destination(asset):
+    if asset in URL_ASSETS:
+        spec = URL_ASSETS[asset]
+        return env_path(spec['file_key']) if 'file_key' in spec else env_path(spec['directory_key']) / spec['filename']
+    if asset == 'dpg-mplug':
+        return env_path('DPG_MODEL_DIR')
     return env_path(ASSETS[asset][2])
 
 
@@ -98,6 +126,10 @@ def select_files(asset, siblings, train_shards=None):
         'image-reward':['ImageReward.pt','med_config.json'],
         'clip-h14':['open_clip_pytorch_model.bin','preprocessor_config.json'],
         'pickscore-processor':['preprocessor_config.json','tokenizer_config.json','vocab.json','merges.txt'],
+        'hpsv3-base':['config.json','preprocessor_config.json','tokenizer_config.json','tokenizer.json',
+                      'model.safetensors.index.json'],
+        'unifiedreward':['config.json','preprocessor_config.json','tokenizer_config.json','tokenizer.json',
+                         'chat_template.json','model.safetensors.index.json'],
     }.get(asset,[])
     if any(name not in files for name in required):
         raise ValueError(f'Missing expected upstream files for {asset}: {required}')
@@ -134,7 +166,7 @@ def plan_asset(asset, *, revision=None, train_shards=None, api=None, out=None):
     previous = json.loads(marker.read_text()) if marker.exists() else None
     if previous and (previous['repo_id'], previous['repo_type']) != (repo, kind):
         raise ValueError(f'Destination belongs to a different repository: {target}')
-    requested = revision or (os.environ.get(revvar, 'main') if revvar else 'main')
+    requested = revision or (os.environ.get(revvar) or DEFAULT_PATHS.get(revvar, 'main') if revvar else 'main')
     # A completed/partial directory remains pinned on rerun even if main moves.
     pinned = previous['revision'] if previous and revision is None else requested
     info = (api or HfApi(endpoint=os.environ['HF_ENDPOINT'])).repo_info(repo, repo_type=kind, revision=pinned, files_metadata=True)
@@ -179,6 +211,117 @@ def download(plan):
             if not (target / name).is_file() or (target / name).stat().st_size != size:
                 raise ValueError(f'Incomplete downloaded file: {name}')
         atomic_json(marker, {**record, 'complete': True})
+
+
+def _free_space(path):
+    ancestor = Path(path)
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    return shutil.disk_usage(ancestor).free
+
+
+def plan_external(asset, *, out=None):
+    """Resolve only public file metadata; never fetch a weight while planning."""
+    target = Path(out).expanduser().resolve() if out else destination(asset)
+    if asset in URL_ASSETS:
+        spec = URL_ASSETS[asset]
+        with urllib.request.urlopen(urllib.request.Request(spec['url'], method='HEAD'), timeout=30) as response:
+            size = response.headers.get('Content-Length')
+        if size is None or int(size) <= 0:
+            raise ValueError('Official server did not report a positive download size; cannot safely plan')
+        plan = {'asset': asset, 'provider': 'official-url', 'destination': str(target.parent),
+                'receipt': str(target.with_name('.' + target.name + '.scd-download.json')),
+                'repo_id': spec['url'], 'repo_type': 'file', 'revision': spec['sha256_prefix'],
+                'files': {target.name: int(size)}, 'urls': {target.name: spec['url']},
+                'sha256_prefixes': {target.name: spec['sha256_prefix']}}
+    elif asset == 'dpg-mplug':
+        query = urllib.parse.urlencode({'Revision': DPG_REVISION, 'Recursive': 'true'})
+        url = f'https://modelscope.cn/api/v1/models/{DPG_REPOSITORY}/repo/files?{query}'
+        with urllib.request.urlopen(url, timeout=30) as response:
+            payload = response.read(4 * 1024**2 + 1)
+        if len(payload) > 4 * 1024**2:
+            raise ValueError('Unexpectedly large ModelScope metadata')
+        data = json.loads(payload)
+        if data.get('Code') != 200 or not data.get('Success'):
+            raise ValueError('ModelScope did not return a successful repository manifest')
+        entries = [entry for entry in data['Data']['Files'] if entry['Type'] == 'blob']
+        files, hashes, urls = {}, {}, {}
+        for entry in entries:
+            name = entry['Path']
+            if Path(name).is_absolute() or '..' in Path(name).parts or not name:
+                raise ValueError('Invalid ModelScope file path')
+            checksum = entry['Sha256']
+            if not isinstance(checksum, str) or len(checksum) != 64 or any(c not in '0123456789abcdef' for c in checksum):
+                raise ValueError(f'ModelScope did not supply SHA256 for {name}')
+            files[name], hashes[name] = entry['Size'], checksum
+            query = urllib.parse.urlencode({'Revision': DPG_REVISION, 'FilePath': name})
+            urls[name] = f'https://modelscope.cn/api/v1/models/{DPG_REPOSITORY}/repo?{query}'
+        required = {'configuration.json', 'config.yaml', 'config_bert.json', 'pytorch_model.bin', 'vocab.txt'}
+        if not required.issubset(files):
+            raise ValueError('ModelScope mPLUG snapshot is missing required inference files')
+        plan = {'asset': asset, 'provider': 'modelscope', 'destination': str(target),
+                'receipt': str(target / '.scd-download.json'), 'repo_id': DPG_REPOSITORY,
+                'repo_type': 'model', 'revision': DPG_REVISION,
+                'files': files, 'urls': urls, 'sha256_prefixes': hashes}
+    else:
+        raise ValueError(f'Unknown external asset: {asset}')
+    directory, receipt = Path(plan['destination']), Path(plan['receipt'])
+    if receipt.is_file():
+        previous = json.loads(receipt.read_text())
+        for key in ('repo_id', 'revision', 'files', 'sha256_prefixes'):
+            if previous.get(key) != plan[key]:
+                raise ValueError(f'Asset identity changed; choose a fresh output: {directory}')
+    elif asset == 'dpg-mplug' and directory.exists() and any(directory.iterdir()):
+        raise ValueError('Nonempty mPLUG destination has no download receipt; reuse via explicit resource override or choose a fresh --out')
+    plan.update(selected_bytes=sum(plan['files'].values()),
+                remaining_bytes=sum(size for name, size in plan['files'].items()
+                                    if not (directory / name).is_file() or (directory / name).stat().st_size != size),
+                free_bytes=_free_space(directory))
+    return plan
+
+
+def download_external(plan):
+    """Stream to temporary files and verify official hashes before publication."""
+    from self_correct_dpo.common import sha256
+    directory, receipt = Path(plan['destination']), Path(plan['receipt'])
+    if _free_space(directory) < plan['remaining_bytes'] + 2 * 1024**3:
+        raise RuntimeError('Insufficient download space plus 2 GiB margin')
+    with output_lock(receipt):
+        directory.mkdir(parents=True, exist_ok=True)
+        if receipt.exists():
+            previous = json.loads(receipt.read_text())
+            if any(previous.get(key) != plan[key] for key in ('repo_id', 'revision', 'files', 'sha256_prefixes')):
+                raise ValueError('Download identity changed after planning')
+        atomic_json(receipt, {**plan, 'complete': False})
+        verified = {}
+        for name, size in plan['files'].items():
+            target = directory / name
+            if not target.resolve().is_relative_to(directory.resolve()):
+                raise ValueError('Download destination escaped the asset directory')
+            expected = plan['sha256_prefixes'][name]
+            if target.exists():
+                checksum = sha256(target)
+                if target.stat().st_size != size or not checksum.startswith(expected):
+                    raise ValueError(f'Existing asset differs; refusing to overwrite {target}')
+                verified[name] = checksum
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name('.' + target.name + '.scd-partial')
+            digest, total = hashlib.sha256(), 0
+            with urllib.request.urlopen(plan['urls'][name], timeout=60) as response, temporary.open('wb') as handle:
+                while block := response.read(1024 * 1024):
+                    total += len(block)
+                    if total > size:
+                        raise ValueError(f'Download exceeded planned size: {name}')
+                    digest.update(block)
+                    handle.write(block)
+            if total != size or not digest.hexdigest().startswith(expected):
+                raise ValueError(f'Download size/SHA256 mismatch: {name}; partial file retained')
+            if target.exists():
+                raise FileExistsError(f'Asset appeared while downloading: {target}')
+            temporary.replace(target)
+            verified[name] = digest.hexdigest()
+        atomic_json(receipt, {**plan, 'complete': True, 'verified_sha256': verified})
 
 
 def checked_members(tar, prefix):
@@ -279,11 +422,14 @@ def main():
     p.add_argument('--revision', help='Override a single asset revision on first download')
     p.add_argument('--train-shards', type=int, help='Pick-a-Pic train shard subset; recorded as a new dataset version')
     a = p.parse_args()
-    if any(name not in ASSETS for name in a.assets):p.error('Unknown asset; use list')
+    if any(name not in {*ASSETS, *URL_ASSETS, 'dpg-mplug'} for name in a.assets):p.error('Unknown asset; use list')
     if a.out and len(a.assets)>1:p.error('--out accepts one asset at a time')
     if a.action == 'list':
         for name, spec in ASSETS.items():
             print(name, spec[0], destination(name))
+        for name, spec in URL_ASSETS.items():
+            print(name, spec['url'], destination(name))
+        print('dpg-mplug', 'ModelScope:' + DPG_REPOSITORY + '@' + DPG_REVISION, destination('dpg-mplug'))
         return
     if a.action == 'extract-hpdv2':
         extract_hpdv2(a.out)
@@ -296,10 +442,14 @@ def main():
     if a.train_shards is not None and (a.train_shards < 1 or 'pickapic-v2' not in a.assets):
         p.error('--train-shards must be positive and used with pickapic-v2')
     for asset in a.assets:
-        plan = plan_asset(asset, revision=a.revision, train_shards=a.train_shards if asset == 'pickapic-v2' else None,out=a.out)
-        print(json.dumps({k:v for k,v in plan.items() if k != 'files'}, indent=2), flush=True)
+        external = asset in URL_ASSETS or asset == 'dpg-mplug'
+        if external and a.revision:
+            p.error('External evaluator assets use fixed official revisions/checksums')
+        plan = plan_external(asset, out=a.out) if external else plan_asset(asset, revision=a.revision,
+            train_shards=a.train_shards if asset == 'pickapic-v2' else None,out=a.out)
+        print(json.dumps({k:v for k,v in plan.items() if k not in ('files', 'urls', 'sha256_prefixes')}, indent=2), flush=True)
         if a.action == 'download':
-            download(plan)
+            (download_external if external else download)(plan)
 
 
 if __name__ == '__main__':

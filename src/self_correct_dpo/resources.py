@@ -27,6 +27,10 @@ def load_resources(path=None):
         names = [m.group('named') or m.group('braced') for m in Template.pattern.finditer(value)
                  if m.group('named') or m.group('braced')]
         value = Template(value).substitute({name: resolve(name, active + (key,)) for name in names})
+        # Revisions/repository IDs are metadata, not filesystem destinations.
+        if key.endswith(('_REVISION', '_REPO_ID')):
+            resolved[key] = value
+            return value
         target = Path(os.path.expanduser(value))
         resolved[key] = str((target if target.is_absolute() else registry.parent / target).resolve())
         return resolved[key]

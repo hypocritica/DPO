@@ -22,10 +22,42 @@ def aggregate(rows):
         by_prompt[(row['scene_id'],row['variant_id'])].append(float(row['score']))
         by_tag[row['tag']].append(float(row['score']))
     means = [statistics.mean(values) for values in by_prompt.values()]
-    return {'mean':statistics.mean(float(r['score']) for r in rows),
+    result = {'mean':statistics.mean(float(r['score']) for r in rows),
             'prompt_mean':statistics.mean(means), 'images':len(rows), 'prompts':len(means),
             'prompt_standard_error':statistics.stdev(means)/math.sqrt(len(means)) if len(means)>1 else 0.,
             'by_category':{tag:{'mean':statistics.mean(values),'images':len(values)} for tag,values in by_tag.items()}}
+    if any('components' in row for row in rows):
+        keys = set(rows[0].get('components', {}))
+        if not keys or any(set(row.get('components', {})) != keys for row in rows):
+            raise ValueError('Inconsistent structured reward components')
+        result['components'] = {key: statistics.mean(float(row['components'][key]) for row in rows)
+                                for key in sorted(keys)}
+        result['aggregation'] = rows[0]['aggregation']
+    return result
+
+
+def score_value(value, metric):
+    """Preserve UnifiedReward judgments; invalid model output is never a zero."""
+    if not isinstance(value, dict):
+        if metric == 'unifiedreward':
+            raise ValueError('UnifiedReward must retain its three component judgments')
+        score = float(value)
+        if not math.isfinite(score):
+            raise FloatingPointError('Scorer returned a nonfinite value')
+        return score, {}
+    if metric != 'unifiedreward':
+        raise ValueError('Unexpected structured reward')
+    components = value.get('components', {})
+    if set(components) != {'alignment', 'coherence', 'style'}:
+        raise ValueError('UnifiedReward requires alignment, coherence and style')
+    if any(not math.isfinite(float(v)) or not 1 <= float(v) <= 5 for v in components.values()):
+        raise ValueError('UnifiedReward component outside [1, 5]')
+    score = float(value['score'])
+    if not math.isfinite(score) or not math.isclose(score, statistics.mean(components.values()), rel_tol=1e-7):
+        raise ValueError('UnifiedReward score differs from the declared component mean')
+    if value.get('aggregation') != 'arithmetic_mean_of_alignment_coherence_style' or not isinstance(value.get('raw_output'), str):
+        raise ValueError('Missing UnifiedReward aggregation or raw judgment')
+    return score, {k: value[k] for k in ('components', 'raw_output', 'aggregation')}
 
 
 def _score_panel(run_dir, out, metric, spec, *, batch_size=8, execution=None, scorer_factory=None, asset_id=None):
@@ -36,7 +68,8 @@ def _score_panel(run_dir, out, metric, spec, *, batch_size=8, execution=None, sc
     assets = asset_id if asset_id is not None else scorer_identity(metric, spec)
     versions = {}
     for name in ('torch','transformers','Pillow','torchvision','timm',*({'hpsv3':('hpsv3','trl','qwen-vl-utils'),
-                 'image_reward':('image-reward','fairscale')}.get(metric,()))):
+                 'image_reward':('image-reward','fairscale'),
+                 'unifiedreward':('qwen-vl-utils','accelerate')}.get(metric,()))):
         try: versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError: versions[name] = 'missing'
     identity = {'run_id':run['run_id'], 'manifest_sha256':sha256(run_dir/'manifest.jsonl'),
@@ -65,11 +98,14 @@ def _score_panel(run_dir, out, metric, spec, *, batch_size=8, execution=None, sc
     for row in rows:
         key = (row['scene_id'],row['variant_id'],row['seed'])
         record_id = row.get('record_id')
-        if key not in expected or key in seen or record_id != digest({k:v for k,v in row.items() if k!='record_id'}):
+        if (key not in expected or key in seen or record_id != digest({k:v for k,v in row.items() if k!='record_id'})
+                or row.get('metric') != metric or row.get('evaluation_id') != meta['evaluation_id']):
             raise ValueError('Invalid or duplicate committed score')
         source = expected[key]
         if row['prompt'] != source['prompt'] or row['image_sha256'] != source['image_sha256'] or not math.isfinite(float(row['score'])):
             raise ValueError('Score/image identity changed')
+        if metric == 'unifiedreward':
+            score_value(row, metric)
         seen.add(key)
     remaining = [r for r in panel if (r['scene_id'],r['variant_id'],r['seed']) not in seen]
     if remaining:
@@ -87,11 +123,12 @@ def _score_panel(run_dir, out, metric, spec, *, batch_size=8, execution=None, sc
                     with Image.open(run_dir/row['image']) as im:
                         images.append(ImageOps.exif_transpose(im).convert('RGB'))
                 values = scorer(images,[r['prompt'] for r in batch])
-                if len(values) != len(batch) or any(not math.isfinite(float(v)) for v in values):
+                if len(values) != len(batch):
                     raise FloatingPointError('Scorer returned missing or nonfinite values')
                 for row,value in zip(batch,values):
+                    numeric, details = score_value(value, metric)
                     result = {k:row[k] for k in ('scene_id','variant_id','seed','prompt','tag','image_sha256')}
-                    result.update(score=float(value),metric=metric,evaluation_id=meta['evaluation_id'])
+                    result.update(score=numeric,metric=metric,evaluation_id=meta['evaluation_id'], **details)
                     result['record_id'] = digest(result)
                     f.write(json.dumps(result,allow_nan=False)+'\n')
                     rows.append(result)
@@ -117,8 +154,15 @@ def main():
     p.add_argument('--batch-size',type=int,help='Override scorer batch_size (default 8; optional large scorers use 1)')
     p.add_argument('--execution',choices=['slurm','standalone'],default='slurm')
     p.add_argument('--run-label')
+    p.add_argument('--check-only', action='store_true', help='Validate images and local assets without loading the scorer')
     a=p.parse_args()
     spec=load_config(a.scorers_config,scorers=[a.metric])['scorers'][a.metric]
+    if a.check_only:
+        run, panel = verify_images(a.run)
+        identity = scorer_identity(a.metric, spec)
+        print(json.dumps({'metric': a.metric, 'images': len(panel), 'run_id': run['run_id'],
+                          'scorer': identity, 'gpu_inference_checked': False}))
+        return
     print(json.dumps(score_panel(a.run,a.out,a.metric,spec,batch_size=a.batch_size if a.batch_size is not None else spec.get('batch_size',8),
         execution={'mode':a.execution,'run_label':a.run_label})))
 

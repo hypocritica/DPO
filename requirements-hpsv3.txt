@@ -1,11 +1,11 @@
 # Dependencies for a SEPARATE HPSv3 Python 3.10 environment, not the training env.
 # Install GPU-compatible torch/torchvision first, then:
-# python -m pip install -r requirements-hpsv3.txt -e "$HPSV3_SOURCE"
+# python -m pip install -r requirements-hpsv3.txt
+# Source is imported from configs/scorers.json; no editable or PyPI hpsv3 install.
 # Official source revision: bd0c5fcb5f587617b0169c07222ab78d01e2f3c2
 # Core pins follow the official environment.yaml; torch/torchvision use your GPU build.
 # Upstream's pyproject omits plotting/logging imports; include them here.
 # Not installed or GPU-validated here.
-hpsv3==1.0.0
 transformers==4.45.2
 peft==0.10.0
 trl==0.8.6

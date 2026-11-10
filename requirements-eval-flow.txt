@@ -1,0 +1,21 @@
+# Separate generation environment for SD3.5 Medium / Z-Image Base, Python 3.10.
+# Use the existing SLAI CUDA runtime; do not install over the SD1.5/SDXL eval env.
+# These model APIs match the project Flow environment and tiny CPU checks.
+# Full-model GPU generation still requires a smoke test in an allocation.
+# Run entrypoints with PYTHONPATH=src; do not pip install the legacy pyproject.
+# Install the platform's verified torch/torchvision first (the SLAI reference is
+# torch==2.14.1+cu130, torchvision==0.29.1+cu130, nvidia-nccl-cu13==2.30.7).
+# Reward scoring stays in its scorer-specific environment.
+diffusers==0.37.1
+transformers==4.57.1
+peft==0.17.1
+accelerate==1.14.0
+huggingface-hub==0.36.0
+safetensors==0.7.0
+sentencepiece==0.2.1
+tokenizers==0.22.2
+numpy==1.26.4
+Pillow==10.4.0
+protobuf==5.29.5
+packaging==25.0
+PyYAML==6.0.2
