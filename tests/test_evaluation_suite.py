@@ -103,6 +103,49 @@ class EvaluationSuiteTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'snapshot checksum'):
             read_plan(self.out)
 
+    def test_prompt_scope_provenance_is_verified_and_frozen(self):
+        selection = {'mode': 'smoke-only', 'smoke_prompts': 2, 'repository': 'official-fixture',
+                     'revision': 'fixed-fixture', 'panels': {
+                         'pickv2': {'sha256': sha256(self.prompts), 'prompts': 2, 'source_prompts': 487}}}
+        self.write(self.prompts.parent / 'selection.json', selection)
+        plan = make_plan(self.plan_args)
+        panel = plan['panels']['pickv2']
+        self.assertEqual(panel['mode'], 'smoke-only')
+        self.assertEqual(panel['provenance']['status'], 'selection-verified')
+        self.assertEqual(panel['provenance']['selection'], selection)
+        (self.prompts.parent / 'selection.json').unlink()
+        self.prompts.unlink()
+        self.assertEqual(read_plan(self.out)[0]['panels']['pickv2'], panel)
+
+    def test_prompt_provenance_rejects_stale_hash_or_count_and_marks_custom(self):
+        custom = make_plan(parse_args(['plan', '--config', str(self.config), '--runs-root', str(self.runs),
+            '--steps', '1000', '--benchmarks', 'pickv2', '--out', str(self.out), '--dry-run']))
+        self.assertEqual(custom['panels']['pickv2']['mode'], 'custom-unverified')
+        self.assertEqual(custom['panels']['pickv2']['provenance']['status'], 'unverified')
+        selection = {'mode': 'full-benchmark', 'panels': {
+            'pickv2': {'sha256': '0' * 64, 'prompts': 2}}}
+        path = self.prompts.parent / 'selection.json'
+        self.write(path, selection)
+        with self.assertRaisesRegex(ValueError, 'selection hash/count'):
+            make_plan(self.plan_args)
+        selection['panels']['pickv2'].update(sha256=sha256(self.prompts), prompts=487)
+        self.write(path, selection)
+        with self.assertRaisesRegex(ValueError, 'selection hash/count'):
+            make_plan(self.plan_args)
+        self.assertFalse(self.out.exists())
+
+    def test_compositional_selection_schema_preserves_scope(self):
+        from self_correct_dpo.evaluation.suite import panel_provenance
+        # Compositional preparation uses one suite.jsonl and a single-panel manifest.
+        selection = {'benchmark': 'geneval', 'suite_sha256': sha256(self.prompts),
+                     'prompts': 2, 'mode': 'smoke-only', 'source': {'revision': 'fixed-official-fixture'}}
+        self.write(self.prompts.parent / 'selection.json', selection)
+        info = panel_provenance(self.prompts, 'geneval', sha256(self.prompts), 2)
+        self.assertEqual(info['mode'], 'smoke-only')
+        self.assertEqual(info['provenance']['selection']['source'], selection['source'])
+        with self.assertRaisesRegex(ValueError, 'benchmark/mode mismatch'):
+            panel_provenance(self.prompts, 'dpg', sha256(self.prompts), 2)
+
     def test_step_selection_base_latest_and_missing(self):
         self.assertEqual(selected_steps([0, 1000, 2000, 3000], every=1000, latest=2, base=True), [0, 2000, 3000])
         with self.assertRaisesRegex(ValueError, 'missing'):

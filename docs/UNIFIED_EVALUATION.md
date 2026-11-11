@@ -6,6 +6,11 @@
 
 ## 从很多 checkpoint 中选择
 
+推荐使用 `catalog` 从当前多个 runs 根目录导入登记表，明确方法和精确步数，然后
+`plan --catalog ... --methods ...`。登记模式默认五面板，按训练语义核对方法，拒绝
+重复候选和缺失步数。步骤见 [论文评估操作主线](PAPER_EVALUATION_WORKFLOW.md)。
+以下不带catalog的旧选择方式继续可用；默认仍为三套偏好面板。
+
 `list` 递归发现指定 runs 目录中的 `training.json` 和已发布的
 `checkpoints/step-N/checkpoint.json`。可用 `--run-glob` 筛选 run 相对路径或目录名，
 用 `--families` 筛选模型。列表读取小型元数据，不加载 PyTorch、生成模型或 reward，
@@ -16,8 +21,8 @@
 - 指定 `--steps`：必须全部存在，缺步数立即报错，绝不以 latest 替代。
 - 区间 `--min-step` / `--max-step`，可叠加 `--every`（整除步数）和 `--latest N`。
 - 没有 step 过滤时枚举全部永久快照；务必先看 `--dry-run` 的图片总量。
-- `--include-base` 为每个选中的 run 加 step 0 的未微调模型；相同基座若在多个 run
-  下重复出现，会重复生成。需要节省这部分计算时单独选择一个 run 生成基座。
+- `--include-base` 加 step 0 的未微调模型，按完整模型身份去重；Base 独立于训练run。
+  catalog模式也可显式选择 `--methods base`，仅凭models即可规划Base。
 
 只读目录中未提交的 pending、rolling 槽和 `latest.json` 均不参与选择。
 正式生成前再次核验 training/manifest 身份以及 checkpoint 文件 SHA256。
@@ -38,7 +43,7 @@ PickScore、ImageReward、CLIP、Aesthetic。GenEval 和 DPG 面板默认仅运�
 evaluator。`--metrics` 可指定一项或多项；专用 evaluator 拒绝错误的 prompt 面板。
 `--metric-group legacy` 可以让新模型的三套偏好面板也生成原表五指标。
 
-`generate`、`score` 均支持按 family/run/step/benchmark 筛选已冻结计划。
+`generate`、`score` 均支持按 family/method/run/step/benchmark 筛选已冻结计划。
 `--gpus` 仅使用 SLAI 已分配且在 `CUDA_VISIBLE_DEVICES` 中的设备，一卡一个独立
 worker，按生成任务或评分任务分片；不发起平台资源申请。也可手工使用
 `--shard-index` / `--shard-count`。多个 scorer 不会在单 worker 内同时驻留显存。
@@ -93,6 +98,8 @@ evaluation-tag/
   summary.csv / summary.json
   galleries/<name>/index.html
   galleries/<name>/selection.json
+  galleries/<name>/images/*.png  # --copy-images时的原图副本
+  paper/<name>/                 # export_paper.py: CSV/JSON/LaTeX/Markdown及hash
 ```
 
 重复完全相同的命令可恢复，已完成图片/评分会验证后复用。输入、权重、评分模型、
@@ -110,11 +117,16 @@ pending，真实失败有error，不会当作0。只要选定表格未完整，�
 `gallery` 生成本地HTML预览；同一prompt/seed的多个run/checkpoint排在一起。
 可用 `--scene-id`、`--seed` 选择展示候选，并在 `selection.json` 保存来源。
 HTML按相对路径引用原图；在SLAI查看或传输HTML时需保持相应图片目录可访问。
+`--copy-images`可复制所选原图，整个gallery目录可独立搬走；方法和checkpoint来源写入selection。
 默认最多200图，预览数量不影响评分数量。变更展示选择使用新gallery name。
 
 可以挑好看的图片用于展示，但所有预定样本仍必须进入定量结果；不将best-of-4
 与随机单图结果比较。并排比较方法时优先固定相同prompt和seed，展示精选样例时
 说明选择规则。不要删掉失败样例来提高统计分数。
+
+`export_paper.py --out ... --paper-name main-v1`验证已完成评分并导出论文表，默认拒绝
+不完整结果；草稿显式用`--allow-incomplete`并返回非零状态。不同prompt/采样/评分协议
+分表，保留原始尺度、样本数、标准误及来源，不自动选择最优checkpoint。
 
 ## 资产与部署边界
 

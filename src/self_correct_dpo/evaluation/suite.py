@@ -21,6 +21,8 @@ from self_correct_dpo.config import load_config
 from self_correct_dpo.resources import CONFIG_DIR, load_resources
 from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.evaluation.runner import run_command
+from self_correct_dpo.evaluation.experiment_catalog import (METHODS, base_record, discover_roots,
+                                                          draft_catalog, load_catalog, model_spec, roots_from_args)
 
 FAMILIES = ('sd15', 'sdxl', 'sd35_medium', 'zimage')
 PANELS = ('pickv2', 'hpsv2', 'partiprompts', 'geneval', 'dpg')
@@ -63,15 +65,50 @@ def selected_steps(available, *, steps=None, latest=None, every=None, minimum=1,
     return chosen
 
 
+def panel_provenance(source, name, checksum, count):
+    """Freeze prepared-panel scope only after checking its current bytes/count."""
+    selection_path = Path(source).parent / 'selection.json'
+    if not selection_path.is_file():
+        return {'mode': 'custom-unverified',
+                'provenance': {'status': 'unverified', 'reason': 'No adjacent selection.json'}}
+    import hashlib
+    payload = selection_path.read_bytes()
+    try:
+        selection = json.loads(payload)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError(f'Invalid prompt selection provenance: {selection_path}') from error
+    if not isinstance(selection, dict):
+        raise ValueError(f'Invalid prompt selection provenance: {selection_path}')
+    if 'panels' in selection:
+        panel = selection['panels'].get(name) if isinstance(selection['panels'], dict) else None
+        valid = isinstance(panel, dict) and panel.get('sha256') == checksum and panel.get('prompts') == count
+    else:
+        valid = (selection.get('benchmark') == name and selection.get('suite_sha256') == checksum
+                 and selection.get('prompts') == count)
+    mode = selection.get('mode')
+    if not valid or mode not in ('full-benchmark', 'smoke-only'):
+        raise ValueError(f'Prompt selection hash/count/benchmark/mode mismatch: {selection_path}')
+    return {'mode': mode, 'provenance': {'status': 'selection-verified',
+            'selection_path': str(selection_path), 'selection_sha256': hashlib.sha256(payload).hexdigest(),
+            'selection': selection}}
+
+
 def make_plan(args):
-    from self_correct_dpo.evaluation.checkpoint_catalog import discover_runs
     registry = load_resources(args.resources)
-    root = Path(args.runs_root or registry['RUNS_ROOT']).expanduser().resolve()
+    catalog = None
+    if args.catalog:
+        methods = args.methods
+        if args.include_base and methods and 'base' not in methods:
+            methods = [*methods, 'base']
+        runs, roots, catalog = load_catalog(args.catalog, registry, families=args.families,
+                                           methods=methods, patterns=args.run_glob)
+    else:
+        roots = roots_from_args(args.runs_root, registry)
+        runs = discover_roots(roots, patterns=args.run_glob, families=args.families)
     out = Path(args.out).expanduser().resolve()
-    if out == root or out.is_relative_to(root) or root.is_relative_to(out):
+    if any(out == root or out.is_relative_to(root) or root.is_relative_to(out) for root in roots):
         raise ValueError('Evaluation output must be separate from the training runs tree')
     config = load_config(args.config, benchmarks=args.benchmarks, resources=args.resources)
-    runs = discover_runs(root, patterns=args.run_glob, families=args.families)
     if not runs:
         raise ValueError('No matching training runs; inspect the list command first')
     panels = {}
@@ -81,16 +118,27 @@ def make_plan(args):
         rows = load_suite(source)
         panels[name] = {'source': str(source), 'snapshot': f'prompts/{name}.jsonl',
                         'sha256': sha256(source), 'prompts': len(rows)}
-    tasks = []
+        panels[name].update(panel_provenance(source, name, panels[name]['sha256'], len(rows)))
+    tasks, bases = [], set()
     for run in runs:
         checkpoints = {r['step']: r for r in run['checkpoints']}
-        steps = selected_steps(run['steps'], steps=args.steps, latest=args.latest, every=args.every,
-                               minimum=args.min_step, maximum=args.max_step, base=args.include_base)
+        steps = (run.get('selected_steps', run['steps']) if args.catalog else
+                 selected_steps(run['steps'], steps=args.steps, latest=args.latest, every=args.every,
+                                minimum=args.min_step, maximum=args.max_step, base=args.include_base))
         for step in steps:
-            saved = checkpoints.get(step)
-            identity = {'training_sha256': run['training_sha256'], 'run_id': run['run_id'], 'step': step,
-                        'checkpoint_id': saved['checkpoint_id'] if step else 'base',
-                        'checkpoint_sha256': sha256(Path(saved['path']) / 'checkpoint.json') if step else None}
+            chosen = run
+            if step == 0:
+                key = digest(model_spec(run['model']))
+                if key in bases:
+                    continue
+                bases.add(key)
+                chosen = run if 'base_identity' in run else base_record(run['model'])
+                identity = chosen['base_identity']
+            else:
+                saved = checkpoints[step]
+                identity = {'training_sha256': run['training_sha256'], 'run_id': run['run_id'], 'step': step,
+                            'checkpoint_id': saved['checkpoint_id'],
+                            'checkpoint_sha256': sha256(Path(saved['path']) / 'checkpoint.json')}
             for panel, info in panels.items():
                 sampling = copy.deepcopy(config['protocols'][run['family']])
                 if panel in config.get('benchmark_seeds', {}):
@@ -102,12 +150,19 @@ def make_plan(args):
                     raise ValueError('Seeds must be distinct nonnegative integers')
                 if panel in COMPOSITIONAL and len(seeds) != 4:
                     raise ValueError(f'{panel} requires four fixed seeds per prompt')
-                relative = str(Path(run['name']) / f'step-{step:07d}' / panel)
+                relative = str(Path(chosen['name']) / f'step-{step:07d}' / panel)
                 safe_target(out, relative)
-                task = {'run': run['name'], 'run_path': run['path'], 'family': run['family'], 'step': step,
-                        'model': run['model'], 'checkpoint': identity, 'benchmark': panel,
+                task = {'run': chosen['name'], 'run_path': chosen['path'], 'family': chosen['family'], 'step': step,
+                        'method': chosen.get('method', 'unregistered'),
+                        'method_label': chosen.get('method_label', 'Unregistered'),
+                        'experiment_id': chosen.get('experiment_id', chosen['name']),
+                        'model': chosen['model'], 'checkpoint': identity, 'benchmark': panel,
                         'sampling': sampling, 'prompts': info['prompts'], 'images': info['prompts'] * len(seeds),
                         'output': relative}
+                if chosen.get('model_audit'):
+                    task['model_audit'] = chosen['model_audit']
+                if chosen.get('method_config'):
+                    task['method_config'] = chosen['method_config']
                 task['task_id'] = digest(task)
                 tasks.append(task)
     if not tasks:
@@ -118,7 +173,8 @@ def make_plan(args):
     comp = Path(config.get('compositional_config', 'compositional.json'))
     if not comp.is_absolute():
         comp = Path(args.config).resolve().parent / comp
-    plan = {'version': 1, 'runs_root': str(root), 'resources': str(Path(args.resources).resolve()) if args.resources else None,
+    plan = {'version': 1, 'runs_root': str(roots[0]) if len(roots) == 1 else None,
+            'runs_roots': [str(root) for root in roots], 'catalog': catalog, 'resources': str(Path(args.resources).resolve()) if args.resources else None,
             'config_sha256': sha256(args.config), 'panels': panels, 'tasks': tasks,
             'scorers_config': config['scorers_config'], 'compositional_config': str(comp.resolve()),
             'metric_groups': config['metric_groups'], 'all_scheduled_samples_required': True}
@@ -160,6 +216,7 @@ def read_plan(out):
 def filter_tasks(plan, args):
     return [t for t in plan['tasks'] if
             (not args.families or t['family'] in args.families) and
+            (not getattr(args, 'methods', None) or t.get('method') in args.methods) and
             (not args.run_glob or any(fnmatch.fnmatchcase(t['run'], p) or fnmatch.fnmatchcase(Path(t['run']).name, p)
                                      for p in args.run_glob)) and
             (not args.steps or t['step'] in args.steps) and
@@ -189,9 +246,15 @@ def execution_flags(args):
 
 def generate_task(task, plan, out, args, command_runner=run_command):
     from self_correct_dpo.evaluation.checkpoint_catalog import resolve_checkpoint
-    model, adapter, identity = resolve_checkpoint(task['run_path'], task['step'])
-    if model != task['model'] or any(identity.get(k) != v for k, v in task['checkpoint'].items()):
-        raise ValueError('Training run or checkpoint changed after planning')
+    if task['step'] == 0 and 'base_model_id' in task['checkpoint']:
+        model, adapter = task['model'], None
+        identity = task['checkpoint']
+        if identity['base_model_id'] != digest(model):
+            raise ValueError('Base model identity differs from the frozen plan')
+    else:
+        model, adapter, identity = resolve_checkpoint(task['run_path'], task['step'])
+        if model != task['model'] or any(identity.get(k) != v for k, v in task['checkpoint'].items()):
+            raise ValueError('Training run or checkpoint changed after planning')
     target = safe_target(out, task['output'])
     config = {'model': model, 'sampling': task['sampling']}
     arm = 'base'
@@ -310,6 +373,7 @@ def summarize(plan, out, args):
     rows = []
     for task in filter_tasks(plan, args):
         row = {k: task[k] for k in ('run', 'family', 'step', 'benchmark', 'prompts', 'images')}
+        row.update({k: task.get(k, '') for k in ('experiment_id', 'method', 'method_label')})
         row.update(seeds=','.join(map(str, task['sampling']['seeds'])), status='pending_generation', error='',
                    output=str(safe_target(out, task['output'])))
         try:
@@ -429,19 +493,26 @@ def launch_workers(args, argv):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('list', 'plan', 'generate', 'score', 'summarize', 'gallery'):
+    for name in ('list', 'catalog', 'plan', 'generate', 'score', 'summarize', 'gallery'):
         p = commands.add_parser(name)
         p.add_argument('--resources', help='SLAI resource registry (also inherited by subprocesses)')
         p.add_argument('--run-glob', nargs='+', help='Quoted run paths/globs relative to runs root')
         p.add_argument('--families', nargs='+', choices=FAMILIES)
-        if name in ('list', 'plan'):
-            p.add_argument('--runs-root')
+        if name != 'catalog':
+            p.add_argument('--methods', nargs='+', choices=tuple(METHODS), help='Explicit catalog methods; never inferred from run names')
+        if name in ('list', 'catalog', 'plan'):
+            p.add_argument('--runs-root', nargs='+', help='One or more read-only training roots')
+            if name != 'catalog':
+                p.add_argument('--catalog', help='Explicit models/methods/runs/exact-steps JSON registry')
         if name == 'list':
             p.add_argument('--json', action='store_true', help='Full metadata instead of a compact checkpoint table')
-        if name != 'list':
+        if name == 'catalog':
+            p.add_argument('--out', required=True, help='New experiment catalog JSON file to review')
+            p.add_argument('--dry-run', action='store_true', help='Print the imported draft; write nothing')
+        if name not in ('list', 'catalog'):
             p.add_argument('--out', required=True, help='Independent evaluation directory containing plan.json')
             p.add_argument('--steps', nargs='+', type=int)
-            p.add_argument('--benchmarks', nargs='+', choices=PANELS, default=list(PANELS[:3]) if name == 'plan' else None)
+            p.add_argument('--benchmarks', nargs='+', choices=PANELS, default=None)
         if name == 'plan':
             p.add_argument('--config', default=str(CONFIG_DIR / 'evaluation-suite.json'))
             p.add_argument('--prompts-root', help='Directory containing selected {benchmark}.jsonl files')
@@ -471,11 +542,22 @@ def parse_args(argv=None):
             p.add_argument('--summary-name', default='summary', help='Separate names for different metric/filter tables')
         if name == 'gallery':
             p.add_argument('--gallery-name', default='gallery')
+            p.add_argument('--copy-images', action='store_true', help='Copy selected originals for a portable gallery')
             p.add_argument('--limit', type=int, default=200, help='Maximum images in HTML (never affects evaluation)')
             p.add_argument('--scene-id', nargs='+', help='Choose specific prompt IDs for matched qualitative panels')
             p.add_argument('--seed', type=int, nargs='+')
     args = parser.parse_args(argv)
+    if args.command in ('list', 'plan'):
+        if args.catalog and args.runs_root:
+            parser.error('--catalog declares its own runs_roots; do not pass --runs-root')
+        if args.methods and not args.catalog:
+            parser.error('--methods requires --catalog for list/plan')
     if args.command == 'plan':
+        if args.benchmarks is None:
+            args.benchmarks = list(PANELS if args.catalog else PANELS[:3])
+        if args.catalog and (args.steps is not None or args.latest is not None or args.every is not None
+                             or args.min_step != 1 or args.max_step is not None):
+            parser.error('--catalog supplies exact per-experiment steps; edit the catalog instead of step filters')
         if args.steps is not None and (args.latest is not None or args.every is not None or args.min_step != 1 or args.max_step is not None):
             parser.error('Use explicit --steps OR interval/latest filters')
         if any(v is not None and v <= 0 for v in (args.latest, args.every)):
@@ -487,7 +569,7 @@ def parse_args(argv=None):
             parser.error('Invalid worker shard')
         if args.gpus and (args.shard_count != 1 or args.shard_index != 0):
             parser.error('--gpus cannot be combined with manual shards')
-    if args.command not in ('list',) and args.benchmarks and len(set(args.benchmarks)) != len(args.benchmarks):
+    if args.command not in ('list', 'catalog') and args.benchmarks and len(set(args.benchmarks)) != len(args.benchmarks):
         parser.error('Select each benchmark once')
     return args
 
@@ -497,16 +579,34 @@ def main(argv=None):
     args = parse_args(argv)
     if args.resources:
         os.environ['SCD_RESOURCES'] = str(Path(args.resources).expanduser().resolve())
+    if args.command == 'catalog':
+        registry = load_resources(args.resources)
+        draft = draft_catalog(roots_from_args(args.runs_root, registry), families=args.families,
+                              patterns=args.run_glob)
+        if not args.dry_run:
+            target = Path(args.out).expanduser().resolve()
+            roots = [Path(root) for root in draft['runs_roots'].values()]
+            if any(target == root or target.is_relative_to(root) for root in roots):
+                raise ValueError('Catalog output must be separate from the read-only training roots')
+            with output_lock(str(target) + '.catalog'):
+                freeze_json(target, draft)
+        print(json.dumps(draft, ensure_ascii=False, indent=2))
+        return 0
     if args.command == 'list':
-        from self_correct_dpo.evaluation.checkpoint_catalog import discover_runs
-        root = args.runs_root or load_resources(args.resources)['RUNS_ROOT']
-        runs = discover_runs(root, patterns=args.run_glob, families=args.families)
+        registry = load_resources(args.resources)
+        if args.catalog:
+            runs, _, _ = load_catalog(args.catalog, registry, families=args.families,
+                                      methods=args.methods, patterns=args.run_glob)
+        else:
+            runs = discover_roots(roots_from_args(args.runs_root, registry),
+                                  patterns=args.run_glob, families=args.families)
         if args.json:
             print(json.dumps(runs, ensure_ascii=False, indent=2))
         else:
-            print('RUN\tFAMILY\tPERMANENT STEPS (0 = base)')
+            print('RUN\tFAMILY\tMETHOD\tPERMANENT STEPS (0 = base)')
             for run in runs:
-                print(f'{run["name"]}\t{run["family"]}\t' + ','.join(map(str, run['steps'])))
+                print(f'{run["name"]}\t{run["family"]}\t{run.get("method_label", "Unregistered")}\t'
+                      + ','.join(map(str, run.get('selected_steps', run['steps']))))
             print(f'{len(runs)} runs; metadata only, checkpoint tensor hashes checked at generation.')
         return 0
     if args.command == 'plan':
@@ -514,7 +614,7 @@ def main(argv=None):
         print(json.dumps({'plan_id': plan['plan_id'], 'tasks': len(plan['tasks']),
                           'total_images': sum(t['images'] for t in plan['tasks']),
                           'output': str(Path(args.out).resolve()), 'dry_run': args.dry_run,
-                          'selection': [{k: t[k] for k in ('run', 'family', 'step', 'benchmark', 'prompts', 'images')}
+                          'selection': [{k: t[k] for k in ('run', 'family', 'method', 'method_label', 'experiment_id', 'step', 'benchmark', 'prompts', 'images')}
                                         for t in plan['tasks']]}, ensure_ascii=False, indent=2))
         return 0
     plan, out = read_plan(args.out)

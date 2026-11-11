@@ -1,4 +1,4 @@
-"""Explicit SLAI downloads. list is offline; plan/download query upstream metadata.
+"""Explicit SLAI downloads. list/check are offline; plan/download query metadata.
 
 No model imports, resource submissions, automatic extraction, or training.
 Defaults use the SLAI workspace below; --out overrides any destination.
@@ -22,7 +22,7 @@ from self_correct_dpo.common import output_lock
 # Downloads and preparation share the training resource registry.
 from self_correct_dpo.resources import load_resources
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
-DEFAULT_PATHS = load_resources()
+DEFAULT_PATHS = None
 
 # repo, repo type, destination variable, revision variable, file patterns
 ASSETS = {
@@ -71,7 +71,7 @@ DPG_REVISION = 'v1.0.0'
 
 
 def env_path(name):
-    value = str(os.environ.get(name) or DEFAULT_PATHS.get(name, ''))
+    value = str(os.environ.get(name) or (DEFAULT_PATHS if DEFAULT_PATHS is not None else load_resources()).get(name, ''))
     if not value or 'CHANGE_ME' in value or '$' in value:
         raise ValueError(f'Pass an explicit path or set {name}')
     return Path(value).expanduser().resolve()
@@ -158,6 +158,67 @@ def atomic_json(path, value):
     temp.replace(path)
 
 
+def check_asset(asset, *, out=None, full_hash=False, revision=None):
+    """Check local receipt, sizes and indexed shards without contacting a service.
+
+    HF receipts attest the pinned download and sizes, not fresh content hashes.
+    --full-hash additionally rechecks the official hashes of URL/ModelScope files.
+    Existing manual caches remain usable via resource overrides and scorer preflight;
+    this command never invents a successful acquisition receipt for them.
+    """
+    target = Path(out).expanduser().resolve() if out else destination(asset)
+    if asset in URL_ASSETS:
+        directory = target.parent
+        receipt = target.with_name('.' + target.name + '.scd-download.json')
+        expected_repo = URL_ASSETS[asset]['url']
+        expected_kind = 'file'
+        expected_revision = URL_ASSETS[asset]['sha256_prefix']
+    else:
+        directory, receipt = target, target / '.scd-download.json'
+        expected_repo = DPG_REPOSITORY if asset == 'dpg-mplug' else ASSETS[asset][0]
+        expected_kind = 'model' if asset == 'dpg-mplug' else ASSETS[asset][1]
+        paths = DEFAULT_PATHS if DEFAULT_PATHS is not None else load_resources()
+        revvar = ASSETS[asset][3] if asset in ASSETS else None
+        expected_revision = DPG_REVISION if asset == 'dpg-mplug' else (revision or (paths.get(revvar) if revvar else None))
+    if not receipt.is_file():
+        raise ValueError(f'No download receipt: {receipt}; for a manual cache use resource overrides and scorer/generation --check-only')
+    record = json.loads(receipt.read_text())
+    if record.get('repo_id') != expected_repo or record.get('repo_type') != expected_kind or not record.get('revision'):
+        raise ValueError(f'Wrong repository or missing revision in {receipt}')
+    if expected_revision and record['revision'] != expected_revision:
+        raise ValueError(f'Revision differs from resource registry: {receipt}')
+    if record.get('complete') is not True or not record.get('files'):
+        raise ValueError(f'Download is incomplete: {receipt}')
+    for name, size in record['files'].items():
+        path = directory / name
+        if not path.resolve().is_relative_to(directory.resolve()):
+            raise ValueError(f'Invalid receipt path: {name}')
+        if not path.is_file() or path.stat().st_size != size:
+            raise ValueError(f'Missing or incomplete downloaded file: {path}')
+        expected = record.get('sha256_prefixes', {}).get(name)
+        if full_hash and expected:
+            from self_correct_dpo.common import sha256
+            if not sha256(path).startswith(expected):
+                raise ValueError(f'SHA256 mismatch: {path}')
+    # A same-size index can still refer to absent shards; resolve every referenced
+    # path, including indexes nested in Diffusers components.
+    for index in directory.rglob('*.index.json'):
+        if str(index.relative_to(directory)) not in record['files']:
+            continue
+        shards = set(json.loads(index.read_text()).get('weight_map', {}).values())
+        if not shards:
+            raise ValueError(f'Weight index has no shards: {index}')
+        for name in shards:
+            shard = index.parent / name
+            if not shard.resolve().is_relative_to(directory.resolve()) or not shard.is_file():
+                raise ValueError(f'Missing or invalid indexed weight shard: {shard}')
+            if str(shard.relative_to(directory)) not in record['files']:
+                raise ValueError(f'Indexed weight shard absent from download receipt: {shard}')
+    return {'asset': asset, 'destination': str(target), 'revision': record['revision'],
+            'files': len(record['files']), 'complete': True,
+            'verification': 'receipt+sizes+indexed-shards' + ('+available-official-hashes' if full_hash else '')}
+
+
 def plan_asset(asset, *, revision=None, train_shards=None, api=None, out=None):
     from huggingface_hub import HfApi
     repo, kind, _, revvar, _ = ASSETS[asset]
@@ -166,7 +227,8 @@ def plan_asset(asset, *, revision=None, train_shards=None, api=None, out=None):
     previous = json.loads(marker.read_text()) if marker.exists() else None
     if previous and (previous['repo_id'], previous['repo_type']) != (repo, kind):
         raise ValueError(f'Destination belongs to a different repository: {target}')
-    requested = revision or (os.environ.get(revvar) or DEFAULT_PATHS.get(revvar, 'main') if revvar else 'main')
+    paths = DEFAULT_PATHS if DEFAULT_PATHS is not None else load_resources()
+    requested = revision or (os.environ.get(revvar) or paths.get(revvar, 'main') if revvar else 'main')
     # A completed/partial directory remains pinned on rerun even if main moves.
     pinned = previous['revision'] if previous and revision is None else requested
     info = (api or HfApi(endpoint=os.environ['HF_ENDPOINT'])).repo_info(repo, repo_type=kind, revision=pinned, files_metadata=True)
@@ -211,6 +273,11 @@ def download(plan):
             if not (target / name).is_file() or (target / name).stat().st_size != size:
                 raise ValueError(f'Incomplete downloaded file: {name}')
         atomic_json(marker, {**record, 'complete': True})
+        try:
+            check_asset(plan['asset'], out=target, revision=plan['revision'])
+        except Exception:
+            atomic_json(marker, {**record, 'complete': False})
+            raise
 
 
 def _free_space(path):
@@ -415,13 +482,18 @@ def extract_hpdv3(root=None):
 
 
 def main():
+    global DEFAULT_PATHS
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=['list', 'plan', 'download', 'extract-hpdv2', 'extract-hpdv3'])
+    p.add_argument('action', choices=['list', 'check', 'plan', 'download', 'extract-hpdv2', 'extract-hpdv3'])
     p.add_argument('assets', nargs='*', help='Asset names from list')
     p.add_argument('--out', help='Download destination for one asset, or the raw directory to extract')
     p.add_argument('--revision', help='Override a single asset revision on first download')
+    p.add_argument('--resources', help='Resource registry (also reads its .local.json and environment overrides)')
+    p.add_argument('--full-hash', action='store_true', help='For check, rehash files with official URL/ModelScope hashes')
     p.add_argument('--train-shards', type=int, help='Pick-a-Pic train shard subset; recorded as a new dataset version')
     a = p.parse_args()
+    DEFAULT_PATHS = load_resources(a.resources)
+    if a.full_hash and a.action != 'check':p.error('--full-hash is only for check')
     if any(name not in {*ASSETS, *URL_ASSETS, 'dpg-mplug'} for name in a.assets):p.error('Unknown asset; use list')
     if a.out and len(a.assets)>1:p.error('--out accepts one asset at a time')
     if a.action == 'list':
@@ -442,6 +514,9 @@ def main():
     if a.train_shards is not None and (a.train_shards < 1 or 'pickapic-v2' not in a.assets):
         p.error('--train-shards must be positive and used with pickapic-v2')
     for asset in a.assets:
+        if a.action == 'check':
+            print(json.dumps(check_asset(asset, out=a.out, full_hash=a.full_hash, revision=a.revision), indent=2))
+            continue
         external = asset in URL_ASSETS or asset == 'dpg-mplug'
         if external and a.revision:
             p.error('External evaluator assets use fixed official revisions/checksums')

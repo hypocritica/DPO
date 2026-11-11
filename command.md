@@ -2,6 +2,7 @@
 
 新入口 `evaluate_suite.py` 支持 SD1.5 / SDXL / SD3.5 Medium / Z-Image Base。
 这部分代码在独立 evaluation checkout 中；旧入口和下文旧实验命令保留。
+首次操作建议按 [目录登记到论文导出](docs/PAPER_EVALUATION_WORKFLOW.md) 执行。
 完整协议、采样数量与恢复边界见 [UNIFIED_EVALUATION.md](docs/UNIFIED_EVALUATION.md)，
 模型资产见 [EVALUATION_ASSETS.md](docs/EVALUATION_ASSETS.md)，专项评测见
 [COMPOSITIONAL_EVALUATION.md](docs/COMPOSITIONAL_EVALUATION.md)。
@@ -44,6 +45,30 @@ python evaluate_suite.py list --families sd35_medium zimage --json
 或各统一入口的 `--resources` 选择。基座路径仍以各run的training.json为准。
 
 ### 1. 按需准备环境
+
+可用显式setup脚本预览一个**新前缀**的安装命令；默认dry-run，使用`--apply`才创建（若写了`--dry-run`需替换它）。
+已存在的环境或安装失败留下的前缀都会拒绝覆盖。已有环境直接运行对应profile预检，
+不需要重建。完整边界见 [SLAI部署说明](docs/SLAI_EVALUATION_DEPLOYMENT.md)。
+
+```bash
+# 只打印，不安装；确认目标盘空间和平台runtime后，将 --dry-run 替换为 --apply。
+python scripts/setup_eval_environment.py --profile flow --runtime slai-cu130 \
+  --prefix /mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v2 --dry-run
+python scripts/setup_eval_environment.py --profile hpsv3 --runtime slai-cu130 \
+  --prefix /mnt/afs/L202500030/xietianyu/envs/scd-hpsv3-v2 --dry-run
+python scripts/setup_eval_environment.py --profile unifiedreward --runtime slai-cu130 \
+  --prefix /mnt/afs/L202500030/xietianyu/envs/scd-unifiedreward-v2 --dry-run
+python scripts/setup_eval_environment.py --profile geneval --runtime h100-cu118 \
+  --prefix /mnt/afs/L202500030/xietianyu/envs/scd-geneval-v2 --dry-run
+python scripts/setup_eval_environment.py --profile dpg --runtime h100-cu118 \
+  --prefix /mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2 --dry-run
+
+# 激活相应已有/新建环境后；下载前可先用 --skip-assets 检查依赖。
+python scripts/check_eval_environment.py --profile flow --skip-assets
+# 对其他环境分别使用 --profile legacy / hpsv3 / unifiedreward / geneval / dpg。
+# 在SLAI已分配GPU中，显式检查一个小CUDA操作：
+python scripts/check_eval_environment.py --profile flow --skip-assets --gpu --execution standalone
+```
 
 SD1.5/SDXL与原五指标继续使用下节已有 `eval` 环境与 `requirements-eval.txt`，无需重建。
 原五指标也可以在这个环境中给SD3.5/Z-Image已经生成的图片评分，不加载新生成模型。
@@ -110,11 +135,15 @@ python scripts/download_assets.py list
 python scripts/download_assets.py plan hpsv3 hpsv3-base unifiedreward
 # 在SLAI确认plan的目标路径及磁盘空间后，仅下载缺失项：
 python scripts/download_assets.py download hpsv3 hpsv3-base unifiedreward
+python scripts/download_assets.py check hpsv3 hpsv3-base unifiedreward
 bash scripts/download_sources.sh hpsv3 "$HPSV3_MODEL_DIR/source"
 bash scripts/download_sources.sh unifiedreward "$UNIFIED_REWARD_SOURCE"
+bash scripts/download_sources.sh --check hpsv3 "$HPSV3_MODEL_DIR/source"
+bash scripts/download_sources.sh --check unifiedreward "$UNIFIED_REWARD_SOURCE"
 
 python scripts/download_assets.py plan geneval-detector geneval-clip dpg-mplug
 python scripts/download_assets.py download geneval-detector geneval-clip dpg-mplug
+python scripts/download_assets.py check geneval-detector geneval-clip dpg-mplug --full-hash
 bash scripts/download_sources.sh geneval "$GENEVAL_REPO"
 bash scripts/download_sources.sh dpg "$DPG_REPO"
 bash scripts/download_sources.sh mmdetection "$MMDETECTION_REPO"
@@ -128,36 +157,54 @@ python scripts/prepare_compositional_prompts.py --benchmark dpg --out "$BENCHMAR
 说明（PickScore、HPSv2、CLIP-H/L、aesthetic、ImageReward）；新下载命令不会替它们
 隐式补装。Z-Image Base若缺失可用 `plan zimage` / `download zimage`，不是Turbo。
 HF连接使用实际可用的 `HF_ENDPOINT`；不要关闭TLS验证。
+`check`不联网，核对完成receipt、文件大小及索引引用的全部shards；`--full-hash`
+对有官方哈希的URL/ModelScope文件重新计算哈希。HF文件没有新增全量哈希保证。
+可对plan/download/check传`--resources /absolute/resources.json`；单项另存使用`--out`，
+并在资源表同步设置对应路径。手动下载的缓存如无receipt，使用资源覆盖及阶段
+`--check-only`核验，脚本不会伪造download receipt。Source预览使用`--dry-run ASSET OUT`。
 
-### 3. 固定评估计划
+### 3. 登记方法和精确步数，固定评估计划
 
-这里示范所有匹配run的最新一个永久checkpoint；实际先用 `list` 精确筛选run名称。
-`plan`不需要评分模型，不做推理。三套旧面板是487/3200/1632条；每个任务的预计图片
-数在输出中列明。不要在很多run上跳过预览就生成所有历史checkpoint。
+先从当前训练元数据导入。旧 inventory 不包含后续新增 SFT 等实验，不能代替实时登记。
+建议每个模型单独建立 catalog；下例为 SD3.5 Medium，SD1.5/SDXL 改 family 和文件名。
+
+```bash
+python evaluate_suite.py catalog \
+  --runs-root /mnt/aoss/xietianyu/self_correct/runs \
+              /mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs \
+  --families sd35_medium --out configs/experiments.sd35.local.json
+```
+
+审阅 JSON，明确保留目标 run，将每项 `steps` 改为要测的已发布步数。草稿保留所有
+候选，重复方法/step 不会自动替你选一个。Base 从 `models` 生成一次，不需要训练run。
+方法会与训练配置核对。具体字段见 [操作说明](docs/PAPER_EVALUATION_WORKFLOW.md)。
 
 ```bash
 source paths.sh
-SCD_EVAL_OUT="$EVALUATIONS_ROOT/paper-eval-v2"
-python evaluate_suite.py plan --run-glob 'sd15-*' 'sdxl-*' 'sd35-*' 'zimage-*' \
-  --latest 1 --include-base --benchmarks pickv2 hpsv2 partiprompts geneval dpg \
+SCD_EVAL_OUT="$EVALUATIONS_ROOT/sd35-paper-v3"
+python evaluate_suite.py list --catalog configs/experiments.sd35.local.json --json
+python evaluate_suite.py plan --catalog configs/experiments.sd35.local.json \
+  --families sd35_medium \
+  --methods base sft dpo linear_dpo global_k2 stagewise_k2 global_k4 stagewise_k4 \
+  --benchmarks pickv2 hpsv2 partiprompts geneval dpg \
   --out "$SCD_EVAL_OUT" --dry-run
-python evaluate_suite.py plan --run-glob 'sd15-*' 'sdxl-*' 'sd35-*' 'zimage-*' \
-  --latest 1 --include-base --benchmarks pickv2 hpsv2 partiprompts geneval dpg \
-  --out "$SCD_EVAL_OUT"
+# 审阅后重复上一条命令，去掉 --dry-run，才会真正冻结计划。
 ```
 
-可改成 `--steps 5000 7000 9000` 精确选择；或
-`--min-step 4000 --max-step 10000 --every 2000`。新增/删减步骤、换seed或改采样参数
-都使用新 `--out`；正式生图前再次检查冻结计划。默认原表旧模型每prompt1张，新模型
-及GenEval/DPG每prompt4张；旧表改多seed需另一个明确命名的协议版本。
+catalog模式在JSON内指定每种方法的精确步数，不能再传 `plan --steps/--latest`。
+旧的按run选择仍可用 `plan --runs-root ROOT --run-glob 'EXACT_RUN' --steps 5000 7000`。
+新增/删减步骤、换seed或采样参数需新 `--out`。全部五面板下，新模型每checkpoint
+27,748张，旧模型11,791张；务必先看dry-run图片总数。
 
 ### 4. 只生成图片（无需先下载reward）
 
 ```bash
+# 仅当当前plan包含SD1.5/SDXL时执行此组；SD3.5-only计划跳过。
 conda activate eval
 python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd15 sdxl --check-only
 python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd15 sdxl --gpus 0,1
 
+# 当前plan包含SD3.5/Z-Image时执行此组。
 conda activate scd-eval-flow
 python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd35_medium zimage --check-only
 python evaluate_suite.py generate --out "$SCD_EVAL_OUT" --families sd35_medium zimage --gpus 0,1
@@ -172,7 +219,7 @@ smoke验证环境再跑正式计划；本节末尾有小面板准备方式。只
 ```bash
 exec conda run --no-capture-output -n scd-eval-flow \
   python /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/evaluate_suite.py generate \
-  --out /mnt/aoss/xietianyu/self_correct/evaluations/paper-eval-v2 \
+  --out /mnt/aoss/xietianyu/self_correct/evaluations/sd35-paper-v3 \
   --families sd35_medium zimage --gpus 0,1
 ```
 
@@ -185,9 +232,13 @@ compositional配置中设置每项的绝对 `python`，或使用阶段命令的 
 每条命令先加 `--check-only` 可检查图片及本地资产；去掉后才实际执行评分。
 
 ```bash
+# 仅为计划中实际包含的family执行对应命令。
 conda activate eval
 python evaluate_suite.py score --out "$SCD_EVAL_OUT" --benchmarks pickv2 hpsv2 partiprompts \
-  --metric-group legacy --gpus 0,1
+  --families sd15 sdxl --metric-group legacy --gpus 0,1
+# 新模型共享四项reward：
+python evaluate_suite.py score --out "$SCD_EVAL_OUT" --families sd35_medium zimage \
+  --benchmarks pickv2 hpsv2 partiprompts --metrics pickscore image_reward clip aesthetic --gpus 0,1
 
 conda activate scd-hpsv3
 python evaluate_suite.py score --out "$SCD_EVAL_OUT" --families sd35_medium zimage \
@@ -209,20 +260,23 @@ Coherence / Style分项。GenEval是专用类别宏平均；DPG修正官方CSV�
 完整评估1065题，协议名 `dpg-complete-csv-four-samples-v1`，不能声称精确复现历史漏题分数。
 所有seed均进入定量结果，不做best-of筛选。
 
-### 6. 汇总、看图和选展示样例
+### 6. 汇总、论文导出和展示原图
 
 ```bash
 python evaluate_suite.py summarize --out "$SCD_EVAL_OUT"
+python export_paper.py --out "$SCD_EVAL_OUT" --paper-name main-v1
 python evaluate_suite.py summarize --out "$SCD_EVAL_OUT" --benchmarks pickv2 hpsv2 partiprompts \
   --metric-group legacy --summary-name legacy-table
 python evaluate_suite.py gallery --out "$SCD_EVAL_OUT" --benchmarks partiprompts --limit 200
 # 从第一次gallery的selection.json读取实际scene_id后，做匹配prompt/seed的展示选择：
 python evaluate_suite.py gallery --out "$SCD_EVAL_OUT" --gallery-name selected-v1 \
-  --scene-id REPLACE_WITH_SCENE_ID --seed 17 --limit 32
+  --scene-id REPLACE_WITH_SCENE_ID --seed 17 --limit 32 --copy-images
 ```
 
 `summary.csv/json`有完成状态、缺失项和失败原因；未完成时 `summarize` 返回1。
-`galleries/<name>/index.html`按相对路径引用原图，`selection.json`保存完整来源。
+`paper/main-v1/`包含CSV/JSON、按协议分组的LaTeX/Markdown表与校验清单。
+未完成默认拒绝导出；`--allow-incomplete`生成明确标记的草稿并返回1。
+`--copy-images`将原PNG复制到gallery内，整个目录可搬到本地，`selection.json`保存完整来源。
 筛选gallery不会删图、改评分或更改样本数；精选展示应说明选样规则，并排比较优先同prompt/seed。
 
 ### 7. 首次部署用小面板smoke

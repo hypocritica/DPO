@@ -35,6 +35,21 @@ class PromptTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'modified'):
                 module.prepare(root / 'out', source_dir=root, sources=sources)
 
+    def test_first_preparation_creates_missing_benchmark_parent_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = json.dumps([{'prompt': 'one red cat'}, {'prompt': 'two blue cups'}]).encode()
+            (root / 'test.json').write_bytes(payload)
+            destination = root / 'new-workspace/benchmarks/sd15/paper-eval'
+            self.assertFalse(destination.parent.exists())
+            result = module.prepare(destination, source_dir=root,
+                sources={'pickv2': ('test.json', 2, hashlib.sha256(payload).hexdigest())})
+            self.assertEqual(result['mode'], 'full-benchmark')
+            self.assertEqual(len(module.load_suite(destination / 'pickv2.jsonl')), 2)
+            self.assertTrue((destination / 'selection.json').is_file())
+            self.assertEqual(module.prepare(destination, source_dir=root,
+                sources={'pickv2': ('test.json', 2, hashlib.sha256(payload).hexdigest())}), result)
+
     def test_wrong_source_is_not_published(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

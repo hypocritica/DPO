@@ -81,6 +81,33 @@ def validate_sd35_medium_config(config):
         raise ValueError("sd35_medium requires dual_attention_layers=0..12")
 
 
+def validate_zimage_base(model):
+    """Base and Turbo share an architecture; use local source provenance to distinguish them."""
+    root = Path(model['path'])
+    if 'turbo' in root.name.lower():
+        raise ValueError('zimage evaluation requires Z-Image Base, not Z-Image Turbo')
+    for filename in ('.scd-download.json', '.download-manifest.json'):
+        receipt = root / filename
+        if not receipt.is_file():
+            continue
+        provenance = read_json(receipt)
+        repository = provenance.get('repo_id', provenance.get('model_id', ''))
+        if repository and repository.rstrip('/').split('/')[-1].lower() != 'z-image':
+            raise ValueError(f'zimage evaluation requires Z-Image Base source provenance, got {repository!r}')
+        source_revision = provenance.get('revision')
+        model_revision = model['revision']
+        # Training may bind the local inventory while the downloader records an
+        # upstream commit. These identify different things and cannot be compared.
+        same_kind = (str(source_revision).startswith('local-inventory:') ==
+                     str(model_revision).startswith('local-inventory:'))
+        if source_revision and same_kind and source_revision != model_revision:
+            raise ValueError('Z-Image model revision differs from its local download provenance')
+        complete = (provenance.get('complete') is True if filename == '.scd-download.json'
+                    else provenance.get('status') == 'complete')
+        if not complete:
+            raise ValueError('Z-Image local download provenance is incomplete')
+
+
 def validate_adapter_backend(path, model, sampling, component):
     sidecar = path / "backend.json"
     if not sidecar.is_file():
@@ -163,6 +190,7 @@ def validate_config(config, arm):
             if not index.get(name) or index[name][-1] is None or not (index_path.parent / name).is_dir():
                 raise ValueError(f"SD3.5 requires all three text encoders/tokenizers: missing {name}")
     if model['family'] == 'zimage':
+        validate_zimage_base(model)
         for name in ('transformer', 'vae', 'text_encoder', 'tokenizer', 'scheduler'):
             if not index.get(name) or index[name][-1] is None or not (index_path.parent / name).is_dir():
                 raise ValueError(f'Z-Image requires a local {name} component')
@@ -269,6 +297,29 @@ def cast_vae_decode_input(vae):
     return vae
 
 
+def load_peft_adapter(denoiser, path):
+    """Reject partial PEFT loads, which upstream otherwise accepts with strict=False."""
+    import torch
+    from peft import PeftModel, get_peft_model_state_dict
+    path = Path(path)
+    model = PeftModel.from_pretrained(denoiser, str(path), is_trainable=False, local_files_only=True)
+    if not any('lora_' in name for name, _ in model.named_parameters()):
+        raise ValueError('No LoRA parameters loaded')
+    if (path / 'adapter_model.safetensors').is_file():
+        from safetensors.torch import load_file
+        actual = load_file(str(path / 'adapter_model.safetensors'), device='cpu')
+    else:
+        actual = torch.load(path / 'adapter_model.bin', map_location='cpu', weights_only=True)
+    expected = get_peft_model_state_dict(model)
+    missing, unexpected = sorted(expected.keys() - actual.keys()), sorted(actual.keys() - expected.keys())
+    mismatched = sorted(key for key in expected.keys() & actual.keys()
+                        if expected[key].shape != actual[key].shape)
+    if missing or unexpected or mismatched:
+        raise ValueError(f'Incomplete or incompatible LoRA weights: missing={missing}, '
+                         f'unexpected={unexpected}, mismatched_shapes={mismatched}')
+    return model
+
+
 def load_pipeline(config, arm, torch, *, device='cuda'):
     import diffusers
     model = model_spec(config)
@@ -302,11 +353,7 @@ def load_pipeline(config, arm, torch, *, device='cuda'):
     if model['family'] == 'sd35_medium':
         cast_vae_decode_input(pipe.vae)
     if arm == "aligned" and config["aligned"]["kind"] == "peft":
-        from peft import PeftModel
-        denoiser = PeftModel.from_pretrained(getattr(pipe, component), config["aligned"]["path"],
-                                           is_trainable=False, local_files_only=True)
-        if not any("lora_" in name for name, _ in denoiser.named_parameters()):
-            raise ValueError("No LoRA parameters loaded")
+        denoiser = load_peft_adapter(getattr(pipe, component), config["aligned"]["path"])
         setattr(pipe, component, denoiser)
     pipe.scheduler = getattr(diffusers, config["sampling"].get("scheduler",scheduler_name)).from_config(pipe.scheduler.config)
     getattr(pipe, component).eval()

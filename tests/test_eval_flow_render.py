@@ -1,5 +1,7 @@
 """Flow renderer precision and prompt handling; full models are never loaded."""
 import importlib.util
+import json
+import tempfile
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -8,10 +10,38 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from self_correct_dpo.evaluation.render import (cast_vae_decode_input,
-                                               check_prompt_lengths, effective_sampling)
+                                               check_prompt_lengths, effective_sampling,
+                                               validate_zimage_base, load_peft_adapter)
 
 
 class FlowPromptTests(unittest.TestCase):
+    def test_zimage_rejects_turbo_even_when_local_directory_is_renamed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = {'path': str(root), 'revision': 'fixed-revision'}
+            receipt = root / '.scd-download.json'
+            receipt.write_text(json.dumps({'repo_id': 'Tongyi-MAI/Z-Image-Turbo',
+                'revision': model['revision'], 'complete': True}))
+            with self.assertRaisesRegex(ValueError, 'Base'):
+                validate_zimage_base(model)
+            receipt.write_text(json.dumps({'repo_id': 'Tongyi-MAI/Z-Image',
+                'revision': model['revision'], 'complete': True}))
+            validate_zimage_base(model)
+            validate_zimage_base(dict(model, revision='local-inventory:artifact-hash'))
+            with self.assertRaisesRegex(ValueError, 'revision'):
+                validate_zimage_base(dict(model, revision='another-revision'))
+            receipt.write_text(json.dumps({'repo_id': 'Tongyi-MAI/Z-Image',
+                'revision': 'local-inventory:first', 'complete': True}))
+            with self.assertRaisesRegex(ValueError, 'revision'):
+                validate_zimage_base(dict(model, revision='local-inventory:second'))
+            receipt.unlink()
+            (root / '.download-manifest.json').write_text(json.dumps({
+                'model_id': 'Tongyi-MAI/Z-Image-Turbo', 'revision': model['revision'], 'status': 'complete'}))
+            with self.assertRaisesRegex(ValueError, 'Base'):
+                validate_zimage_base(model)
+            with self.assertRaisesRegex(ValueError, 'Turbo'):
+                validate_zimage_base({'path': str(root / 'Z-Image-Turbo'), 'revision': 'r'})
+
     def test_qwen_chat_template_counts_toward_token_limit(self):
         class Tokenizer:
             def apply_chat_template(self, messages, **kwargs):
@@ -29,6 +59,36 @@ class FlowPromptTests(unittest.TestCase):
                   'sampling': {'max_sequence_length': 512}}
         with self.assertRaisesRegex(ValueError, 'disagree'):
             effective_sampling(config)
+
+
+@unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('peft'),
+                     'Optional PEFT environment is not installed')
+class AdapterLoadTests(unittest.TestCase):
+    def test_real_peft_rejects_missing_or_unexpected_adapter_weights(self):
+        import torch
+        from peft import LoraConfig, get_peft_model
+        from safetensors.torch import load_file, save_file
+        class Denoiser(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.projection = torch.nn.Linear(4, 4)
+            def forward(self, value):
+                return self.projection(value)
+        with tempfile.TemporaryDirectory() as directory:
+            source = get_peft_model(Denoiser(), LoraConfig(r=2, target_modules=['projection']))
+            source.save_pretrained(directory, safe_serialization=True)
+            path = Path(directory) / 'adapter_model.safetensors'
+            weights = load_file(str(path))
+            loaded = load_peft_adapter(Denoiser(), directory)
+            self.assertTrue(any('lora_' in name for name, _ in loaded.named_parameters()))
+            incomplete = dict(weights)
+            del incomplete[next(iter(incomplete))]
+            save_file(incomplete, str(path))
+            with self.assertRaisesRegex(ValueError, 'missing='):
+                load_peft_adapter(Denoiser(), directory)
+            save_file(dict(weights, unexpected=torch.ones(1)), str(path))
+            with self.assertRaisesRegex(ValueError, 'unexpected='):
+                load_peft_adapter(Denoiser(), directory)
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('diffusers'),

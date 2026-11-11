@@ -49,6 +49,7 @@ def prepare(out, *, source_dir=None, download=False, smoke_prompts=None, sources
         raise ValueError('smoke_prompts must be a positive integer')
     out = Path(out).expanduser().resolve()
     with output_lock(str(out) + '.prepare'):
+        out.parent.mkdir(parents=True, exist_ok=True)
         # Work in the destination filesystem, then publish the entire panel set.
         with tempfile.TemporaryDirectory(prefix='.' + out.name + '-', dir=out.parent) as temporary:
             stage = Path(temporary) / 'panels'

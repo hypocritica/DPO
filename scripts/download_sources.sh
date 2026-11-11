@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Optional: bash scripts/download_sources.sh hpsv2 /your/source/directory
 set -euo pipefail
-asset="${1:?Usage: download_sources.sh ASSET OUT}"
+mode=download
+if [[ "${1:-}" == --check || "${1:-}" == --dry-run ]]; then
+  mode="${1#--}"
+  shift
+fi
+asset="${1:?Usage: download_sources.sh [--check|--dry-run] ASSET OUT}"
 out="${2:?Specify your output directory}"
+[[ $# == 2 ]] || { echo 'Expected ASSET OUT only' >&2; exit 2; }
 case "$asset" in
   hpsv2) repo=https://github.com/tgxs002/HPSv2.git; rev=master ;;
   aesthetic) repo=https://github.com/christophschuhmann/improved-aesthetic-predictor.git; rev=main ;;
@@ -14,9 +20,29 @@ case "$asset" in
   mmdetection) repo=https://github.com/open-mmlab/mmdetection.git; rev=e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1 ;;
   *) echo "Unknown source: $asset" >&2; exit 2 ;;
 esac
+if [[ "$mode" == check ]]; then
+  [[ -d "$out/.git" || -f "$out/.git" ]] || { echo "Not a Git source checkout: $out" >&2; exit 2; }
+  actual="$(git -C "$out" rev-parse HEAD)"
+  if [[ "$rev" =~ ^[0-9a-f]{40}$ ]]; then
+    [[ "$actual" == "$rev" ]] || { echo "Wrong source revision: $actual (expected $rev)" >&2; exit 2; }
+  elif [[ -f "$out/.scd-source-revision" ]]; then
+    [[ "$(cat "$out/.scd-source-revision")" == "$actual" ]] || { echo 'Source receipt differs from HEAD' >&2; exit 2; }
+  else
+    echo 'Unpinned legacy source requires a .scd-source-revision receipt' >&2; exit 2
+  fi
+  # Ignore the script's own untracked receipt; reject edits to tracked evaluator code.
+  git -C "$out" diff --quiet HEAD -- || { echo 'Tracked source edits found' >&2; exit 2; }
+  printf 'Verified %s %s %s\n' "$asset" "$actual" "$out"
+  exit 0
+fi
 if [[ -e "$out" ]]; then
-  echo "Output already exists: $out" >&2
+  echo "Output already exists: $out; reuse after --check, or choose a new destination" >&2
   exit 2
+fi
+if [[ "$mode" == dry-run ]]; then
+  printf 'git clone --no-checkout %q %q\n' "$repo" "$out"
+  printf 'git -C %q checkout --detach %q\n' "$out" "$rev"
+  exit 0
 fi
 mkdir -p -- "$(dirname -- "$out")"
 git clone --no-checkout "$repo" "$out"

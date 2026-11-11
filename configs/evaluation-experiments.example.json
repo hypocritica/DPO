@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "notes": [
+    "SCHEMA EXAMPLE ONLY: use evaluate_suite.py catalog to import current local training metadata.",
+    "Replace each explicit run path and exact steps below. No path here claims that a training run exists.",
+    "Import copies the complete model object, including precision controls; revisions must match training.json.",
+    "Base comes from models, has no experiments row, and is generated once for each distinct model identity.",
+    "Add corresponding experiment rows for SD1.5, SDXL or ZImage before selecting their non-base methods.",
+    "Preference panels keep family-specific legacy/modern metrics; GenEval and DPG keep dedicated evaluators."
+  ],
+  "runs_roots": {
+    "legacy": "${RUNS_ROOT}",
+    "flow": "/REPLACE_WITH_CURRENT_FLOW_RUNS_ROOT"
+  },
+  "models": {
+    "sd15": {
+      "family": "sd15", "path": "${SD15_MODEL}", "revision": "COPY_EXACT_TRAINING_REVISION"
+    },
+    "sdxl": {
+      "family": "sdxl", "path": "${SDXL_MODEL}", "revision": "COPY_EXACT_TRAINING_REVISION"
+    },
+    "sd35_medium": {
+      "family": "sd35_medium", "path": "${SD35_MODEL}", "revision": "COPY_EXACT_TRAINING_REVISION",
+      "max_sequence_length": 256, "prompt_truncation": "truncate"
+    },
+    "zimage": {
+      "family": "zimage", "path": "${ZIMAGE_MODEL}", "revision": "COPY_EXACT_TRAINING_REVISION",
+      "max_sequence_length": 256, "prompt_truncation": "truncate", "transformer_dtype": "float32"
+    }
+  },
+  "experiments": [
+    {"id": "sd35-sft", "family": "sd35_medium", "method": "sft", "root": "flow", "run": "REPLACE_WITH_NEW_SFT_RUN", "steps": [3200]},
+    {"id": "sd35-dpo", "family": "sd35_medium", "method": "dpo", "root": "flow", "run": "REPLACE_WITH_DPO_RUN", "steps": [2000, 3200]},
+    {"id": "sd35-linear-dpo", "family": "sd35_medium", "method": "linear_dpo", "root": "flow", "run": "REPLACE_WITH_LINEAR_DPO_RUN", "steps": [3200]},
+    {"id": "sd35-global-k2", "family": "sd35_medium", "method": "global_k2", "root": "flow", "run": "REPLACE_WITH_GLOBAL_K2_RUN", "steps": [3200]},
+    {"id": "sd35-stagewise-k2", "family": "sd35_medium", "method": "stagewise_k2", "root": "flow", "run": "REPLACE_WITH_STAGEWISE_K2_RUN", "steps": [3200]},
+    {"id": "sd35-global-k4", "family": "sd35_medium", "method": "global_k4", "root": "flow", "run": "REPLACE_WITH_GLOBAL_K4_RUN", "steps": [3200]},
+    {"id": "sd35-stagewise-k4", "family": "sd35_medium", "method": "stagewise_k4", "root": "flow", "run": "REPLACE_WITH_STAGEWISE_K4_RUN", "steps": [3200]}
+  ]
+}

@@ -6,6 +6,8 @@ loads are local/offline. The current implementation has CPU tests; real reward
 inference and the complete GPU environment still require the documented smoke
 run on allocated hardware. Executable setup/download/run commands belong in
 the root [command.md](../command.md).
+Environment profiles, offline checks and cache reuse are described in
+[SLAI deployment](SLAI_EVALUATION_DEPLOYMENT.md).
 
 ## Existing five metrics
 
@@ -86,13 +88,19 @@ not been proven by the CPU checks.
 
 ## Download catalog
 
-`scripts/download_assets.py list` is offline. `plan` reads only small remote
+`scripts/download_assets.py list` and `check` are offline. `plan` reads only small remote
 metadata (or HTTP HEAD), displays selected/remaining/free bytes, and never
 fetches weights. Only explicit `download` writes assets. HF downloads pin the
 resolved commit in `.scd-download.json`; new HPSv3/UnifiedReward/Z-Image defaults
 are fixed commits in the resource registry. Changing revisions requires a fresh
 destination. `--out` selects a directory for HF/ModelScope assets, but a complete
 filename for the two GenEval URL assets.
+`--resources` selects the same registry/local/environment override mechanism as
+evaluation. `check` requires a complete receipt and validates repository, fixed
+configured revision, file sizes and indexed shards. `check --full-hash` additionally
+rehashes official URL/ModelScope assets; HF files have receipt/size checks rather
+than fresh content hashes. Manual caches can be selected through resource keys
+and checked by the evaluator's `--check-only`, subject to its provenance rules.
 
 | Download name | Files / purpose |
 |---|---|
@@ -109,8 +117,12 @@ Source download names are `hpsv3`, `unifiedreward`, `geneval`, `dpg`, and
 `v2.28.2`, fixed commit `e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1`, including
 the referenced `_base_` configs. Its legacy MMDetection/MMCV environment must
 remain independent; no compatibility with the newest 5090 stack is implied.
-The download script records the actual fixed source commit and refuses an
-existing destination.
+The download script records the actual resolved source commit and refuses an
+existing destination. `download_sources.sh --check ASSET OUT` verifies the
+configured fixed commit and tracked edits for pinned sources. Legacy `hpsv2`
+and `aesthetic` still resolve moving branches; their check compares HEAD only
+with the local acquisition receipt, without attesting an upstream fixed SHA.
+Use `--dry-run ASSET OUT` to preview source acquisition without cloning.
 
 The GenEval detector URL comes from the official evaluator; the CLIP URL and
 hash come from [OpenCLIP 2.20.0's OpenAI checkpoint registry](https://github.com/mlfoundations/open_clip/blob/v2.20.0/src/open_clip/pretrained.py).

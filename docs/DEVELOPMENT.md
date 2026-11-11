@@ -1,5 +1,22 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-11 方法登记、SLAI部署和论文导出
+
+在独立evaluation分支扩展`catalog`：实时导入多个runs根目录，使用训练配置验证方法，
+保留精确永久checkpoint步数，拒绝歧义候选。Base按完整模型身份去重并独立于训练目录。
+五面板计划冻结prompt的来源及full/smoke范围；没有selection来源的面板明确标记。
+`export_paper.py`只消费已生成图片与评分，输出带协议分组和SHA256的CSV/JSON/LaTeX；
+缺失不填0，不自动挑最佳step。gallery可复制原图用于论文并记录完整选择来源。
+SLAI新增独立环境安装预览/执行、分profile预检和离线资产核验；详细入口见
+[PAPER_EVALUATION_WORKFLOW.md](PAPER_EVALUATION_WORKFLOW.md)。
+
+72项轻量CPU测试通过，覆盖catalog、checkpoint、阶段生命周期、论文/图片导出、部署、
+资产、专项适配、原batch评估、prompt导入和存储兼容。实际CLI测试确认删除训练与原始
+prompt来源后仍能导出，并保留smoke标记。另有4项renderer检查通过、1项Z-Image tiny因
+现有环境缺现代类而跳过；7项SDXL tiny测试通过。真实PEFT检查覆盖缺失/额外LoRA权重
+拒绝，Z-Image拒绝Turbo名称/来源且兼容本地inventory revision。未在SLAI安装完整环境、
+下载模型或运行真实GPU生成/评分；环境ABI、显存和数值效果需远程小面板smoke验证。
+
 ## 2026-11-11 四模型分阶段评估
 
 在独立 `self_correct_dpo_eval` checkout 新增 `evaluate_suite.py`，提供list/plan/generate/

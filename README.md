@@ -1,10 +1,17 @@
 # Self Correct DPO
 
+本次完整操作主线见 **[从实验目录到论文表格](docs/PAPER_EVALUATION_WORKFLOW.md)**：
+实时导入方法与精确 checkpoint，生成五面板图片，分环境打分，导出 LaTeX/CSV 与可搬走的原图。
+
 本 checkout 新增[四模型分阶段评估](docs/UNIFIED_EVALUATION.md)：`evaluate_suite.py`
 支持 SD1.5 / SDXL / SD3.5 Medium / Z-Image Base 的 checkpoint 发现与筛选、固定计划、
 先生成后评分、结果汇总和展示图预览。保留原表五指标，另接入 HPSv3、UnifiedReward、
 GenEval、DPG-Bench。SLAI 部署、缺失模型下载和分环境运行见 [command.md](command.md)
 第一节；本次仅轻量验证，完整 GPU 推理需在 SLAI 做 smoke。
+
+环境预览、已有缓存复用、离线下载完整性检查见
+[SLAI 部署说明](docs/SLAI_EVALUATION_DEPLOYMENT.md)。环境创建默认 dry-run，
+需要显式 `--apply`，已有环境前缀拒绝覆盖。
 
 SD1.5 / SDXL LoRA DPO。默认使用独立 rollout 多视图 C；另提供无 rollout 的普通高斯 B/C、视图合批和纯 DPO。支持任意正整数 K、单机 2/4/8 卡、Accelerate 启动、TensorBoard/W&B，以及每 200 步完整续训保存。
 
