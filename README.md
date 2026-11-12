@@ -1,5 +1,9 @@
 # Self Correct DPO
 
+新增 [SD3.5M checkpoint曲线评测](docs/SD35_CHECKPOINT_CURVES.md)：八方法共用128条
+固定validation prompt，全部永久checkpoint只打PickScore，支持2–4卡与断点恢复，
+导出CSV/JSON及PNG/PDF曲线。入口为`evaluate_curves.py`。
+
 本次完整操作主线见 **[从实验目录到论文表格](docs/PAPER_EVALUATION_WORKFLOW.md)**：
 实时导入方法与精确 checkpoint，生成五面板图片，分环境打分，导出 LaTeX/CSV 与可搬走的原图。
 

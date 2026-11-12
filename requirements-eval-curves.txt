@@ -1,0 +1,3 @@
+# Optional CPU plotting dependency for evaluate_curves.py summarize.
+# Install into the isolated evaluation environment, never the training environment.
+matplotlib==3.10.0

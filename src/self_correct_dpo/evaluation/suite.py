@@ -86,7 +86,7 @@ def panel_provenance(source, name, checksum, count):
         valid = (selection.get('benchmark') == name and selection.get('suite_sha256') == checksum
                  and selection.get('prompts') == count)
     mode = selection.get('mode')
-    if not valid or mode not in ('full-benchmark', 'smoke-only'):
+    if not valid or mode not in ('full-benchmark', 'smoke-only', 'development-curve'):
         raise ValueError(f'Prompt selection hash/count/benchmark/mode mismatch: {selection_path}')
     return {'mode': mode, 'provenance': {'status': 'selection-verified',
             'selection_path': str(selection_path), 'selection_sha256': hashlib.sha256(payload).hexdigest(),

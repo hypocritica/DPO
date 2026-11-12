@@ -1,3 +1,30 @@
+## SD3.5M checkpoint曲线：128张、PickScore、2–4卡（2026-11-13）
+
+完整可复制安装与运行步骤见 [SD35_CHECKPOINT_CURVES.md](docs/SD35_CHECKPOINT_CURVES.md)。
+新入口 `evaluate_curves.py`，快捷启动器 `scripts/run_sd35_curves.sh`。
+默认从Flow runs根目录识别目标3200步的七种训练方法，排除smoke/backup，重复候选或缺
+方法立即报错。所有已发布永久checkpoint各128图，Base只测一次；共同seed17，保持
+1024/28步/CFG4.5，仅PickScore。固定validation面板与准备目录独立，不能用正式测试
+成绩重选checkpoint。准备时报告实际checkpoint数、图片量及正式面板排除覆盖。
+
+```bash
+# 在SLAI已分配GPU容器中；先按专项文档完成环境和缺失PickScore资产准备。
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-flow-smoke-7818ade/bin/python
+bash scripts/run_sd35_curves.sh prepare
+bash scripts/run_sd35_curves.sh plan
+bash scripts/run_sd35_curves.sh generate --gpus 0,1 --check-only
+bash scripts/run_sd35_curves.sh all --gpus 0,1
+# 已获分配4卡时可用 --gpus 0,1,2,3；设备ID必须属于CUDA_VISIBLE_DEVICES。
+# 运行中另开终端更新曲线；未完成时仍产出曲线但返回1。
+bash scripts/run_sd35_curves.sh summarize
+```
+
+中断后用同一checkout、环境、准备目录和输出目录重复all，允许更换2/4卡数量。
+新checkpoint不会自动加入冻结计划；需新prepared/out版本。不修改原训练产物。
+结果在 `<out>/curves/points.csv,json` 与 `pickscore.png,pdf`；Base水平线，缺失点断线，
+误差带是prompt标准误，不是置信区间。开发面板在内部使用pickv2槽位，明确记录
+`development-curve`，不是官方PickV2成绩。
+
 ## 四模型统一评估：先生成，再评分（2026-11-11）
 
 新入口 `evaluate_suite.py` 支持 SD1.5 / SDXL / SD3.5 Medium / Z-Image Base。

@@ -1,5 +1,20 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-13 SD3.5M checkpoint曲线
+
+`evaluate_curves.py`复用统一suite的计划、生成、评分与checkpoint级多GPU分片。
+独立prepare冻结七方法全部永久快照及Base、128条validation文本、seed17和PickScore；
+来源caption按NFKC/casefold/空白归一化去重，排除所有选中训练文本及已备齐的正式面板。
+缺少排除面板明确记录独立性尚未建立，不假称完整held-out测试。输入产物校验后才能
+规划，缺方法/重复候选/不足128条不回退。原训练目录只读。
+
+曲线按同一prompt/采样/基座/评分协议验证；缺失和损坏保留状态，图中断线，不自动选
+最佳step。标准误带明确非置信区间。生成/评分复用既有事务恢复，换2/4卡可重新分片。
+PNG/PDF与表格在临时目录准备，最后发布status及hash清单。未执行SLAI真实GPU测试。
+51项相关CPU测试通过，包括实际CLI准备/冻结/重跑、2/4个真实子进程分片、
+partial到complete图表更新、损坏产物拒绝和launcher失败/中断处理。
+命令见[曲线说明](SD35_CHECKPOINT_CURVES.md)。
+
 ## 2026-11-11 方法登记、SLAI部署和论文导出
 
 在独立evaluation分支扩展`catalog`：实时导入多个runs根目录，使用训练配置验证方法，
