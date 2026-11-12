@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "notes": [
+    "Historical snapshot-derived selection, not a live remote inventory. Revalidate exact run_id, checkpoint_id and weight hashes on SLAI before execution.",
+    "User-selected mixed checkpoint policy: SFT 6000, KTO 4000, MaPO 1000, core methods 10000; Stagewise DSPO K6 at both 6000 and 10000.",
+    "Base is registered via models and generated once; there is no Base training run.",
+    "Use configs/evaluation-sd15-main-selection.json for predeclared main/sensitivity roles; the main table excludes only Stage-C DSPO step 10000.",
+    "No automatic latest, all-checkpoint sweep, or score-driven checkpoint replacement."
+  ],
+  "runs_roots": {
+    "legacy": "/mnt/aoss/xietianyu/self_correct/runs"
+  },
+  "models": {
+    "sd15": {
+      "family": "sd15",
+      "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sd15",
+      "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+    }
+  },
+  "experiments": [
+    {
+      "id": "sd15-sft",
+      "family": "sd15",
+      "method": "sft",
+      "root": "legacy",
+      "run": "sd15-sft-k1-p384-2gpu-10000-slai-v1",
+      "steps": [
+        6000
+      ],
+      "method_label": "SFT",
+      "expected_run_id": "390e179888b60b2fec24d9f43cc6f0e3b8bc7a0c1ffc7f2a1c70b866cbd2052f",
+      "expected_checkpoint_ids": {
+        "6000": "79c5efbdf3056f9742ebaf558b5b4b91003b009642290404f3108808074c1868"
+      }
+    },
+    {
+      "id": "sd15-kto",
+      "family": "sd15",
+      "method": "kto",
+      "root": "legacy",
+      "run": "sd15-kto-k1-p384-2gpu-10000-slai-v1",
+      "steps": [
+        4000
+      ],
+      "method_label": "Pair-derived KTO",
+      "expected_run_id": "5d6d7ae306f707726c9f2a2a66335afdb306a0a2a29a3653e25247f9e3b3588e",
+      "expected_checkpoint_ids": {
+        "4000": "76dcb211ea51672e85dd55c7bd78c2754c48d431fe1f5c47e54aee7d265feb3d"
+      }
+    },
+    {
+      "id": "sd15-mapo",
+      "family": "sd15",
+      "method": "mapo",
+      "root": "legacy",
+      "run": "sd15-mapo-k1-p384-2gpu-10000-slai-v1",
+      "steps": [
+        1000
+      ],
+      "method_label": "MaPO",
+      "expected_run_id": "a03fe1ca4d205421222807324e9c37b3ef592378f9ea54b347a79782331a381c",
+      "expected_checkpoint_ids": {
+        "1000": "184cb3932d5fcb6bf7ab3b66776d261543d0107ea6a3c5273c0d08e2474a0ea5"
+      }
+    },
+    {
+      "id": "sd15-dpo",
+      "family": "sd15",
+      "method": "dpo",
+      "root": "legacy",
+      "run": "sd15-dpo-p384-cu130-v1",
+      "steps": [
+        10000
+      ],
+      "method_label": "DPO",
+      "expected_run_id": "defa3ccadaf5d3fab96ce09cfce6cde32c22c2e6f60d732fd97d022943540517",
+      "expected_checkpoint_ids": {
+        "10000": "7d6cd430ecff524d92534308fd193d45d2ace2c86ba1d816c5dd42c8b2540bc9"
+      }
+    },
+    {
+      "id": "sd15-stagewise-k6",
+      "family": "sd15",
+      "method": "stagewise_k6",
+      "root": "legacy",
+      "run": "sd15-dpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "steps": [
+        10000
+      ],
+      "method_label": "DPO + Stage-C K6",
+      "expected_run_id": "29c985fc372b5b4e2d0d50ee78973c76e5d841e25795bc9516bd8c44c1751474",
+      "expected_checkpoint_ids": {
+        "10000": "31d0478414811f12626ced3a42438632dc3826db0f8bb9d8d2856a72c5508911"
+      }
+    },
+    {
+      "id": "sd15-dmpo",
+      "family": "sd15",
+      "method": "dmpo",
+      "root": "legacy",
+      "run": "sd15-dmpo-k1-pv384-2gpu-10000-final-v1",
+      "steps": [
+        10000
+      ],
+      "method_label": "DMPO",
+      "expected_run_id": "b31b8654e39e5de15110bae6b56328dd979c71005a7a0b0755d485ae9d44f092",
+      "expected_checkpoint_ids": {
+        "10000": "bd5fc77d5f0ff728f4be53f717fddf60114152a968a443020a83857640bcd97c"
+      }
+    },
+    {
+      "id": "sd15-stagewise-dmpo-k6",
+      "family": "sd15",
+      "method": "stagewise_dmpo_k6",
+      "root": "legacy",
+      "run": "sd15-dmpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "steps": [
+        10000
+      ],
+      "method_label": "DMPO + Stage-C K6",
+      "expected_run_id": "160cf76c2a43d824812587eae9b371472656c8e880e4356c42cf42979dafc84d",
+      "expected_checkpoint_ids": {
+        "10000": "72e3c7292e16e59c1ab221563391aab57c5781a73e5e6b98f4fa931d901d7ece"
+      }
+    },
+    {
+      "id": "sd15-dspo",
+      "family": "sd15",
+      "method": "dspo",
+      "root": "legacy",
+      "run": "sd15-dspo-k1-pv384-2gpu-10000-final-v1",
+      "steps": [
+        10000
+      ],
+      "method_label": "DSPO",
+      "expected_run_id": "b30144ba3ab8ad8746a821d148ec9b7229cc6544e7d2f14198997d96da72bd22",
+      "expected_checkpoint_ids": {
+        "10000": "1899cb48da8b2298bf22f8f8c8a84bca591989a37c3eb59e0655575c63ae6048"
+      }
+    },
+    {
+      "id": "sd15-stagewise-dspo-k6",
+      "family": "sd15",
+      "method": "stagewise_dspo_k6",
+      "root": "legacy",
+      "run": "sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "steps": [
+        6000,
+        10000
+      ],
+      "method_label": "DSPO + Stage-C K6",
+      "expected_run_id": "9c6ef4c268c6265a6e199284e8f0f8a589c786efcd766b780d1e51f73d7e83a5",
+      "expected_checkpoint_ids": {
+        "6000": "d794dd59e4b29eab0bbb08a232e0bc503721ffa9b6b5abdac082dab5d257b3c7",
+        "10000": "2694e7cf8160ad111e1607b0c0eff2ba5f95d72533cc53ea42b0c91d5750171f"
+      }
+    }
+  ]
+}

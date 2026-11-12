@@ -191,7 +191,10 @@ def load_catalog(path, registry, *, families=None, methods=None, patterns=None):
             if key in selections:
                 raise ValueError(f'Ambiguous family/method/step selection: {key}')
             selections.add(key)
-        run.update(name=name, experiment_id=name, method=method, method_label=METHODS[method],
+        label = entry.get('method_label', METHODS[method])
+        if not isinstance(label, str) or not label.strip() or any(c in label for c in '\r\n'):
+            raise ValueError(f'Invalid method_label for {name}')
+        run.update(name=name, experiment_id=name, method=method, method_label=label,
                    selected_steps=sorted(steps), method_config=method_config)
         selected.append(run)
     if methods:

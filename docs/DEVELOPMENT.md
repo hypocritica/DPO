@@ -1,5 +1,23 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-12 SLAI两条评测工作流与批量生成
+
+SD1.5专用入口冻结交接的11个版本、三套正式偏好面板、58509张图片和legacy五指标，
+按Parti→PickV2→HPSv2生成，每卡batch32；计划发布前核对历史run/checkpoint身份及
+adapter文件hash。主表固定使用Stage-C DSPO 6000，10000只进入独立步数对照。
+SD3.5M曲线每卡batch4，每checkpoint128图，仅PickScore，四卡命令独立于SD1.5。
+
+renderer使用prompt列表与逐图Generator；批边界固定，部分恢复重算整批，只提交缺失
+PNG，不自动降batch。图片、manifest、日志、评分和曲线保存在AOSS分模型目录。
+新增image-index.csv/json支持评分前按模型、方法、step、prompt与seed定位原PNG。
+资产工具分离离线检查、metadata计划、显式下载和source准备；复用完整legacy手动缓存。
+首次部署、独立环境和两轨命令见[SLAI_TWO_TRACK_EVALUATION.md](SLAI_TWO_TRACK_EVALUATION.md)。
+
+本轮80项相关CPU检查通过（78项组合回归，另补批大小冻结及HPSv2源码目标路径测试）。
+检查覆盖批量尾批与中断补图、精确checkpoint身份、主表/对照筛选、缓存复用、图片索引、
+曲线与论文导出、原存储兼容；Python/Bash语法及diff检查通过。没有安装环境、下载模型
+或执行GPU推理；5090显存、吞吐和真实评分仍须SLAI验证，不扩大旧源码兼容白名单。
+
 ## 2026-11-13 SD3.5M checkpoint曲线
 
 `evaluate_curves.py`复用统一suite的计划、生成、评分与checkpoint级多GPU分片。

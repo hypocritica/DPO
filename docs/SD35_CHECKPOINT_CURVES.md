@@ -3,6 +3,7 @@
 这条流程在相同的 **128 条 development prompts、seed 17** 上比较 Base、SFT、DPO、
 LinearDPO、Global K2、Stagewise K2、Global K4、Stagewise K4。每个已发布永久
 checkpoint 生成128张图，然后仅计算 PickScore，保存图片、逐图分数和曲线。
+新计划默认每GPU生成batch4，固定批边界随计划保存，评分batch独立配置。
 Base生成一次，图中显示为水平参考线。它用于观察训练过程，不替代五套正式benchmark。
 
 入口是 `evaluate_curves.py`，复制执行时可用 `scripts/run_sd35_curves.sh`。
@@ -56,8 +57,8 @@ setup拒绝覆盖已有前缀；不要向base或运行中的训练环境安装�
 
 ```bash
 export SCD_CURVES_RUNS_ROOT=/mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs
-export SCD_CURVES_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35-curves-v1-prepared
-export SCD_CURVES_OUT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35-curves-v1
+export SCD_CURVES_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-v1-prepared
+export SCD_CURVES_OUT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-v1
 df -h /mnt/aoss/xietianyu /mnt/afs/L202500030/xietianyu
 ```
 
@@ -82,7 +83,7 @@ SD3.5基座直接使用各run的 `training.json` 记录；已有训练基座无�
 ## 3. 一次准备并冻结128条prompt和全部checkpoint
 
 ```bash
-bash scripts/run_sd35_curves.sh prepare
+bash scripts/run_sd35_curves.sh prepare --generation-batch-size 4
 bash scripts/run_sd35_curves.sh plan
 ```
 
@@ -210,7 +211,7 @@ $SCD_CURVES_OUT/
   curves/points.csv / points.json
   curves/pickscore.png / pickscore.pdf
   curves/status.json
-$SCD_CURVES_OUT.logs/<UTC时间>-<PID>-<阶段>.log
+$SCD_CURVES_OUT/logs/<UTC时间>-<PID>-<阶段>-<随机后缀>.log
 ```
 
 实际任务相对路径以plan为准。曲线显示各checkpoint的prompt均值及标准误，阴影不是

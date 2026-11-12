@@ -14,6 +14,7 @@ STAGE: prepare | plan | generate | score | summarize | all
   --prepared PATH        Frozen 128-prompt input directory
   --out PATH             Separate render/score/curve output directory
   --target-steps N       Expected final training step (default: 3200)
+  --generation-batch-size N  Images per GPU generation forward (default: 4)
   --gpus IDS             Comma-separated IDs from CUDA_VISIBLE_DEVICES
   --check-only           Generate/score preflight only; no GPU forward
   --keep-going           Continue independent tasks (already the default)
@@ -36,11 +37,12 @@ case "$stage" in prepare|plan|generate|score|summarize|all) ;; *) usage >&2; exi
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 python="${SCD_FLOW_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-flow-smoke-7818ade/bin/python}"
 runs_root="${SCD_CURVES_RUNS_ROOT:-/mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs}"
-prepared="${SCD_CURVES_PREP:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35-curves-v1-prepared}"
-out="${SCD_CURVES_OUT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35-curves-v1}"
+prepared="${SCD_CURVES_PREP:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-v1-prepared}"
+out="${SCD_CURVES_OUT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-v1}"
 gpus="${SCD_CURVES_GPUS-${CUDA_VISIBLE_DEVICES-0,1}}"
 catalog=''
 target_steps=3200
+generation_batch_size=4
 check_only=0
 dry_run=0
 patterns=()
@@ -48,7 +50,7 @@ exclusions=()
 while (( $# )); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
-    --runs-root|--prepared|--out|--gpus|--catalog|--run-glob|--exclude-prompts|--target-steps)
+    --runs-root|--prepared|--out|--gpus|--catalog|--run-glob|--exclude-prompts|--target-steps|--generation-batch-size)
       if (( $# < 2 )) || [[ "$2" == --* ]]; then echo "Missing value for $1" >&2; exit 2; fi
       case "$1" in
         --runs-root) runs_root="$2" ;;
@@ -57,6 +59,7 @@ while (( $# )); do
         --gpus) gpus="$2" ;;
         --catalog) catalog="$2" ;;
         --target-steps) target_steps="$2" ;;
+        --generation-batch-size) generation_batch_size="$2" ;;
         --run-glob) patterns+=("$2") ;;
         --exclude-prompts) exclusions+=("$2") ;;
       esac
@@ -88,7 +91,7 @@ run_stage() {
   local command=("$python" -u "$repo/evaluate_curves.py" "$name")
   case "$name" in
     prepare)
-      command+=(--out "$prepared" --target-steps "$target_steps")
+      command+=(--out "$prepared" --target-steps "$target_steps" --generation-batch-size "$generation_batch_size")
       if [[ -n "$catalog" ]]; then command+=(--catalog "$catalog"); else command+=(--runs-root "$runs_root"); fi
       (( ${#patterns[@]} == 0 )) || command+=(--run-glob "${patterns[@]}")
       (( ${#exclusions[@]} == 0 )) || command+=(--exclude-prompts "${exclusions[@]}") ;;
@@ -103,9 +106,10 @@ run_stage() {
   printf '\n'
   if (( dry_run )); then return 0; fi
   # Keep logs outside the frozen output, including failures before plan exists.
-  local logs="${SCD_CURVES_LOGS:-${out}.logs}"
+  local logs="${SCD_CURVES_LOGS:-${out}/logs}"
   mkdir -p -- "$logs"
-  local log="$logs/$(date -u +%Y%m%dT%H%M%S)-$$-${name}.log"
+  local log
+  log="$(mktemp "$logs/$(date -u +%Y%m%dT%H%M%S)-$$-${name}-XXXXXX.log")"
   "${command[@]}" 2>&1 | tee "$log"
 }
 

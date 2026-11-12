@@ -1,3 +1,32 @@
+## 当前 SLAI 两条工作流：先生成、后评分
+
+首次拉代码、已有 eval 环境检查、新 Flow 环境、缺失评分权重下载及完整命令，统一见
+**[SLAI_TWO_TRACK_EVALUATION.md](docs/SLAI_TWO_TRACK_EVALUATION.md)**。
+SD1.5使用 `evaluate_sd15.py`，按交接清单固定11版本；三套面板顺序为Parti→PickV2→HPSv2，
+每卡生成batch32，四卡共58509图。SD3.5M八方法使用 `evaluate_curves.py`，每checkpoint
+128图、每卡batch4；两个工作流分别占用四卡，不在同一组四卡上同时启动。
+
+```bash
+# 完成专项文档中的环境、路径和prompt准备后；仅使用SLAI已分配的四卡。
+bash scripts/run_sd15_main.sh plan
+bash scripts/run_sd15_main.sh generate --gpus 0,1,2,3
+python evaluate_suite.py index --out /mnt/aoss/xietianyu/self_correct/evaluations/sd15/main-v1
+# 之后在已有legacy eval环境评分。同一批图片计算五指标。
+bash scripts/run_sd15_main.sh score --gpus 0,1,2,3
+bash scripts/run_sd15_main.sh export
+
+# 设置SCD_FLOW_PY指向已检查的独立Flow环境；以下是另一条四卡工作流。
+bash scripts/run_sd35_curves.sh prepare --generation-batch-size 4
+bash scripts/run_sd35_curves.sh plan
+bash scripts/run_sd35_curves.sh generate --gpus 0,1,2,3
+bash scripts/run_sd35_curves.sh score --gpus 0,1,2,3
+bash scripts/run_sd35_curves.sh summarize
+```
+
+`index` 产生 `image-index.csv/json`，包含模型、方法、step、checkpoint身份、benchmark、
+prompt、seed、原图绝对路径和manifest记录的图片hash。无需安装评分器，不移动或删除原图。
+batch大小属于冻结采样协议；部分batch中断时按原批边界重算，只补缺失图片，不覆盖已提交图片。
+
 ## SD3.5M checkpoint曲线：128张、PickScore、2–4卡（2026-11-13）
 
 完整可复制安装与运行步骤见 [SD35_CHECKPOINT_CURVES.md](docs/SD35_CHECKPOINT_CURVES.md)。

@@ -1,0 +1,60 @@
+{
+  "benchmarks": {
+    "partiprompts": "${BENCHMARKS_ROOT}/sd15/paper-eval/partiprompts.jsonl",
+    "pickv2": "${BENCHMARKS_ROOT}/sd15/paper-eval/pickv2.jsonl",
+    "hpsv2": "${BENCHMARKS_ROOT}/sd15/paper-eval/hpsv2.jsonl"
+  },
+  "scorers_config": "scorers.json",
+  "compositional_config": "compositional.json",
+  "protocols": {
+    "sd15": {
+      "scheduler": "EulerDiscreteScheduler",
+      "dtype": "bfloat16",
+      "height": 512,
+      "width": 512,
+      "num_inference_steps": 50,
+      "guidance_scale": 7.5,
+      "negative_prompt": "",
+      "seeds": [
+        0
+      ],
+      "prompt_truncation": "truncate",
+      "safety_checker": "disabled",
+      "generation_batch_size": 32
+    }
+  },
+  "benchmark_seeds": {
+    "geneval": [
+      17,
+      29,
+      43,
+      71
+    ],
+    "dpg": [
+      17,
+      29,
+      43,
+      71
+    ]
+  },
+  "metric_groups": {
+    "legacy": [
+      "pickscore",
+      "hpsv2",
+      "image_reward",
+      "clip",
+      "aesthetic"
+    ],
+    "modern": [
+      "pickscore",
+      "hpsv2",
+      "image_reward",
+      "clip",
+      "aesthetic"
+    ]
+  },
+  "notes": [
+    "SD1.5 main handoff: eleven fixed versions, Euler50/CFG7.5/seed0, generation batch32 per GPU.",
+    "Plan all three panels before generating PartiPrompts, PickV2, HPSv2 in order; scoring is a separate command."
+  ]
+}

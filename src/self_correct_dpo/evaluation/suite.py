@@ -141,6 +141,11 @@ def make_plan(args):
                             'checkpoint_sha256': sha256(Path(saved['path']) / 'checkpoint.json')}
             for panel, info in panels.items():
                 sampling = copy.deepcopy(config['protocols'][run['family']])
+                if getattr(args, 'generation_batch_size', None) is not None:
+                    sampling['generation_batch_size'] = args.generation_batch_size
+                batch_size = sampling.get('generation_batch_size', 1)
+                if type(batch_size) is not int or batch_size < 1:
+                    raise ValueError('generation_batch_size must be a positive integer')
                 if panel in config.get('benchmark_seeds', {}):
                     sampling['seeds'] = config['benchmark_seeds'][panel]
                 if args.seeds is not None:
@@ -493,7 +498,7 @@ def launch_workers(args, argv):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('list', 'catalog', 'plan', 'generate', 'score', 'summarize', 'gallery'):
+    for name in ('list', 'catalog', 'plan', 'generate', 'score', 'summarize', 'gallery', 'index'):
         p = commands.add_parser(name)
         p.add_argument('--resources', help='SLAI resource registry (also inherited by subprocesses)')
         p.add_argument('--run-glob', nargs='+', help='Quoted run paths/globs relative to runs root')
@@ -522,6 +527,7 @@ def parse_args(argv=None):
             p.add_argument('--max-step', type=int)
             p.add_argument('--include-base', action='store_true')
             p.add_argument('--seeds', nargs='+', type=int, help='Explicit protocol override; use a fresh output')
+            p.add_argument('--generation-batch-size', type=int, help='Images per GPU forward; frozen in sampling, use a fresh output')
             p.add_argument('--dry-run', action='store_true', help='Print image counts and plan; write nothing')
         if name in ('score', 'summarize'):
             p.add_argument('--metrics', nargs='+')
@@ -622,6 +628,11 @@ def main(argv=None):
         os.environ['SCD_RESOURCES'] = plan['resources']
     if args.command == 'summarize':
         result = summarize(plan, out, args)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result['complete'] else 1
+    if args.command == 'index':
+        from self_correct_dpo.evaluation.image_index import export_image_index
+        result = export_image_index(plan, out, args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result['complete'] else 1
     if args.command == 'gallery':

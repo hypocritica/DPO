@@ -97,6 +97,7 @@ class CurvePrepareTest(unittest.TestCase):
         self.assertEqual(selection['missing_exclusion_panels'], [])
         suite = read_json(result['config'])
         self.assertEqual(suite['protocols']['sd35_medium']['seeds'], [17])
+        self.assertEqual(suite['protocols']['sd35_medium']['generation_batch_size'], 4)
         self.assertEqual(suite['metric_groups'], {'legacy': ['pickscore'], 'modern': ['pickscore']})
         spec = read_json(prepared / 'scorers.json')['scorers']['pickscore']
         self.assertEqual(spec['batch_size'], 1)
@@ -110,6 +111,20 @@ class CurvePrepareTest(unittest.TestCase):
         self.assertTrue(all(task['images'] == 128 and task['sampling']['seeds'] == [17] for task in plan['tasks']))
         self.assertEqual(plan['panels']['pickv2']['mode'], 'development-curve')
 
+
+    def test_batch_size_is_bounded_and_cannot_change_frozen_preparation(self):
+        for value in (0, 5, True, 2.5):
+            self.args.generation_batch_size = value
+            with self.assertRaisesRegex(ValueError, 'between 1 and 4'):
+                prepare_curve(self.args)
+        self.args.generation_batch_size = 4
+        prepare_curve(self.args)
+        self.args.generation_batch_size = 2
+        with self.assertRaises(ValueError):
+            prepare_curve(self.args)
+        self.args.prepare_dir = str(self.root / 'batch2-prepared')
+        result = prepare_curve(self.args)
+        self.assertEqual(read_json(result['config'])['protocols']['sd35_medium']['generation_batch_size'], 2)
 
     def test_replay_is_frozen_without_training_scan_and_rejects_tampering(self):
         first = prepare_curve(self.args)

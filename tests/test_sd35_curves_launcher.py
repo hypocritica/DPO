@@ -60,6 +60,8 @@ raise SystemExit(int(os.environ.get('FAIL_CODE', '7')) if stage == os.environ.ge
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = [json.loads(line) for line in (root / 'calls.jsonl').read_text().splitlines()]
             self.assertEqual([call[2] for call in calls], ['prepare', 'plan', 'generate', 'score', 'summarize'])
+            at = calls[0].index('--generation-batch-size')
+            self.assertEqual(calls[0][at + 1], '4')
             self.assertIn('2,3', calls[2])
             self.assertIn('--keep-going', calls[2])
             self.assertEqual(len(list((root / 'logs').glob('*.log'))), 5)

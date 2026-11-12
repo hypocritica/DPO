@@ -165,6 +165,7 @@ def export_paper(plan, out, args):
     tables, index = make_tables(rows)
     result = {'schema_version': 1, 'plan_id': plan['plan_id'], 'complete': complete,
               'status': 'complete' if complete else 'INCOMPLETE DRAFT',
+              'report_selection': plan.get('report_selection'),
               'notes': ['Means keep their native scorer scales.', 'Standard errors in results.csv are across prompt means, not confidence intervals.',
                         'Tables split when base model, sampling, prompts or scorer identities differ.',
                         'Smoke-only and custom-unverified panels are not certified full benchmark results.',

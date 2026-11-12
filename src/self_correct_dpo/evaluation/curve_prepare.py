@@ -180,6 +180,9 @@ def prepare_curve(args):
     The panel is always 128 prompts with generation seed 17 and PickScore only.
     """
     out = Path(args.prepare_dir).expanduser().resolve()
+    batch_size = getattr(args, 'generation_batch_size', 4)
+    if type(batch_size) is not int or not 1 <= batch_size <= 4:
+        raise ValueError('SD3.5 curve generation_batch_size must be between 1 and 4')
     registry = load_resources(getattr(args, 'resources', None))
     roots = roots_from_args(getattr(args, 'runs_root', None), registry)
     exclusions = getattr(args, 'exclude_prompts', None) or []
@@ -189,7 +192,8 @@ def prepare_curve(args):
     request = {'runs_roots': [str(root) for root in roots], 'catalog': _path(args.catalog) if getattr(args, 'catalog', None) else None,
                'run_glob': getattr(args, 'run_glob', None), 'resources': _path(args.resources) if getattr(args, 'resources', None) else None,
                'config': config_path, 'target_steps': getattr(args, 'target_steps', 3200),
-               'exclude_prompts': exclusions, 'prompts': 128, 'seeds': [17], 'metrics': ['pickscore']}
+               'exclude_prompts': exclusions, 'prompts': 128, 'seeds': [17], 'metrics': ['pickscore'],
+               'generation_batch_size': batch_size}
     def result(manifest):
         return {'prepare_dir': str(out), 'catalog': str(out / 'catalog.json'),
                 'config': str(out / 'suite.json'), 'prompts_root': str(out / 'prompts'),
@@ -231,6 +235,7 @@ def prepare_curve(args):
         suite['scorers_config'] = str(out / 'scorers.json')
         sampling = copy.deepcopy(suite['protocols']['sd35_medium'])
         sampling['seeds'] = [17]
+        sampling['generation_batch_size'] = batch_size
         suite['protocols'] = {'sd35_medium': sampling}
         suite['benchmarks'] = {'pickv2': str(out / 'prompts/pickv2.jsonl')}
         suite['metric_groups'] = {'legacy': ['pickscore'], 'modern': ['pickscore']}

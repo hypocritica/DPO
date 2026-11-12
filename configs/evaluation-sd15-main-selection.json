@@ -1,0 +1,186 @@
+{
+  "schema": "sd15-main-selection-v1",
+  "status": "Metadata selection only; no formal scores or GPU validation.",
+  "model": {
+    "family": "sd15",
+    "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sd15",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+  },
+  "sampling": {
+    "scheduler": "EulerDiscreteScheduler",
+    "dtype": "bfloat16",
+    "height": 512,
+    "width": 512,
+    "num_inference_steps": 50,
+    "guidance_scale": 7.5,
+    "negative_prompt": "",
+    "seeds": [
+      0
+    ],
+    "prompt_truncation": "truncate",
+    "safety_checker": "disabled",
+    "generation_batch_size": 32
+  },
+  "benchmarks": {
+    "partiprompts": 1632,
+    "pickv2": 487,
+    "hpsv2": 3200
+  },
+  "benchmark_order": [
+    "partiprompts",
+    "pickv2",
+    "hpsv2"
+  ],
+  "variants": [
+    {
+      "selection_id": "sd15-base-0000000",
+      "family": "sd15",
+      "method": "base",
+      "label": "Base",
+      "step": 0,
+      "catalog_id": "sd15-base",
+      "run_name": "",
+      "run_path": "",
+      "run_id": "",
+      "checkpoint_id": "base",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-sft-0006000",
+      "family": "sd15",
+      "method": "sft",
+      "label": "SFT",
+      "step": 6000,
+      "catalog_id": "sd15-sft",
+      "run_name": "sd15-sft-k1-p384-2gpu-10000-slai-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-sft-k1-p384-2gpu-10000-slai-v1",
+      "run_id": "390e179888b60b2fec24d9f43cc6f0e3b8bc7a0c1ffc7f2a1c70b866cbd2052f",
+      "checkpoint_id": "79c5efbdf3056f9742ebaf558b5b4b91003b009642290404f3108808074c1868",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-kto-0004000",
+      "family": "sd15",
+      "method": "kto",
+      "label": "Pair-derived KTO",
+      "step": 4000,
+      "catalog_id": "sd15-kto",
+      "run_name": "sd15-kto-k1-p384-2gpu-10000-slai-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-kto-k1-p384-2gpu-10000-slai-v1",
+      "run_id": "5d6d7ae306f707726c9f2a2a66335afdb306a0a2a29a3653e25247f9e3b3588e",
+      "checkpoint_id": "76dcb211ea51672e85dd55c7bd78c2754c48d431fe1f5c47e54aee7d265feb3d",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-mapo-0001000",
+      "family": "sd15",
+      "method": "mapo",
+      "label": "MaPO",
+      "step": 1000,
+      "catalog_id": "sd15-mapo",
+      "run_name": "sd15-mapo-k1-p384-2gpu-10000-slai-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-mapo-k1-p384-2gpu-10000-slai-v1",
+      "run_id": "a03fe1ca4d205421222807324e9c37b3ef592378f9ea54b347a79782331a381c",
+      "checkpoint_id": "184cb3932d5fcb6bf7ab3b66776d261543d0107ea6a3c5273c0d08e2474a0ea5",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-dpo-0010000",
+      "family": "sd15",
+      "method": "dpo",
+      "label": "DPO",
+      "step": 10000,
+      "catalog_id": "sd15-dpo",
+      "run_name": "sd15-dpo-p384-cu130-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dpo-p384-cu130-v1",
+      "run_id": "defa3ccadaf5d3fab96ce09cfce6cde32c22c2e6f60d732fd97d022943540517",
+      "checkpoint_id": "7d6cd430ecff524d92534308fd193d45d2ace2c86ba1d816c5dd42c8b2540bc9",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-stagewise-k6-0010000",
+      "family": "sd15",
+      "method": "stagewise_k6",
+      "label": "DPO + Stage-C K6",
+      "step": 10000,
+      "catalog_id": "sd15-stagewise-k6",
+      "run_name": "sd15-dpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "29c985fc372b5b4e2d0d50ee78973c76e5d841e25795bc9516bd8c44c1751474",
+      "checkpoint_id": "31d0478414811f12626ced3a42438632dc3826db0f8bb9d8d2856a72c5508911",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-dmpo-0010000",
+      "family": "sd15",
+      "method": "dmpo",
+      "label": "DMPO",
+      "step": 10000,
+      "catalog_id": "sd15-dmpo",
+      "run_name": "sd15-dmpo-k1-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dmpo-k1-pv384-2gpu-10000-final-v1",
+      "run_id": "b31b8654e39e5de15110bae6b56328dd979c71005a7a0b0755d485ae9d44f092",
+      "checkpoint_id": "bd5fc77d5f0ff728f4be53f717fddf60114152a968a443020a83857640bcd97c",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-stagewise-dmpo-k6-0010000",
+      "family": "sd15",
+      "method": "stagewise_dmpo_k6",
+      "label": "DMPO + Stage-C K6",
+      "step": 10000,
+      "catalog_id": "sd15-stagewise-dmpo-k6",
+      "run_name": "sd15-dmpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dmpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "160cf76c2a43d824812587eae9b371472656c8e880e4356c42cf42979dafc84d",
+      "checkpoint_id": "72e3c7292e16e59c1ab221563391aab57c5781a73e5e6b98f4fa931d901d7ece",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-dspo-0010000",
+      "family": "sd15",
+      "method": "dspo",
+      "label": "DSPO",
+      "step": 10000,
+      "catalog_id": "sd15-dspo",
+      "run_name": "sd15-dspo-k1-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dspo-k1-pv384-2gpu-10000-final-v1",
+      "run_id": "b30144ba3ab8ad8746a821d148ec9b7229cc6544e7d2f14198997d96da72bd22",
+      "checkpoint_id": "1899cb48da8b2298bf22f8f8c8a84bca591989a37c3eb59e0655575c63ae6048",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-stagewise-dspo-k6-0006000",
+      "family": "sd15",
+      "method": "stagewise_dspo_k6",
+      "label": "DSPO + Stage-C K6",
+      "step": 6000,
+      "catalog_id": "sd15-stagewise-dspo-k6",
+      "run_name": "sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "9c6ef4c268c6265a6e199284e8f0f8a589c786efcd766b780d1e51f73d7e83a5",
+      "checkpoint_id": "d794dd59e4b29eab0bbb08a232e0bc503721ffa9b6b5abdac082dab5d257b3c7",
+      "report_role": "main"
+    },
+    {
+      "selection_id": "sd15-stagewise-dspo-k6-0010000",
+      "family": "sd15",
+      "method": "stagewise_dspo_k6",
+      "label": "DSPO + Stage-C K6",
+      "step": 10000,
+      "catalog_id": "sd15-stagewise-dspo-k6",
+      "run_name": "sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_path": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "9c6ef4c268c6265a6e199284e8f0f8a589c786efcd766b780d1e51f73d7e83a5",
+      "checkpoint_id": "2694e7cf8160ad111e1607b0c0eff2ba5f95d72533cc53ea42b0c91d5750171f",
+      "report_role": "sensitivity"
+    }
+  ],
+  "source_sha256": {
+    "SD15_EVALUATION_HANDOFF.txt": "a2237758b50a10a268611184ef24b8472107476bbb2a34757ffc6742dbd3b49f",
+    "catalog.sd15.json": "aa95c6c0b64516fd28513c2bbc27a9e840b9216367b3c47827022e562ee95d2a",
+    "checkpoints.csv": "c473dc22abe0218de3b457fb3e40fb981cbd483d774c23c87aad7da3929df5c6",
+    "selection.json": "78c14ac92bcb251e9002b5049c70c2665e45d74e3dce247d460425ccda0d02e4"
+  },
+  "report_policy": "Main excludes Stage-C DSPO 10000. Sensitivity includes its 6000 and 10000 checkpoints; no per-metric checkpoint selection."
+}

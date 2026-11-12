@@ -62,6 +62,9 @@ def model_spec(config):
 
 def effective_sampling(config):
     sampling = dict(config["sampling"])
+    sampling.setdefault("generation_batch_size", 1)
+    if type(sampling["generation_batch_size"]) is not int or sampling["generation_batch_size"] < 1:
+        raise ValueError("generation_batch_size must be a positive integer")
     if model_spec(config)["family"] in {"sd35_medium", "zimage"}:
         model_length = config.get("model", {}).get("max_sequence_length")
         if model_length is not None and "max_sequence_length" in sampling and model_length != sampling["max_sequence_length"]:
@@ -506,6 +509,68 @@ def commit_image(image, root, run, record, manifest):
     return record
 
 
+def render_batches(pipe, torch, root, run, manifest, completed, *, device="cuda", synchronize=None):
+    """Render fixed original batches, replaying partial batches after interruption.
+
+    Each image keeps its original seed generator and slot. Completed members of
+    a partial batch are recomputed to preserve the pipeline's batch shape, then
+    discarded. OOM and count failures propagate without retrying smaller batches.
+    """
+    sampling = run['sampling']
+    batch_size = sampling.get('generation_batch_size', 1)
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValueError('generation_batch_size must be a positive integer')
+    expected = expected_records(run)
+    if len(expected) != run['expected_images']:
+        raise ValueError('Expected image count differs from the render design')
+    items = list(expected.items())
+    synchronize = synchronize or torch.cuda.synchronize
+    stats = {'generation_batches': 0, 'generation_images_computed': 0, 'generation_forward_seconds': 0.0}
+    for index, row in enumerate(run['suite']):
+        folder = root / 'images' / f'{index:05d}'
+        (folder / 'samples').mkdir(parents=True, exist_ok=True)
+        metadata = folder / 'metadata.jsonl'
+        if metadata.exists():
+            if read_json(metadata) != row['metadata']:
+                raise ValueError('Canonical scene metadata changed')
+        else:
+            write_json(metadata, row['metadata'])
+    for offset in range(0, len(items), batch_size):
+        batch = items[offset:offset + batch_size]
+        if all(key in completed for key, _ in batch):
+            continue
+        kwargs = {'prompt': [spec['prompt'] for _, spec in batch],
+                  'negative_prompt': [sampling['negative_prompt']] * len(batch),
+                  'height': sampling['height'], 'width': sampling['width'],
+                  'num_inference_steps': sampling['num_inference_steps'],
+                  'guidance_scale': sampling['guidance_scale'],
+                  'generator': [torch.Generator(device).manual_seed(spec['seed']) for _, spec in batch]}
+        if run['model']['family'] in {'sd35_medium', 'zimage'}:
+            kwargs['max_sequence_length'] = sampling.get('max_sequence_length', 256)
+        synchronize()
+        batch_started = time.perf_counter()
+        with torch.inference_mode():
+            images = pipe(**kwargs).images
+        synchronize()
+        elapsed = time.perf_counter() - batch_started
+        if len(images) != len(batch):
+            raise ValueError(f'Pipeline returned {len(images)} images for a batch of {len(batch)}')
+        stats['generation_batches'] += 1
+        stats['generation_images_computed'] += len(batch)
+        stats['generation_forward_seconds'] += elapsed
+        for (key, spec), image in zip(batch, images):
+            if key in completed:
+                continue
+            record = {**spec, 'generation_seconds': elapsed / len(batch),
+                      'generation_batch_index': offset // batch_size, 'generation_batch_images': len(batch),
+                      'generation_timing': 'batch_elapsed_divided_by_full_batch_size'}
+            completed[key] = commit_image(image, root, run, record, manifest)
+        print(f"{run['arm']}: {min(offset + batch_size, len(items))}/{len(items)} image slots", flush=True)
+    if len(completed) != len(expected):
+        raise ValueError('Rendered image count differs from the frozen design')
+    return stats
+
+
 def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_identity, model_identity, suite_indices=None):
     run = read_json(root / "run.json")
     if run["run_id"] != digest({k: v for k, v in run.items() if k != "run_id"}):
@@ -620,39 +685,12 @@ def main():
             for key, spec in expected_map.items():
                 if (out / spec["image"]).exists() and key not in completed:
                     raise ValueError(f"Uncommitted image without a recovery journal: {spec['image']}")
-            for index, row in enumerate(suite):
-                folder = out / "images" / f"{index:05d}"
-                (folder / "samples").mkdir(parents=True, exist_ok=True)
-                metadata = folder / "metadata.jsonl"
-                if metadata.exists():
-                    if read_json(metadata) != row["metadata"]:
-                        raise ValueError("Canonical scene metadata changed")
-                else:
-                    write_json(metadata, row["metadata"])
-                for seed in sampling["seeds"]:
-                    key = (row["scene_id"], row["variant_id"], seed)
-                    if key in completed:
-                        continue
-                    kwargs = {"prompt": row["prompt"], "negative_prompt": sampling["negative_prompt"],
-                              "height": sampling["height"], "width": sampling["width"],
-                              "num_inference_steps": sampling["num_inference_steps"],
-                              "guidance_scale": sampling["guidance_scale"],
-                              "generator": torch.Generator("cuda").manual_seed(seed)}
-                    if model["family"] in {"sd35_medium", "zimage"}:
-                        kwargs["max_sequence_length"] = sampling.get("max_sequence_length", 256)
-                    torch.cuda.synchronize()
-                    image_started = time.perf_counter()
-                    with torch.inference_mode():
-                        image = pipe(**kwargs).images[0]
-                    torch.cuda.synchronize()
-                    record = {**expected_map[key], "generation_seconds": time.perf_counter() - image_started}
-                    completed[key] = commit_image(image, out, run, record, manifest)
-                print(f"{args.arm}: {index + 1}/{len(suite)} prompts", flush=True)
+            generation_stats = render_batches(pipe, torch, out, run, manifest, completed)
         sessions = out / "sessions"
         sessions.mkdir(exist_ok=True)
         write_json(sessions / f"{uuid.uuid4().hex}.json", {
             "execution": execution, "hostname": socket.gethostname(), "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
-            "started_unix": started, "elapsed_seconds": time.time() - started,
+            "started_unix": started, "elapsed_seconds": time.time() - started, **generation_stats,
             "resumed": args.resume, "images_at_start": initial_images, "images_at_end": len(completed),
             "gpu": torch.cuda.get_device_name(), "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
             "peak_reserved_bytes": torch.cuda.max_memory_reserved()})

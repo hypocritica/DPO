@@ -20,6 +20,7 @@ def main(argv=None):
     prepare.add_argument('--resources')
     prepare.add_argument('--config', default=str(ROOT / 'configs/evaluation-suite.json'))
     prepare.add_argument('--target-steps', type=int, default=3200)
+    prepare.add_argument('--generation-batch-size', type=int, default=4)
     prepare.add_argument('--exclude-prompts', nargs='+', action='extend', default=[])
     prepare.add_argument('--out', dest='prepare_dir', required=True)
     plan = commands.add_parser('plan', help='Create immutable generation/scoring plan')
