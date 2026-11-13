@@ -15,6 +15,8 @@ STAGE: prepare | plan | generate | score | summarize | all
   --out PATH             Separate render/score/curve output directory
   --target-steps N       Expected final training step (default: 3200)
   --generation-batch-size N  Images per GPU generation forward (default: 4)
+  --from-prepared PATH  Reuse frozen prompts/checkpoints for a new preparation
+  --cpu-offload BOOL    true/false for a new preparation
   --gpus IDS             Comma-separated IDs from CUDA_VISIBLE_DEVICES
   --check-only           Generate/score preflight only; no GPU forward
   --keep-going           Continue independent tasks (already the default)
@@ -41,6 +43,8 @@ prepared="${SCD_CURVES_PREP:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_m
 out="${SCD_CURVES_OUT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-v1}"
 gpus="${SCD_CURVES_GPUS-${CUDA_VISIBLE_DEVICES-0,1}}"
 catalog=''
+from_prepared=''
+cpu_offload=''
 target_steps=3200
 generation_batch_size=4
 check_only=0
@@ -50,7 +54,7 @@ exclusions=()
 while (( $# )); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
-    --runs-root|--prepared|--out|--gpus|--catalog|--run-glob|--exclude-prompts|--target-steps|--generation-batch-size)
+    --runs-root|--prepared|--out|--gpus|--catalog|--run-glob|--exclude-prompts|--target-steps|--generation-batch-size|--from-prepared|--cpu-offload)
       if (( $# < 2 )) || [[ "$2" == --* ]]; then echo "Missing value for $1" >&2; exit 2; fi
       case "$1" in
         --runs-root) runs_root="$2" ;;
@@ -58,6 +62,8 @@ while (( $# )); do
         --out) out="$2" ;;
         --gpus) gpus="$2" ;;
         --catalog) catalog="$2" ;;
+        --from-prepared) from_prepared="$2" ;;
+        --cpu-offload) cpu_offload="$2" ;;
         --target-steps) target_steps="$2" ;;
         --generation-batch-size) generation_batch_size="$2" ;;
         --run-glob) patterns+=("$2") ;;
@@ -92,6 +98,8 @@ run_stage() {
   case "$name" in
     prepare)
       command+=(--out "$prepared" --target-steps "$target_steps" --generation-batch-size "$generation_batch_size")
+      [[ -z "$from_prepared" ]] || command+=(--from-prepared "$from_prepared")
+      [[ -z "$cpu_offload" ]] || command+=(--cpu-offload "$cpu_offload")
       if [[ -n "$catalog" ]]; then command+=(--catalog "$catalog"); else command+=(--runs-root "$runs_root"); fi
       (( ${#patterns[@]} == 0 )) || command+=(--run-glob "${patterns[@]}")
       (( ${#exclusions[@]} == 0 )) || command+=(--exclude-prompts "${exclusions[@]}") ;;

@@ -8,6 +8,12 @@ import unittest
 
 class H100LauncherTests(unittest.TestCase):
     def test_order_and_separate_full_batch_smoke(self):
+        self.run_launcher(probe=False)
+
+    def test_probe_skips_environment_checks_and_stops_before_scores(self):
+        self.run_launcher(probe=True)
+
+    def run_launcher(self, probe):
         script=Path(__file__).resolve().parents[1]/'scripts/run_h100_two_track.sh'
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); calls=root/'calls'; fake=root/'python'
@@ -26,9 +32,23 @@ elif args[:2]==['evaluate_sd15.py','plan']:
     (out/'prompts/partiprompts.jsonl').write_text(''.join(json.dumps({'prompt':str(i)})+'\\n' for i in range(100)))
 ''');fake.chmod(0o755)
             env=dict(os.environ,TEST_CALLS=str(calls),SCD_SD15_PY=str(fake),SCD_FLOW_PY=str(fake),SCD_EVAL_GPUS='0,1',SCD_SD15_OUT=str(root/'sd15'),SCD_CURVES_OUT=str(root/'sd35'),SCD_CURVES_PREP=str(root/'prepared'),SCD_SD15_BATCH='64',SCD_SD35_BATCH='8')
-            result=subprocess.run(['bash',str(script)],env=env,capture_output=True,text=True)
+            if probe:
+                env.update(SCD_SKIP_ENV_CHECKS='1', SCD_SD35_CPU_OFFLOAD='false', SCD_SD35_BATCH='32', SCD_CURVES_SOURCE_PREP=str(root/'old-prepared'))
+            result=subprocess.run(['bash',str(script), 'probe' if probe else 'all'],env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             rows=[json.loads(x) for x in calls.read_text().splitlines()]
+            if probe:
+                self.assertFalse(any(r[0] in ('check_eval_environment.py', 'prepare_eval_assets.py', 'evaluate_sd15.py') for r in rows))
+                self.assertFalse(any('--check-only' in r for r in rows))
+                prepare = next(r for r in rows if r[:2] == ['evaluate_curves.py', 'prepare'])
+                self.assertIn('--from-prepared', prepare)
+                self.assertEqual(prepare[prepare.index('--cpu-offload')+1], 'false')
+                self.assertEqual(prepare[prepare.index('--generation-batch-size')+1], '32')
+                self.assertFalse(any(r[:2] == ['evaluate_curves.py','score'] for r in rows))
+                generate = next(r for r in rows if r[:2] == ['evaluate_curves.py','generate'])
+                self.assertIn('base', generate)
+                self.assertIn('3200', generate)
+                return
             def index(file,stage): return next(i for i,r in enumerate(rows) if r[:2]==[file,stage])
             self.assertLess(index('evaluate_curves.py','score'),index('evaluate_sd15.py','generate'))
             self.assertLess(index('evaluate_sd15.py','generate'),index('evaluate_sd15.py','score'))

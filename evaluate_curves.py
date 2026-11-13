@@ -18,6 +18,8 @@ def main(argv=None):
     prepare.add_argument('--catalog', help='Explicit reviewed catalog to resolve duplicate method candidates')
     prepare.add_argument('--run-glob', nargs='+')
     prepare.add_argument('--resources')
+    prepare.add_argument('--from-prepared', help='Reuse an exact frozen panel/checkpoint list in a NEW preparation')
+    prepare.add_argument('--cpu-offload', choices=('true', 'false'), help='Explicit sampling override for a new preparation')
     prepare.add_argument('--config', default=str(ROOT / 'configs/evaluation-suite.json'))
     prepare.add_argument('--target-steps', type=int, default=3200)
     prepare.add_argument('--generation-batch-size', type=int, default=4)

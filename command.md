@@ -1,3 +1,30 @@
+## H100 resident试跑与跳过环境预检（2026-11-13）
+
+先停止当前生成，等两GPU进程退出后更新同一评测分支。
+原batch8目录及已保存图片保留；批大小/offload变化使用独立输出。
+
+```bash
+export SCD_SD35_BATCH=32
+export SCD_SD35_CPU_OFFLOAD=false
+export SCD_SKIP_ENV_CHECKS=1
+export SCD_CURVES_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-h100-b8-v1-prepared
+unset SCD_CURVES_OUT SCD_CURVES_PREP SCD_SD15_OUT
+bash scripts/run_h100_two_track.sh probe
+# Base+DPO3200各128张、两卡同时验证；成功后用相同变量继续：
+bash scripts/run_h100_two_track.sh all
+```
+
+需先设置原eval的SCD_SD15_PY、Flow的SCD_FLOW_PY和SCD_EVAL_GPUS。
+新SD3.5输出默认 `evaluations/sd35_medium/curves-h100-b32-offload-false-v1`，
+prepared在旁边。from-prepared对旧冻结输入进行hash核验，逐字复制prompt和catalog，
+保留相同seed、checkpoint和评分配置，不重新扫描训练或抽样。只生成新配置自己的图片，
+不把旧batch8图片混入新曲线。输入fork可重复执行，配置漂移会拒绝。
+`SCD_SKIP_ENV_CHECKS=1`跳过依赖/资产/CUDA预检及全点generate --check-only；
+checkpoint、prompt、产物身份和恢复核验保留。默认0仍完整检查。
+`SCD_SD35_CPU_OFFLOAD=auto`保留旧模板设置，true/false显式覆盖并写入冻结采样。
+若batch32 OOM，设SCD_SD35_BATCH=16并重新probe；默认独立目录会随batch变化。
+probe仅生图且会停止，all按SD3.5生图→PickScore→SD1.5生图→五指标继续。
+
 日志初始化修复（2026-11-13）：新输出目录可以预先含有普通 `logs/` 目录。
 计划初始化保留日志；已有其他无plan产物仍拒绝接管。遇到旧版
 `Refusing to place a plan in a nonempty unrelated directory` 时，更新评测分支后

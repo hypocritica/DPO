@@ -112,6 +112,30 @@ class CurvePrepareTest(unittest.TestCase):
         self.assertEqual(plan['panels']['pickv2']['mode'], 'development-curve')
 
 
+    def test_resident_fork_preserves_exact_inputs_without_rescanning(self):
+        first = prepare_curve(self.args)
+        source = Path(first['prepare_dir'])
+        before = {name: sha256(source / name) for name in load_prepared(source)['files']}
+        self.args.prepare_dir = str(self.root / 'resident32')
+        self.args.from_prepared = str(source)
+        self.args.generation_batch_size = 32
+        self.args.cpu_offload = 'false'
+        with patch('self_correct_dpo.evaluation.curve_prepare._selected_runs', side_effect=AssertionError('rescan')):
+            second = prepare_curve(self.args)
+            self.assertEqual(prepare_curve(self.args), second)
+        target = Path(second['prepare_dir'])
+        for name in before:
+            self.assertEqual(sha256(source / name), before[name])
+            if name != 'suite.json':
+                self.assertEqual(sha256(target / name), before[name])
+        sampling = read_json(target / 'suite.json')['protocols']['sd35_medium']
+        self.assertEqual(sampling['generation_batch_size'], 32)
+        self.assertIs(sampling['cpu_offload'], False)
+        self.assertEqual(read_json(target / 'suite.json')['scorers_config'], str(target / 'scorers.json'))
+        self.args.generation_batch_size = 16
+        with self.assertRaisesRegex(ValueError, 'inputs changed'):
+            prepare_curve(self.args)
+
     def test_batch_size_is_bounded_and_cannot_change_frozen_preparation(self):
         for value in (0, -1, True, 2.5):
             self.args.generation_batch_size = value

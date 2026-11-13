@@ -171,6 +171,41 @@ def load_prepared(path):
     return manifest
 
 
+def fork_prepared(source, out, batch_size, cpu_offload):
+    source = Path(source).expanduser().resolve()
+    parent = load_prepared(source)
+    request = {'from_prepared': str(source), 'parent_preparation_id': parent['preparation_id'],
+               'generation_batch_size': batch_size, 'cpu_offload': cpu_offload}
+    with output_lock(str(out) + '.prepare'):
+        if out.exists():
+            manifest = load_prepared(out)
+            if manifest['request'] != request:
+                raise ValueError('Curve preparation inputs changed; choose a new --prepare-dir')
+        else:
+            suite = read_json(source / 'suite.json')
+            suite['scorers_config'] = str(out / 'scorers.json')
+            suite['benchmarks']['pickv2'] = str(out / 'prompts/pickv2.jsonl')
+            suite['protocols']['sd35_medium']['generation_batch_size'] = batch_size
+            if cpu_offload is not None:
+                suite['protocols']['sd35_medium']['cpu_offload'] = cpu_offload == 'true'
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix='.' + out.name + '-', dir=out.parent) as temporary:
+                stage = Path(temporary) / 'prepared'
+                (stage / 'prompts').mkdir(parents=True)
+                for name in parent['files']:
+                    if name != 'suite.json':
+                        (stage / name).write_bytes((source / name).read_bytes())
+                write_json(stage / 'suite.json', suite)
+                manifest = {k: copy.deepcopy(v) for k, v in parent.items() if k not in ('preparation_id', 'request', 'files')}
+                manifest.update(request=request, files={name: sha256(stage / name) for name in parent['files']})
+                manifest['preparation_id'] = digest(manifest)
+                write_json(stage / 'prepare.json', manifest)
+                stage.rename(out)
+    return {'prepare_dir': str(out), 'catalog': str(out / 'catalog.json'),
+            'config': str(out / 'suite.json'), 'prompts_root': str(out / 'prompts'),
+            'manifest': str(out / 'prepare.json'), 'preparation_id': manifest['preparation_id']}
+
+
 def prepare_curve(args):
     """Return frozen catalog/config/prompt paths for the independent suite plan.
 
@@ -183,6 +218,11 @@ def prepare_curve(args):
     batch_size = getattr(args, 'generation_batch_size', 4)
     if type(batch_size) is not int or batch_size < 1:
         raise ValueError('SD3.5 curve generation_batch_size must be a positive integer')
+    cpu_offload = getattr(args, 'cpu_offload', None)
+    if cpu_offload not in (None, 'true', 'false'):
+        raise ValueError('cpu_offload must be true or false')
+    if getattr(args, 'from_prepared', None):
+        return fork_prepared(args.from_prepared, out, batch_size, cpu_offload)
     registry = load_resources(getattr(args, 'resources', None))
     roots = roots_from_args(getattr(args, 'runs_root', None), registry)
     exclusions = getattr(args, 'exclude_prompts', None) or []
@@ -194,6 +234,8 @@ def prepare_curve(args):
                'config': config_path, 'target_steps': getattr(args, 'target_steps', 3200),
                'exclude_prompts': exclusions, 'prompts': 128, 'seeds': [17], 'metrics': ['pickscore'],
                'generation_batch_size': batch_size}
+    if cpu_offload is not None:
+        request['cpu_offload'] = cpu_offload
     def result(manifest):
         return {'prepare_dir': str(out), 'catalog': str(out / 'catalog.json'),
                 'config': str(out / 'suite.json'), 'prompts_root': str(out / 'prompts'),
@@ -236,6 +278,8 @@ def prepare_curve(args):
         sampling = copy.deepcopy(suite['protocols']['sd35_medium'])
         sampling['seeds'] = [17]
         sampling['generation_batch_size'] = batch_size
+        if cpu_offload is not None:
+            sampling['cpu_offload'] = cpu_offload == 'true'
         suite['protocols'] = {'sd35_medium': sampling}
         suite['benchmarks'] = {'pickv2': str(out / 'prompts/pickv2.jsonl')}
         suite['metric_groups'] = {'legacy': ['pickscore'], 'modern': ['pickscore']}

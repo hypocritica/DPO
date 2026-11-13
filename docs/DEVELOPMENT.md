@@ -1,5 +1,13 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-13 resident batch试跑
+
+加入from-prepared复制冻结128prompt和checkpoint清单，允许新计划显式指定cpu_offload；
+源目录和身份不修改。H100启动器新增probe，仅跑Base+DPO3200各128张；all复用后继续。
+可跳过环境/资产及全点预检，冻结输入和checkpoint一致性核验保留。34项CPU回归通过，
+覆盖源输入字节不变、无训练重扫、batch32/offload=false冻结与漂移拒绝、probe停止与
+检查跳过，以及原曲线/计划流程。未运行H100或验证batch32显存/吞吐。
+
 ## 2026-11-13 首次计划与日志目录冲突修复
 
 启动器在plan之前创建logs，触发非空输出保护。计划初始化现在仅允许预存普通logs目录，
