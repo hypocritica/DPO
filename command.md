@@ -1,3 +1,28 @@
+## 两张H100：SD3.5曲线后SD1.5正式评测（2026-11-13）
+
+已有prompt与环境准备完成后，使用 `scripts/run_h100_two_track.sh`。
+设置 `SCD_SD15_PY` 为原eval Python，`SCD_FLOW_PY` 为已准备Flow Python，
+`SCD_EVAL_GPUS=0,1` 为实际分配编号。脚本不安装或下载任何资产。
+默认候选每卡SD3.5 batch8、SD1.5 batch64，未做真实H100显存/吞吐验证。
+顺序为SD3.5生成、PickScore、曲线；然后SD1.5生成、五指标、论文表。
+SD3.5先跑DPO3200的128张（正式曲线复用），SD1.5先跑独立Base+DPO各64图smoke。
+失败停止后续阶段；不自动降低batch。所有原图、日志、smoke和结果均在AOSS。
+输出默认 `evaluations/sd35_medium/curves-h100-b8-v1`（旁边prepared），
+以及 `evaluations/sd15/main-h100-b64-v1`（旁边smoke）。默认不复用旧5090输出。
+
+```bash
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_EVAL_GPUS=0,1
+unset SCD_CURVES_OUT SCD_CURVES_PREP SCD_SD15_OUT
+bash scripts/run_h100_two_track.sh
+```
+
+可用 `SCD_SD35_BATCH` / `SCD_SD15_BATCH` 指定批大小；默认目录名随batch变化。
+若显存不足，显式改batch并使用新输出目录，各方法保持相同batch与采样配置。
+`evaluate_sd15.py plan --generation-batch-size N` 冻结新batch，后续阶段自动读回。
+SD1.5入口现在支持2/4卡；SD3.5曲线允许任意正整数batch，默认仍为4。
+
 ## 当前 SLAI 两条工作流：先生成、后评分
 
 首次拉代码、已有 eval 环境检查、新 Flow 环境、缺失评分权重下载及完整命令，统一见

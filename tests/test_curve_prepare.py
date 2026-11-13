@@ -113,11 +113,11 @@ class CurvePrepareTest(unittest.TestCase):
 
 
     def test_batch_size_is_bounded_and_cannot_change_frozen_preparation(self):
-        for value in (0, 5, True, 2.5):
+        for value in (0, -1, True, 2.5):
             self.args.generation_batch_size = value
-            with self.assertRaisesRegex(ValueError, 'between 1 and 4'):
+            with self.assertRaisesRegex(ValueError, 'positive integer'):
                 prepare_curve(self.args)
-        self.args.generation_batch_size = 4
+        self.args.generation_batch_size = 8
         prepare_curve(self.args)
         self.args.generation_batch_size = 2
         with self.assertRaises(ValueError):

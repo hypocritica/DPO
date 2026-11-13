@@ -127,8 +127,19 @@ class Sd15HandoffTests(unittest.TestCase):
         self.assertEqual([c[c.index('--benchmarks') + 1] for c in commands], list(workflow.PANELS))
         self.assertTrue(all('generate' in c and 'score' not in c for c in commands))
         self.assertTrue(all(c[c.index('--gpus') + 1] == '4,5,6,7' for c in commands))
-        with self.assertRaisesRegex(ValueError, 'four'):
-            workflow.allocated_devices('0,1')
+        self.assertEqual(workflow.allocated_devices('0,1'), '0,1')
+        with self.assertRaisesRegex(ValueError, 'two or four'):
+            workflow.allocated_devices('0,1,2')
+
+    def test_large_batch_plan_is_frozen_and_reused_on_two_gpus(self):
+        self.assertEqual(workflow.main(self.cli('plan', '--catalog', str(self.catalog_path), '--suite-config', str(self.suite_path), '--generation-batch-size', '64')), 0)
+        plan, _ = read_plan(self.out)
+        self.assertTrue(all(t['sampling']['generation_batch_size'] == 64 for t in plan['tasks']))
+        with patch.object(workflow, 'run_command') as run:
+            self.assertEqual(workflow.main(self.cli('generate', '--gpus', '0,1')), 0)
+        self.assertEqual(run.call_count, 3)
+        with self.assertRaises(SystemExit):
+            workflow.main(self.cli('plan', '--catalog', str(self.catalog_path), '--suite-config', str(self.suite_path), '--generation-batch-size', '32'))
 
     def test_keep_going_continues_panels_but_reports_failure(self):
         workflow.plan_main(self.args, self.selection)

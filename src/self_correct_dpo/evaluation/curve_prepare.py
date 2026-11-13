@@ -181,8 +181,8 @@ def prepare_curve(args):
     """
     out = Path(args.prepare_dir).expanduser().resolve()
     batch_size = getattr(args, 'generation_batch_size', 4)
-    if type(batch_size) is not int or not 1 <= batch_size <= 4:
-        raise ValueError('SD3.5 curve generation_batch_size must be between 1 and 4')
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValueError('SD3.5 curve generation_batch_size must be a positive integer')
     registry = load_resources(getattr(args, 'resources', None))
     roots = roots_from_args(getattr(args, 'runs_root', None), registry)
     exclusions = getattr(args, 'exclude_prompts', None) or []

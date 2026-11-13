@@ -79,7 +79,8 @@ def validate_live_checkpoints(plan):
 
 def plan_main(args, selection):
     flags = ['plan', '--catalog', args.catalog, '--config', args.suite_config,
-             '--families', 'sd15', '--benchmarks', *PANELS, '--out', args.out, '--dry-run']
+             '--families', 'sd15', '--benchmarks', *PANELS, '--out', args.out, '--dry-run',
+             '--generation-batch-size', str(selection['sampling']['generation_batch_size'])]
     if args.resources:
         flags += ['--resources', args.resources]
     native = suite_args(flags)
@@ -113,8 +114,8 @@ def report_plan(plan, role, benchmarks=None):
 def allocated_devices(value):
     value = value if value is not None else os.environ.get('CUDA_VISIBLE_DEVICES', '0,1,2,3')
     devices = [v.strip() for v in value.split(',')]
-    if len(devices) != 4 or len(set(devices)) != 4 or any(not v or v == '-1' for v in devices):
-        raise ValueError('SD1.5 main requires four distinct allocated GPUs; set --gpus to their actual IDs')
+    if len(devices) not in (2, 4) or len(set(devices)) != len(devices) or any(not v or v == '-1' for v in devices):
+        raise ValueError('SD1.5 main requires two or four distinct allocated GPUs; set --gpus to their actual IDs')
     return ','.join(devices)
 
 
@@ -148,6 +149,7 @@ def main(argv=None):
     parser.add_argument('--resources')
     parser.add_argument('--benchmarks', nargs='+', choices=PANELS)
     parser.add_argument('--gpus')
+    parser.add_argument('--generation-batch-size', type=int, help='Plan only: images per GPU forward; default32. Frozen for all later stages.')
     parser.add_argument('--python', help='Isolated generation or scorer Python')
     parser.add_argument('--check-only', action='store_true')
     parser.add_argument('--keep-going', action='store_true')
@@ -163,6 +165,8 @@ def main(argv=None):
     parser.add_argument('--seed', nargs='+', type=int)
     parser.add_argument('--copy-images', action='store_true')
     args = parser.parse_args(argv)
+    if args.generation_batch_size is not None and (args.stage != 'plan' or args.generation_batch_size < 1):
+        parser.error('--generation-batch-size must be positive and is only supported for plan')
     if args.check_only and args.stage not in ('generate', 'score'):
         parser.error('--check-only is only supported for generate/score')
     if args.dry_run and args.stage not in ('plan', 'generate', 'score'):
@@ -170,9 +174,15 @@ def main(argv=None):
     try:
         selection = load_selection(args.selection)
         if args.stage == 'plan':
+            if args.generation_batch_size is not None:
+                selection['sampling']['generation_batch_size'] = args.generation_batch_size
             result = plan_main(args, selection)
         else:
             plan, out = read_plan(args.out)
+            batch = read_json(out / 'sd15-selection.json')['sampling']['generation_batch_size']
+            if type(batch) is not int or batch < 1:
+                raise ValueError('Invalid frozen generation batch size')
+            selection['sampling']['generation_batch_size'] = batch
             validate_plan(plan, selection)
             if read_json(out / 'sd15-selection.json') != selection:
                 raise ValueError('Frozen SD1.5 handoff selection changed')
