@@ -1,3 +1,8 @@
+日志初始化修复（2026-11-13）：新输出目录可以预先含有普通 `logs/` 目录。
+计划初始化保留日志；已有其他无plan产物仍拒绝接管。遇到旧版
+`Refusing to place a plan in a nonempty unrelated directory` 时，更新评测分支后
+使用原参数重跑，无需删除日志或更换输出目录。
+
 ## 两张H100：SD3.5曲线后SD1.5正式评测（2026-11-13）
 
 已有prompt与环境准备完成后，使用 `scripts/run_h100_two_track.sh`。

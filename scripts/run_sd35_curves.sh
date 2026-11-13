@@ -105,7 +105,7 @@ run_stage() {
   printf '%q ' "${command[@]}"
   printf '\n'
   if (( dry_run )); then return 0; fi
-  # Keep logs outside the frozen output, including failures before plan exists.
+  # Keep preflight and stage logs in the reserved logs directory, even before plan exists.
   local logs="${SCD_CURVES_LOGS:-${out}/logs}"
   mkdir -p -- "$logs"
   local log

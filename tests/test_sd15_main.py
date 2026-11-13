@@ -132,6 +132,8 @@ class Sd15HandoffTests(unittest.TestCase):
             workflow.allocated_devices('0,1,2')
 
     def test_large_batch_plan_is_frozen_and_reused_on_two_gpus(self):
+        (self.out / 'logs').mkdir(parents=True)
+        (self.out / 'logs/preflight.log').write_text('existing launcher log')
         self.assertEqual(workflow.main(self.cli('plan', '--catalog', str(self.catalog_path), '--suite-config', str(self.suite_path), '--generation-batch-size', '64')), 0)
         plan, _ = read_plan(self.out)
         self.assertTrue(all(t['sampling']['generation_batch_size'] == 64 for t in plan['tasks']))

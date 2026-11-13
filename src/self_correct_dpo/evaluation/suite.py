@@ -188,8 +188,13 @@ def make_plan(args):
         with output_lock(str(out) + '.plan'):
             if (out / 'plan.json').exists() and read_json(out / 'plan.json') != plan:
                 raise ValueError('This directory has a different plan; choose a new --out')
-            if out.exists() and not (out / 'plan.json').exists() and any(out.iterdir()):
-                raise ValueError('Refusing to place a plan in a nonempty unrelated directory')
+            if out.exists() and not (out / 'plan.json').exists():
+                # Launchers write preflight logs before the first plan. Preserve
+                # that directory; never adopt existing prompts, images or scores.
+                unrelated = [p for p in out.iterdir()
+                             if p.name != 'logs' or p.is_symlink() or not p.is_dir()]
+                if unrelated:
+                    raise ValueError('Refusing to place a plan in a nonempty unrelated directory')
             out.mkdir(parents=True, exist_ok=True)
             for info in panels.values():
                 target = safe_target(out, info['snapshot'])

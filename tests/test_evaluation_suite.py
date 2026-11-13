@@ -52,6 +52,34 @@ class EvaluationSuiteTest(unittest.TestCase):
         self.plan_args = parse_args(['plan', '--config', str(self.config), '--runs-root', str(self.runs),
             '--run-glob', 'sd15-*', '--steps', '1000', '--benchmarks', 'pickv2', '--out', str(self.out)])
 
+    def test_plan_preserves_preflight_logs_and_still_rejects_unrelated_outputs(self):
+        logs = self.out / 'logs'
+        logs.mkdir(parents=True)
+        log = logs / 'preflight.log'
+        log.write_text('CUDA and assets passed\n')
+        # A render without its plan must never be adopted just because logs exist.
+        unrelated = self.out / 'render'
+        unrelated.mkdir()
+        with self.assertRaisesRegex(ValueError, 'nonempty unrelated'):
+            make_plan(self.plan_args)
+        self.assertFalse((self.out / 'plan.json').exists())
+        unrelated.rmdir()
+        plan = make_plan(self.plan_args)
+        self.assertEqual(make_plan(self.plan_args), plan)
+        self.assertEqual(read_plan(self.out)[0], plan)
+        self.assertEqual(log.read_text(), 'CUDA and assets passed\n')
+
+    def test_logs_file_or_symlink_cannot_bypass_unrelated_output_guard(self):
+        self.out.mkdir()
+        logs = self.out / 'logs'
+        logs.write_text('unrelated')
+        with self.assertRaisesRegex(ValueError, 'nonempty unrelated'):
+            make_plan(self.plan_args)
+        logs.unlink()
+        logs.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'nonempty unrelated'):
+            make_plan(self.plan_args)
+
     @staticmethod
     def write(path, data):
         Path(path).write_text(json.dumps(data))
