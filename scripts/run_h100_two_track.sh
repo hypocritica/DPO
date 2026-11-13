@@ -3,10 +3,12 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 : "${SCD_SD15_PY:?Set original eval Python}"
-: "${SCD_FLOW_PY:?Set prepared Flow Python}"
 export SCD_CURVES_GPUS="${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
 mode="${1:-all}"
-[[ "$mode" == all || "$mode" == probe ]] || { echo 'Usage: run_h100_two_track.sh [probe|all]' >&2; exit 2; }
+[[ "$mode" == all || "$mode" == probe || "$mode" == sd15-probe ]] || { echo 'Usage: run_h100_two_track.sh [probe|sd15-probe|all]' >&2; exit 2; }
+if [[ "$mode" != sd15-probe ]]; then
+  : "${SCD_FLOW_PY:?Set prepared Flow Python}"
+fi
 skip_checks="${SCD_SKIP_ENV_CHECKS:-0}"
 [[ "$skip_checks" == 0 || "$skip_checks" == 1 ]] || { echo 'SCD_SKIP_ENV_CHECKS must be 0 or 1' >&2; exit 2; }
 offload="${SCD_SD35_CPU_OFFLOAD:-auto}"
@@ -20,7 +22,9 @@ export SCD_CURVES_OUT="${SCD_CURVES_OUT:-/mnt/aoss/xietianyu/self_correct/evalua
 export SCD_CURVES_PREP="${SCD_CURVES_PREP:-${SCD_CURVES_OUT}-prepared}"
 sd15="${SCD_SD15_OUT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd15/main-h100-b${b15}-v1}"
 mkdir -p "$sd15/logs" "$SCD_CURVES_OUT/logs"
-log="$(mktemp "$SCD_CURVES_OUT/logs/two-track-$(date -u +%Y%m%dT%H%M%S)-XXXXXX.log")"
+log_root="$SCD_CURVES_OUT"
+[[ "$mode" != sd15-probe ]] || log_root="$sd15"
+log="$(mktemp "$log_root/logs/two-track-$(date -u +%Y%m%dT%H%M%S)-XXXXXX.log")"
 exec > >(tee -a "$log") 2>&1
 "$SCD_SD15_PY" - "$SCD_CURVES_GPUS" "$b35" "$b15" <<'PY'
 import sys
@@ -33,11 +37,14 @@ PY
 # Optional repetitive dependency/assets checks; immutable input checks remain enabled.
 if [[ "$skip_checks" == 0 ]]; then
   "$SCD_SD15_PY" scripts/check_eval_environment.py --profile legacy --gpu --execution standalone
+  if [[ "$mode" != sd15-probe ]]; then
   "$SCD_FLOW_PY" scripts/check_eval_environment.py --profile flow --skip-assets --gpu --execution standalone
   "$SCD_FLOW_PY" scripts/prepare_eval_assets.py check --profile pickscore
+  fi
 else
   echo 'Skipping environment/assets preflight; frozen input and checkpoint checks remain enabled.'
 fi
+if [[ "$mode" != sd15-probe ]]; then
 prepare_args=(--generation-batch-size "$b35")
 [[ "$offload" == auto ]] || prepare_args+=(--cpu-offload "$offload")
 [[ -z "${SCD_CURVES_SOURCE_PREP:-}" ]] || prepare_args+=(--from-prepared "$SCD_CURVES_SOURCE_PREP")
@@ -58,11 +65,18 @@ bash scripts/run_sd35_curves.sh generate --gpus "$SCD_CURVES_GPUS"
 "$SCD_FLOW_PY" evaluate_suite.py index --out "$SCD_CURVES_OUT"
 bash scripts/run_sd35_curves.sh score --gpus "$SCD_CURVES_GPUS"
 bash scripts/run_sd35_curves.sh summarize
+fi
+echo "SD1.5 generation: full GPU residency; CPU offload, attention slicing and VAE slicing are disabled by the renderer."
 "$SCD_SD15_PY" evaluate_sd15.py plan --out "$sd15" --generation-batch-size "$b15"
 # SD1.5 smoke: one full batch each for Base and the selected DPO checkpoint.
 # Keep it separate from the formal benchmark and never export as paper results.
 smoke="${sd15}-smoke"
-"$SCD_SD15_PY" - "$sd15" "$smoke" "$b15" <<'PY'
+smoke_count="$b15"
+if [[ "$mode" == sd15-probe ]]; then
+  smoke="${sd15}-probe"
+  smoke_count="$((2 * b15))"
+fi
+"$SCD_SD15_PY" - "$sd15" "$smoke" "$smoke_count" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 root,smoke,batch=Path(sys.argv[1]),Path(sys.argv[2]),int(sys.argv[3])
@@ -84,6 +98,11 @@ PY
   --benchmarks partiprompts --prompts-root "$smoke/prompts" \
   --generation-batch-size "$b15" --out "$smoke/output"
 "$SCD_SD15_PY" evaluate_suite.py generate --out "$smoke/output" --gpus "$SCD_CURVES_GPUS"
+if [[ "$mode" == sd15-probe ]]; then
+  "$SCD_SD15_PY" scripts/report_generation_sessions.py --out "$smoke/output"
+  echo "SD1.5 probe finished: Base+DPO, two batches each; output: $smoke/output"
+  exit 0
+fi
 "$SCD_SD15_PY" evaluate_sd15.py generate --out "$sd15" --gpus "$SCD_CURVES_GPUS"
 "$SCD_SD15_PY" evaluate_suite.py index --out "$sd15"
 "$SCD_SD15_PY" evaluate_sd15.py score --out "$sd15" --gpus "$SCD_CURVES_GPUS"

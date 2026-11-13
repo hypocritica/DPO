@@ -1,3 +1,30 @@
+## SD1.5 H100独立batch试跑（2026-11-13）
+
+SD1.5 renderer本来就走pipe.to(cuda)，不启用CPU offload、attention slicing或VAE slicing。
+无需更改冻结sampling或已有render源码身份。每卡batch64为候选起点，可比较96/128；
+CFG7.5使UNet输入batch翻倍，VAE整批解码也有峰值，所以不能按SD3.5的24.5GB外推。
+最佳批大小依实际images/s和峰值显存选择，本机没有H100实测结论。
+
+```bash
+# 使用两张已分配且空闲的GPU，仅需原eval Python。
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_GPUS=0,1
+export SCD_SKIP_ENV_CHECKS=1
+unset SCD_SD15_OUT
+export SCD_SD15_BATCH=64
+bash scripts/run_h100_two_track.sh sd15-probe
+export SCD_SD15_BATCH=96
+bash scripts/run_h100_two_track.sh sd15-probe
+# 96表现合适且显存充足时再尝试128。
+```
+
+每次只生成Base+DPO各两个完整batch，不运行SD3.5或评分；图片在
+`evaluations/sd15/main-h100-b{B}-v1-probe/output`，日志在对应main目录logs。
+结束打印每个模型forward吞吐、会话总耗时、PyTorch峰值allocated/reserved GiB。
+forward包括文本编码、扩散与VAE，session还包括加载/保存等；两个batch只是短时比较。
+试跑图片不进入正式表，重复同批大小会恢复并复用，不能当作新的计时重复测量。
+选择最终批大小后设置SCD_SD15_BATCH，正常all顺序流程会按该值生成正式评测。
+
 ## H100 resident试跑与跳过环境预检（2026-11-13）
 
 先停止当前生成，等两GPU进程退出后更新同一评测分支。

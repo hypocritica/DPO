@@ -1,5 +1,12 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-13 SD1.5 batch试跑
+
+确认SD1.5使用整套GPU常驻，未启用offload/attention或VAE slicing；保留原render源码与
+采样身份。加入sd15-probe，仅需原eval，Base+DPO各两批，独立输出，不评分；结束报告
+forward吞吐、总耗时与峰值显存。17项CPU回归通过，覆盖无Flow环境的两卡batch96试跑、
+192条smoke来源、阶段停止，以及SD1.5计划与原批恢复。未执行真实H100推理。
+
 ## 2026-11-13 resident batch试跑
 
 加入from-prepared复制冻结128prompt和checkpoint清单，允许新计划显式指定cpu_offload；
