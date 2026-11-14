@@ -1,5 +1,21 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 Z-Image评估默认BF16 autocast
+
+仅Z-Image评估的Transformer forward默认启用BF16 autocast，在PEFT加载后包装，
+保留FP32权重、padding兼容处理、调度器和FP32 VAE解码。有效sampling记录
+transformer_autocast_dtype=bfloat16，可在独立配置中设none进行FP32对照；其他模型不启用。
+不修改远端运行中的checkout或任何冻结实验产物，不扩大AOSS存储兼容白名单。
+60项CPU检查通过，覆盖有效配置、实际BF16算子与FP32权重/VAE隔离、批处理、suite、
+curve准备、索引、曲线汇总、存储兼容和精度切换续跑。1项真实tiny Z-Image因现有环境缺现代类跳过；
+H800吞吐和图像质量尚未验证。
+
+用户随后明确授权当前曲线保留旧FP32图片、缺失部分用BF16续跑并推送。
+新增独立zimage_precision_compat策略，限定3148b5b的原renderer与本版目标renderer精确SHA；
+其余冻结输入及common/padding源码仍严格核验。原run身份和PNG字节不变，恢复时写入
+精度切换审计，新图manifest逐张记录精度与源码SHA，sessions记录有效sampling，
+图片索引区分旧none与新bfloat16。完整点直接核验跳过，不重新生成。
+
 ## 2026-11-14 Z-Image默认双卡恢复
 
 按用户已跑通的H100命令调整GPU默认值：SCD_Z_GPUS、SCD_EVAL_GPUS、CUDA_VISIBLE_DEVICES

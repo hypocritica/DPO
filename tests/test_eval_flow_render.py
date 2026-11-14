@@ -9,12 +9,25 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-from self_correct_dpo.evaluation.render import (cast_vae_decode_input,
+from self_correct_dpo.evaluation.render import (autocast_transformer_forward, cast_vae_decode_input,
                                                check_prompt_lengths, effective_sampling,
                                                validate_zimage_base, load_peft_adapter)
 
 
 class FlowPromptTests(unittest.TestCase):
+    def test_zimage_defaults_to_bf16_compute_and_records_explicit_opt_out(self):
+        config = {'model': {'family': 'zimage', 'path': '/model', 'revision': 'r'}, 'sampling': {}}
+        self.assertEqual(effective_sampling(config)['transformer_autocast_dtype'], 'bfloat16')
+        self.assertEqual(config['sampling'], {})
+        config['sampling']['transformer_autocast_dtype'] = 'none'
+        self.assertEqual(effective_sampling(config)['transformer_autocast_dtype'], 'none')
+        config['sampling']['transformer_autocast_dtype'] = 'float16'
+        with self.assertRaisesRegex(ValueError, 'transformer_autocast_dtype'):
+            effective_sampling(config)
+        for family in ('sd15', 'sdxl', 'sd35_medium'):
+            config = {'model': {'family': family, 'path': '/model', 'revision': 'r'}, 'sampling': {}}
+            self.assertNotIn('transformer_autocast_dtype', effective_sampling(config))
+
     def test_zimage_rejects_turbo_even_when_local_directory_is_renamed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -59,6 +72,28 @@ class FlowPromptTests(unittest.TestCase):
                   'sampling': {'max_sequence_length': 512}}
         with self.assertRaisesRegex(ValueError, 'disagree'):
             effective_sampling(config)
+
+
+@unittest.skipUnless(importlib.util.find_spec('torch'), 'CPU PyTorch is required')
+class AutocastTests(unittest.TestCase):
+    def test_transformer_computes_bf16_but_weights_and_vae_stay_fp32(self):
+        import torch
+        transformer = torch.nn.Linear(8, 8).eval()
+        vae = torch.nn.Linear(8, 3).eval()
+        original_forward = transformer.forward
+        autocast_transformer_forward(transformer, torch, device='cpu')
+        sample = torch.ones(4, 8)
+        with torch.inference_mode():
+            prediction = transformer(sample)
+            decoded = vae(prediction.float())
+            baseline = original_forward(sample)
+        self.assertEqual(prediction.dtype, torch.bfloat16)
+        self.assertEqual(decoded.dtype, torch.float32)
+        self.assertEqual(baseline.dtype, torch.float32)
+        self.assertTrue(torch.isfinite(prediction).all())
+        self.assertTrue(all(p.dtype == torch.float32 for p in transformer.parameters()))
+        self.assertTrue(all(p.dtype == torch.float32 for p in vae.parameters()))
+        self.assertEqual(sample.dtype, torch.float32)
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch') and importlib.util.find_spec('peft'),
@@ -115,6 +150,12 @@ class FlowPrecisionTests(unittest.TestCase):
         torch.testing.assert_close(output, expected, rtol=0, atol=0)
         self.assertTrue(torch.isfinite(output).all())
         self.assertEqual(output.shape, images[0].shape)
+        self.assertTrue(all(p.dtype == torch.float32 for p in model.parameters()))
+        autocast_transformer_forward(model, torch, device='cpu')
+        with torch.inference_mode():
+            mixed = model(images, times, captions, return_dict=False)[0][0]
+        self.assertEqual(mixed.shape, images[0].shape)
+        self.assertTrue(torch.isfinite(mixed).all())
         self.assertTrue(all(p.dtype == torch.float32 for p in model.parameters()))
 
     def test_sd3_vae_decode_preserves_fp32_decoder(self):

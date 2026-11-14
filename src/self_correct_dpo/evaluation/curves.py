@@ -65,6 +65,13 @@ def _timing(records, render):
         return sum(values)
     result = {'generation_seconds': total([r.get('generation_seconds') for r in records]),
               'generation_session_seconds': None}
+    run = read_json(render / 'run.json')
+    if run.get('model', run.get('config', {}).get('model', {})).get('family') == 'zimage':
+        default = run['sampling'].get('transformer_autocast_dtype', 'none')
+        counts = Counter(r.get('transformer_autocast_dtype', default) for r in records)
+        result.update(generation_bf16_autocast_images=counts['bfloat16'],
+                      generation_no_autocast_images=counts['none'],
+                      generation_mixed_precision=len(counts) > 1)
     sessions = sorted((render / 'sessions').glob('*.json'))
     if sessions:
         try:

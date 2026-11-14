@@ -1,3 +1,32 @@
+## Z-Image评估默认BF16计算（2026-11-15）
+
+Z-Image renderer默认只在Transformer forward内启用BF16 autocast，包含Base和PEFT模型；
+FP32 Transformer权重、既有padding兼容处理、调度器状态和FP32 VAE解码保持原精度。
+生效设置记录在`run.json`的`sampling.transformer_autocast_dtype`，默认`bfloat16`。
+需对照旧FP32计算时，在独立评估配置的Z-Image sampling/protocol中显式设置
+`"transformer_autocast_dtype": "none"`；步数、CFG、batch和seed不受这个选项影响。
+
+用户已授权保留当前曲线旧图，缺失部分切换BF16：支持从3148b5b的精确renderer SHA续跑。
+旧run.json、prepared、plan和已提交PNG保留；manifest只追加新图，新图逐张记录autocast精度与
+renderer SHA，sessions记录实际sampling，并额外写入zimage-precision-transition审计。
+image-index.csv的transformer_autocast_dtype列中，旧图为none、新图为bfloat16。
+曲线points.csv/json另记录每点BF16/无autocast图片数量和generation_mixed_precision标记。
+同一点可能混合两种计算精度；本机CPU检查不代表H800速度或出图质量已验证。
+
+先停止旧评估进程（等待全部worker退出），再在原远端checkout更新，避免在任务间切换源码：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+```
+
+之后原命令整段重跑即可，仍用`SCD_Z_BATCH=4`、
+`SCD_Z_CURVES=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b4-v1`及
+`prepare --from-prepared .../curves-h800-b1-v1-prepared`。
+prepare/plan复用原冻结产物，generate校验并跳过完成图片，仅补缺失图片；
+未完成批次按原固定批边界重算，但不覆盖已有图片。score/summarize沿用原入口。
+其他源码版本、模型、prompt、seed、步数和配置变化仍拒绝恢复，不放宽AOSS存储兼容白名单。
+
 ## Z-Image快速曲线任务 + SSH盘点/下载（2026-11-14）
 
 三组可复制命令见 [ZIMAGE_CHECKPOINT_CURVES.md](docs/ZIMAGE_CHECKPOINT_CURVES.md) 开头。

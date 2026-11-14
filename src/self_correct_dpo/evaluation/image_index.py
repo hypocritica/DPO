@@ -15,7 +15,8 @@ def export_image_index(plan, out, args):
         raise ValueError('No planned tasks match image index selection')
     fields = ['family', 'method', 'method_label', 'experiment_id', 'step', 'checkpoint_id',
               'benchmark', 'scene_id', 'variant_id', 'seed', 'prompt', 'image_path', 'relative_image',
-              'image_sha256', 'image_id', 'task_id', 'sampling_id', 'generation_batch_size']
+              'image_sha256', 'image_id', 'task_id', 'sampling_id', 'generation_batch_size',
+              'transformer_autocast_dtype']
     statuses, count = [], 0
     with output_lock(out / 'image-index'):
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=out,
@@ -26,7 +27,7 @@ def export_image_index(plan, out, args):
                 writer.writeheader()
                 for task in tasks:
                     try:
-                        _, complete = validate_task_render(task, plan, out)
+                        run, complete = validate_task_render(task, plan, out)
                         render = safe_target(out, task['output']) / 'render'
                         records = read_jsonl(render / 'manifest.jsonl')
                         rows = []
@@ -39,6 +40,8 @@ def export_image_index(plan, out, args):
                             row.update(checkpoint_id=task['checkpoint']['checkpoint_id'], image_path=str(image),
                                        relative_image=str(image.relative_to(out)), sampling_id=digest(task['sampling']),
                                        generation_batch_size=task['sampling'].get('generation_batch_size', 1))
+                            row['transformer_autocast_dtype'] = (record.get('transformer_autocast_dtype',
+                                run['sampling'].get('transformer_autocast_dtype', 'none')) if task['family'] == 'zimage' else '')
                             rows.append(row)
                         writer.writerows(rows)
                         count += len(rows)

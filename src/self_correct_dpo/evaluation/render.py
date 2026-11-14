@@ -25,6 +25,8 @@ from self_correct_dpo.common import canonical_scheduler_config
 from self_correct_dpo.common import (artifact_identity, model_artifact_identity, digest, load_suite, read_json, require_gpu_allocation,
                     sha256, verify_images, write_json)
 from self_correct_dpo.runtime.storage_compat import compatible_sources, record_compatibility
+from self_correct_dpo.runtime.zimage_precision_compat import (compatible_zimage_bf16_resume,
+                                                           record_zimage_bf16_resume)
 
 FAMILIES = {"sd15": ("StableDiffusionPipeline", "DDIMScheduler", "unet"),
             "sdxl": ("StableDiffusionXLPipeline", "EulerDiscreteScheduler", "unet"),
@@ -65,7 +67,12 @@ def effective_sampling(config):
     sampling.setdefault("generation_batch_size", 1)
     if type(sampling["generation_batch_size"]) is not int or sampling["generation_batch_size"] < 1:
         raise ValueError("generation_batch_size must be a positive integer")
-    if model_spec(config)["family"] in {"sd35_medium", "zimage"}:
+    family = model_spec(config)["family"]
+    if family == 'zimage':
+        sampling.setdefault('transformer_autocast_dtype', 'bfloat16')
+        if sampling['transformer_autocast_dtype'] not in ('bfloat16', 'none'):
+            raise ValueError('Z-Image transformer_autocast_dtype must be bfloat16 or none')
+    if family in {"sd35_medium", "zimage"}:
         model_length = config.get("model", {}).get("max_sequence_length")
         if model_length is not None and "max_sequence_length" in sampling and model_length != sampling["max_sequence_length"]:
             raise ValueError("model and sampling max_sequence_length disagree")
@@ -323,6 +330,20 @@ def load_peft_adapter(denoiser, path):
     return model
 
 
+def autocast_transformer_forward(transformer, torch, *, device='cuda'):
+    """Use BF16 compute without casting weights, scheduler state or VAE decode."""
+    forward = transformer.forward
+    device_type = torch.device(device).type
+
+    @wraps(forward)
+    def forward_in_bf16(*args, **kwargs):
+        with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
+            return forward(*args, **kwargs)
+
+    transformer.forward = forward_in_bf16
+    return transformer
+
+
 def load_pipeline(config, arm, torch, *, device='cuda'):
     import diffusers
     model = model_spec(config)
@@ -358,6 +379,8 @@ def load_pipeline(config, arm, torch, *, device='cuda'):
     if arm == "aligned" and config["aligned"]["kind"] == "peft":
         denoiser = load_peft_adapter(getattr(pipe, component), config["aligned"]["path"])
         setattr(pipe, component, denoiser)
+    if model['family'] == 'zimage' and effective_sampling(config)['transformer_autocast_dtype'] == 'bfloat16':
+        autocast_transformer_forward(pipe.transformer, torch, device=device)
     pipe.scheduler = getattr(diffusers, config["sampling"].get("scheduler",scheduler_name)).from_config(pipe.scheduler.config)
     getattr(pipe, component).eval()
     for name in ("text_encoder", "text_encoder_2", "text_encoder_3", "vae"):
@@ -564,6 +587,9 @@ def render_batches(pipe, torch, root, run, manifest, completed, *, device="cuda"
             record = {**spec, 'generation_seconds': elapsed / len(batch),
                       'generation_batch_index': offset // batch_size, 'generation_batch_images': len(batch),
                       'generation_timing': 'batch_elapsed_divided_by_full_batch_size'}
+            if run['model']['family'] == 'zimage':
+                record.update(transformer_autocast_dtype=sampling.get('transformer_autocast_dtype', 'bfloat16'),
+                              render_sha256=sha256(__file__))
             completed[key] = commit_image(image, root, run, record, manifest)
         print(f"{run['arm']}: {min(offset + batch_size, len(items))}/{len(items)} image slots", flush=True)
     if len(completed) != len(expected):
@@ -583,6 +609,8 @@ def validate_resume_run(root, *, config, arm, suite, full_suite_id, shard, base_
         wanted['zimage_compat_sha256'] = sha256(source_file('zimage_compat.py'))
     for key, value in wanted.items():
         if run.get(key) != value:
+            if key == 'render_sha256' and compatible_zimage_bf16_resume(run):
+                continue
             if key == 'render_sha256' and compatible_sources({'render.py': run.get(key)}, {'render.py': value}):
                 continue
             raise ValueError(f"Cannot resume: {key} changed")
@@ -672,7 +700,10 @@ def main():
         write_json(out / "run.json", run)
     with render_lock(out):
         if args.resume:
-            record_compatibility(out, {'render.py': run['render_sha256']}, {'render.py': sha256(__file__)})
+            if compatible_zimage_bf16_resume(run):
+                record_zimage_bf16_resume(out, run)
+            else:
+                record_compatibility(out, {'render.py': run['render_sha256']}, {'render.py': sha256(__file__)})
         if (out / "complete.json").exists():
             verify_images(out)
             print(f"Already complete and verified: {out}")
@@ -690,6 +721,7 @@ def main():
         sessions.mkdir(exist_ok=True)
         write_json(sessions / f"{uuid.uuid4().hex}.json", {
             "execution": execution, "hostname": socket.gethostname(), "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+            "effective_sampling": sampling, "render_sha256": sha256(__file__),
             "started_unix": started, "elapsed_seconds": time.time() - started, **generation_stats,
             "resumed": args.resume, "images_at_start": initial_images, "images_at_end": len(completed),
             "gpu": torch.cuda.get_device_name(), "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
