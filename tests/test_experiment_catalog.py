@@ -108,6 +108,22 @@ class ExperimentCatalogTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'registered Base identity'):
             make_plan(self.args('--methods', 'dpo'))
 
+    def test_reviewed_run_and_checkpoint_ids_must_match_live_metadata(self):
+        entry = self.spec['experiments'][0]
+        entry['expected_run_id'] = 'other-run'
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'run_id differs'):
+            make_plan(self.args('--methods', 'dpo', '--dry-run'))
+        entry['expected_run_id'] = 'trial'
+        entry['expected_checkpoint_ids'] = {'1000': 'wrong-checkpoint'}
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'checkpoint identities differ'):
+            make_plan(self.args('--methods', 'dpo', '--dry-run'))
+        entry['expected_checkpoint_ids'] = {'1000': read_json(self.fixture.run / 'checkpoints/step-0001000/checkpoint.json')['checkpoint_id']}
+        self.save()
+        plan = make_plan(self.args('--methods', 'dpo', '--dry-run'))
+        self.assertEqual(len(plan['tasks']), 1)
+
     def test_legacy_multi_root_base_is_deduplicated_and_outputs_stay_distinct(self):
         f = self.fixture
         args = parse_args(['plan', '--config', str(f.config), '--runs-root', str(f.runs), str(self.flow),

@@ -1,3 +1,188 @@
+## 最新五组评测命令：SDXL 2000主表 + 3000 Parti补充，及SD3.5（2026-11-15）
+
+SDXL主表Base0+九方法2000；仅DMPO、Stagewise DMPO K6、DSPO、Stagewise DSPO K6补3000步Parti。
+三个偏好面板seed17，GenEval四seed；每卡batch4，三组共81,838图。方法/路径/历史身份已固定，
+不再需要手工编辑catalog。配置和恢复约定见[SDXL说明](docs/SDXL_PAPER_2000_EVALUATION.md)。
+SDXL沿用五个legacy偏好指标；SD3.5仍是PickScore/HPSv3/ImageReward。
+
+先在SSH准备一次SDXL共享checkout。三组资源必须访问同一个AFS路径；运行中不要pull或改配置。
+已有同checkout的worker须先退出。下面只更新代码，不申请GPU或运行评测。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD/DPO-eval-sdxl-paper-v1"
+if [ ! -d DPO-eval-sdxl-paper-v1 ]; then
+  git clone --single-branch --branch feat/unified-evaluation-slai-20261111 \
+    https://github.com/hypocritica/DPO.git DPO-eval-sdxl-paper-v1
+fi
+cd DPO-eval-sdxl-paper-v1
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+git rev-parse HEAD
+)
+```
+
+以下A/B/C分别在已分配的三组4×5090容器执行，不能都放在同一组四卡上。
+沿用原资源表及其resources.local.json；不安装依赖或下载权重。
+
+### SDXL A组：HPSv2，32,000图
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/configs/resources.json
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export SCD_SDXL_BATCH=4
+export SCD_SDXL_CONFIG=configs/evaluation-suite-sdxl-paper-v1.json
+export SCD_SDXL_PAPER_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sdxl/paper-2000-5090-v1
+bash scripts/run_sdxl_paper.sh A all
+)
+```
+
+### SDXL B组：Parti+PickV2+四个3000 Parti，27,718图
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/configs/resources.json
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export SCD_SDXL_BATCH=4
+export SCD_SDXL_CONFIG=configs/evaluation-suite-sdxl-paper-v1.json
+export SCD_SDXL_PAPER_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sdxl/paper-2000-5090-v1
+bash scripts/run_sdxl_paper.sh B all
+)
+```
+
+### SDXL C组：GenEval四seed，22,120图
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/configs/resources.json
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export SCD_SDXL_BATCH=4
+export SCD_SDXL_CONFIG=configs/evaluation-suite-sdxl-paper-v1.json
+export SCD_SDXL_PAPER_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sdxl/paper-2000-5090-v1
+bash scripts/run_sdxl_paper.sh C all
+)
+```
+
+### SD3.5M：原两张H100，先续跑Z-Image
+
+须先结束该checkout的旧worker再更新。保持原Z-Image图片与计划，缺图用BF16；
+随后SD3.5M batch8，Base0+七方法1600，Parti/PickV2单seed、GenEval四seed，共34,648图。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_EVAL_PY="$SCD_FLOW_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export SCD_Z_BATCH=4
+export SCD_Z_CURVES=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b4-v1
+export SCD_Z_PREP="${SCD_Z_CURVES}-prepared"
+export SCD_Z_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b1-v1-prepared
+export SCD_SD35_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-h100-b8-v1-prepared
+export SCD_SD35_COMPACT_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v3
+export SCD_H100_CONFIG=configs/evaluation-suite-compact-h100-v3.json
+bash scripts/run_zimage_then_sd35_compact.sh
+)
+```
+
+### SD3.5M：原四张5090，HPSv2单seed
+
+独立checkout及输出，不与H100争抢同一任务。Base0+七方法1600，共25,600图；
+batch1/CPU offload，仍以PickScore、HPSv3、ImageReward评分。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD/DPO-eval-hpsv2-5090-v2"
+if [ ! -d DPO-eval-hpsv2-5090-v2 ]; then
+  git clone --single-branch --branch feat/unified-evaluation-slai-20261111 \
+    https://github.com/hypocritica/DPO.git DPO-eval-hpsv2-5090-v2
+fi
+cd DPO-eval-hpsv2-5090-v2
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_EVAL_PY="$SCD_FLOW_PY"
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2/configs/resources.json
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export SCD_COMPACT_CONFIG=configs/evaluation-suite-compact-v2.json
+export SCD_SD35_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-h100-b8-v1-prepared
+export SCD_HPS_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/hpsv2-5090-seed17-v2
+bash scripts/run_hpsv2_5090.sh all
+)
+```
+
+五组均可重跑同一命令恢复，保留原输出根目录、checkpoint、seed和batch。更新源码前停止使用
+该checkout的worker；SDXL三组共享checkout，任意一组还在运行都不能更新它。
+SDXL的all阶段按本组全部plan→逐面板generate/index/timing→score→summarize→paper执行。
+日志在`paper-2000-5090-v1/logs`，主表在`main/<panel>`，补充在`supplement/partiprompts`。
+
+用时为条件性估算，未执行真实5090/H100计时：
+
+| 任务 | 吞吐假设（每GPU有效秒/图） | 纯生成 | 建议预留生成+评分 |
+|---|---|---|---|
+| SDXL A | 2–4 | 5.3–10.7小时 | 约8–18小时 |
+| SDXL B | 2–4 | 4.4–8.9小时 | 约7–16小时 |
+| SDXL C | 2–4 | 3.7–7.4小时 | 约6–15小时 |
+| SD3.5M两H100 | 1–2 | 4.8–9.6小时 | 约7–16小时，另加Z剩余时间 |
+| SD3.5M四5090，offload | 4–10 | 7.1–17.8小时 | 约10–26小时 |
+
+SDXL计入10个模型分配到4卡的尾部空闲；三组同时跑的总墙钟时间取最慢组，不相加。
+评分预留仅用于排程，实际可能超出；CPU offload、AOSS吞吐、评分器速度均须远端测量。
+Z曲线目前剩余图数未知，用剩余图数×实测秒/图÷2粗估，并加PickScore和加载时间。
+各入口打印真实生成session吞吐与阶段耗时；旧日志training_seconds不能代替推理计时。
+
 ## 双H100最终命令：Parti/PickV2单seed，GenEval四seed（2026-11-15）
 
 新增`evaluation-suite-compact-h100-v3.json`，双H100串行脚本默认使用此配置与

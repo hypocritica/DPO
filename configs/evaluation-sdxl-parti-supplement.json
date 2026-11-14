@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "models": {
+    "sdxl": {
+      "family": "sdxl",
+      "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sdxl",
+      "revision": "462165984030d82259a11f4367a4eed129e94a7b"
+    }
+  },
+  "runs_roots": {
+    "sdxl": "/mnt/aoss/xietianyu/self_correct/runs"
+  },
+  "experiments": [
+    {
+      "id": "sdxl-dmpo",
+      "family": "sdxl",
+      "method": "dmpo",
+      "root": "sdxl",
+      "run": "sdxl-dmpo-4gpu-b2-pv192-10000-v1",
+      "steps": [
+        3000
+      ],
+      "expected_run_id": "f41228b3a3c1cce57a4cee4f24684de7e4a8b6a5a4c88199e0eb2f18b37e17a3",
+      "expected_checkpoint_ids": {
+        "3000": "b16895dcc76559d311361f7bfe7e0f19bf0cfccfa3f5c5d42064a00c20a41339"
+      }
+    },
+    {
+      "id": "sdxl-stagewise-dmpo-k6",
+      "family": "sdxl",
+      "method": "stagewise_dmpo_k6",
+      "root": "sdxl",
+      "run": "sdxl-dmpo-k6-stage-4gpu-b2-pv192-10000-v2",
+      "steps": [
+        3000
+      ],
+      "expected_run_id": "e6fc5d7fab8831b1f25aecbaa0b13c2e6a5db263295ec5f5d6802b6192cea943",
+      "expected_checkpoint_ids": {
+        "3000": "b85ec40800ccca83e6c2dbd9cc7f613a3c870ee93eb1477c9d26c63e1749158a"
+      }
+    },
+    {
+      "id": "sdxl-dspo",
+      "family": "sdxl",
+      "method": "dspo",
+      "root": "sdxl",
+      "run": "sdxl-dspo-4gpu-b2-pv192-10000-v1",
+      "steps": [
+        3000
+      ],
+      "expected_run_id": "7045ee4f8629f43b265077729e26cf37feefca13c513c0c2a1a8ed2113886360",
+      "expected_checkpoint_ids": {
+        "3000": "ecc9ceb489c930ef98b4ef43a27ba70d1ada169fdec80c69abe09fd105f03b0f"
+      }
+    },
+    {
+      "id": "sdxl-stagewise-dspo-k6",
+      "family": "sdxl",
+      "method": "stagewise_dspo_k6",
+      "root": "sdxl",
+      "run": "sdxl-dspo-k6-stage-4gpu-b2-pv192-10000-v1",
+      "steps": [
+        3000
+      ],
+      "expected_run_id": "23ce5169f78438c47d6d69ffc08851dd1a5ac6848d614caa4f39cd32525a7404",
+      "expected_checkpoint_ids": {
+        "3000": "6c5cfd5856f29adbc76bcc0039c99a44019d7ab4ca7aeba813122d59c3998620"
+      }
+    }
+  ],
+  "selection": {
+    "role": "parti-supplement",
+    "inventory_utc": "2026-11-13T18:13:46.424688+00:00",
+    "inventory_sha256": "0ef14b09647b877d2d36f68e60cdb1afa27d5f07bb9341f06f8217c4a32b9c33",
+    "decision": "User confirmed all nine trained methods at2000; only four DMPO/DSPO variants at3000 on Parti. No SFT/MAPO1000.",
+    "weight_verification": "Inventory IDs only; live payload checksums are verified before generation."
+  }
+}

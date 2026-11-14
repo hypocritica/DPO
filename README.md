@@ -1,10 +1,13 @@
 # Self Correct DPO
 
+最新：[SDXL主表2000步、四个3000步Parti补充](docs/SDXL_PAPER_2000_EVALUATION.md)。
+三组各4×5090，81,838图；完整命令与既有双H100/四5090 SD3.5命令集中于[command.md首节](command.md)。
+
 双H100最新命令见[command.md首节](command.md)：先恢复原Z-Image BF16/PickScore曲线，
 再以batch8运行SD3.5M，Parti/PickV2单seed，GenEval四seed；新v3目录共34,648张正式图片。
 
-最新：[Parti/HPSv2单seed与四张5090独立HPSv2评测](docs/SINGLE_SEED_FLOW_EVALUATION.md)。
-SD3.5的PickV2仍双seed、Z-Image单seed，GenEval四seed；原Z曲线续跑不变。
+四张5090独立HPSv2评测见[说明](docs/SINGLE_SEED_FLOW_EVALUATION.md)。
+SD3.5的Parti/PickV2均单seed，GenEval四seed；原Z曲线续跑不变。
 
 初版精简方案：[双H100先Z-Image分段PickScore、再SD3.5M正式评测](docs/COMPACT_H100_EVALUATION.md)。
 Parti+PickV2+GenEval；SD3.5偏好双seed、Z-Image单seed、GenEval四seed，SD3.5 batch8。

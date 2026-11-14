@@ -186,6 +186,14 @@ def load_catalog(path, registry, *, families=None, methods=None, patterns=None):
         missing = set(steps) - set(run['steps'])
         if missing:
             raise ValueError(f'Experiment {name} missing exact permanent checkpoints: {sorted(missing)}')
+        # Optional historical identities pin a reviewed inventory to live files.
+        if 'expected_run_id' in entry and entry['expected_run_id'] != run['run_id']:
+            raise ValueError(f'Experiment {name} run_id differs from the reviewed inventory')
+        if 'expected_checkpoint_ids' in entry:
+            expected = entry['expected_checkpoint_ids']
+            actual = {str(c['step']): c['checkpoint_id'] for c in run['checkpoints'] if c['step'] in steps}
+            if expected != actual:
+                raise ValueError(f'Experiment {name} checkpoint identities differ from the reviewed inventory')
         for step in steps:
             key = (family, method, step)
             if key in selections:

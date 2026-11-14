@@ -1,0 +1,19 @@
+{
+  "extends": ["evaluation-suite.json"],
+  "evaluation_profile": "sdxl-paper-2000-v1",
+  "protocols": {
+    "sdxl": {"seeds": [17], "generation_batch_size": 4, "cpu_offload": false}
+  },
+  "benchmark_seeds": {
+    "partiprompts": [17], "pickv2": [17], "hpsv2": [17],
+    "geneval": [17, 29, 43, 71]
+  },
+  "notes": [
+    "Main: Base0 and nine trained SDXL methods at step2000 on Parti/PickV2/HPSv2/GenEval.",
+    "Supplement: DMPO, Stagewise DMPO K6, DSPO, Stagewise DSPO K6 at step3000 on Parti only; no duplicate Base.",
+    "Legacy preference metrics remain PickScore, HPSv2, ImageReward, CLIP, Aesthetic; GenEval uses its dedicated scorer.",
+    "Keep 1024x1024, BF16, Euler, 50 sampling steps and CFG5. Monitor curves used 30 steps.",
+    "The common step was chosen after reviewing monitor curves. Equal pair-view budget is not equal FLOPs or pair exposure.",
+    "PickV2 can overlap the training monitor prompts; verify overlap before claiming test independence."
+  ]
+}

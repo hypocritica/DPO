@@ -1,5 +1,23 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 SDXL三组四卡：统一2000步与四个3000步Parti
+
+固定用户盘点中的九个SDXL训练run及历史run/checkpoint ID，主表Base0+九方法2000，
+只补DMPO/Stagewise DMPO K6/DSPO/Stagewise DSPO K6的3000步Parti，不补SFT/MAPO1000。
+catalog可选expected_run_id/expected_checkpoint_ids在规划时核对；不匹配或缺快照拒绝回退。
+prepare_sdxl_formal增加显式共享panel列表与methods过滤，支持GenEval及无Base补充，旧默认三面板不变。
+
+run_sdxl_paper.sh提供A/B/C三组独立四卡入口，A为HPSv2 32000图，B为Parti/PickV2及补充27718图，
+C为GenEval四seed 22120图；总81838图。batch4常驻、BF16/Euler50/CFG5，偏好面板seed17。
+共享选择短锁与组级锁保护并行计划及重复启动；阶段失败停止，重复命令恢复图片/评分/导出。
+每阶段打印用时，保留全部PNG、索引、分数和论文表。三组要求同一固定checkout/资源/协议路径。
+双H100及四5090 SD3.5入口保持原实现；Z renderer及精确SHA兼容策略未改。
+
+73项CPU检查通过：真实完整面板数量/种子/补充无Base、run/checkpoint身份拒绝、四卡UUID和环境路由、
+重跑与失败停止、三进程并行规划、旧H100/SD3.5交接、Z BF16恢复、批次缺图恢复及论文导出。
+六段新部署/运行命令与三个入口Bash语法、JSON和diff检查通过。未提交GPU作业或实测吞吐/显存。
+command.md首节汇总五组完整命令和有条件时间估算。
+
 ## 2026-11-15 双H100：PickV2也改为单seed
 
 新增H100 v3配置，在v2基础上将PickV2固定seed17；Parti仍seed17、GenEval四seed。

@@ -3,19 +3,19 @@
 双H100后续已改为Parti与PickV2均单seed、GenEval四seed，新v3目录共34,648图；
 请使用[command.md首节完整命令](../command.md)。本页的四张5090 HPSv2命令不变。
 
-按2026-11-15后续要求，使用`evaluation-suite-compact-v2.json`：
+当前H100使用`evaluation-suite-compact-h100-v3.json`；四5090 HPSv2沿用`evaluation-suite-compact-v2.json`：
 
 | 面板 | SD3.5M seeds | Z-Image seeds | SD3.5M八版本图片数 |
 |---|---|---|---:|
 | PartiPrompts（1632 prompts） | 17 | 17 | 13,056 |
-| Pick-a-Pic v2（487 prompts） | 17、29 | 17 | 7,792 |
+| Pick-a-Pic v2（487 prompts） | 17 | 17 | 3,896 |
 | GenEval（553 prompts） | 17、29、43、71 | 同左 | 17,696 |
 | HPSv2（3200 prompts） | 17 | 17 | 25,600 |
 
 两个H100继续先跑原Z-Image batch4 BF16续跑/PickScore曲线，之后跑SD3.5M前三套面板，
-总38,544图、batch8/offload=false。新输出根目录默认`sd35_medium/compact-h100-v2`。
+总34,648图、batch8/offload=false。新输出根目录默认`sd35_medium/compact-h100-v3`。
 原`compact-h100-v1`的双seed Parti计划不改写，旧曲线和已生成PNG保持原身份。
-Parti减少seed不会改变PickV2或GenEval；四seed GenEval仍用原评分协议。
+Parti和PickV2均为单seed；四seed GenEval仍用原评分协议。
 
 四张5090独立生成/评测SD3.5M主表八版本的HPSv2面板，共25,600图。
 各方法沿用同一曲线catalog与已确认Base0/七方法1600，DPO800仍为可选补充。
@@ -31,7 +31,7 @@ bash scripts/run_zimage_then_sd35_compact.sh
 ```
 
 环境与GPU设置沿用[双H100文档](COMPACT_H100_EVALUATION.md)。不要把
-`SCD_SD35_COMPACT_ROOT`指向旧v1目录；如果之前显式设置过它，改为新的v2路径。
+`SCD_SD35_COMPACT_ROOT`指向旧v1目录；如果之前显式设置过它，改为新的v3路径。
 原Z-Image曲线路径继续保持不变。
 
 ## 四张5090独立完整命令
