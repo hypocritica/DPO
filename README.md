@@ -1,5 +1,8 @@
 # Self Correct DPO
 
+双H100最新命令见[command.md首节](command.md)：先恢复原Z-Image BF16/PickScore曲线，
+再以batch8运行SD3.5M，Parti/PickV2单seed，GenEval四seed；新v3目录共34,648张正式图片。
+
 最新：[Parti/HPSv2单seed与四张5090独立HPSv2评测](docs/SINGLE_SEED_FLOW_EVALUATION.md)。
 SD3.5的PickV2仍双seed、Z-Image单seed，GenEval四seed；原Z曲线续跑不变。
 

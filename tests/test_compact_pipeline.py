@@ -26,7 +26,7 @@ from pathlib import Path
 phase = 'zimage' if 'zimage_curves' in sys.argv[0] else 'sd35'
 stage = sys.argv[1]
 with open(os.environ['TEST_CALLS'], 'a') as stream:
-    stream.write(json.dumps([phase,stage,os.environ.get('SCD_Z_BATCH'),sys.argv[2:]])+'\\n')
+    stream.write(json.dumps([phase,stage,os.environ.get('SCD_Z_BATCH'),sys.argv[2:],os.environ.get('SCD_COMPACT_CONFIG')])+'\\n')
 if phase+':'+stage == os.environ.get('TEST_FAIL'):
     sys.exit(9)
 if phase == 'sd35':
@@ -83,6 +83,7 @@ if phase == 'sd35':
         self.assertTrue(all(r[2] == '4' for r in calls))
         self.assertIn('--generation-batch-size', calls[5][3])
         self.assertIn('8', calls[5][3])
+        self.assertEqual(calls[5][4], 'configs/evaluation-suite-compact-h100-v3.json')
         self.calls.unlink()
         result = self.run_pipeline()
         self.assertEqual(result.returncode, 0, result.stderr)

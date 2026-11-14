@@ -1,5 +1,8 @@
 # Parti/HPSv2单seed与四张5090独立评测
 
+双H100后续已改为Parti与PickV2均单seed、GenEval四seed，新v3目录共34,648图；
+请使用[command.md首节完整命令](../command.md)。本页的四张5090 HPSv2命令不变。
+
 按2026-11-15后续要求，使用`evaluation-suite-compact-v2.json`：
 
 | 面板 | SD3.5M seeds | Z-Image seeds | SD3.5M八版本图片数 |

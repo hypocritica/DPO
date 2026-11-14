@@ -1,0 +1,10 @@
+{
+  "extends": ["evaluation-suite-compact-v2.json"],
+  "evaluation_profile": "compact-v3",
+  "benchmark_seeds": {"pickv2": [17]},
+  "notes": [
+    "H100 core: PartiPrompts seed17, PickV2 seed17, GenEval seeds17/29/43/71.",
+    "Use a new compact-h100-v3 selection/output root; do not rewrite frozen v1/v2 plans.",
+    "Z-Image development curves and the independent four-5090 HPSv2 job keep their existing protocols."
+  ]
+}

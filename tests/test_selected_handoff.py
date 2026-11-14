@@ -217,6 +217,30 @@ class SelectedHandoffTest(unittest.TestCase):
         self.assertEqual(sum(t['images'] for t in all_plan['tasks']), 58050)
         self.assertEqual(len(selected.report_plan(all_plan, 'dpo-step-comparison')['tasks']), 6)
 
+    def test_h100_v3_uses_single_parti_pick_and_four_geneval(self):
+        from self_correct_dpo.config import load_config
+        compact = load_config(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact-h100-v3.json')
+        compact['benchmarks'] = self.fixture.official
+        compact['scorers_config'] = str(self.fixture.scorers)
+        self.fixture.config.write_text(json.dumps(compact))
+        for panel, count in (('partiprompts', 1632), ('pickv2', 487), ('geneval', 553)):
+            template = json.loads(Path(self.fixture.official[panel]).read_text())
+            Path(self.fixture.official[panel]).write_text(''.join(
+                json.dumps(dict(template, scene_id=f'{panel}-{i}'))+'\n' for i in range(count)))
+        selected.initialize(self.args)
+        out = self.fixture.root/'h100-v3'
+        args = SimpleNamespace(selection=str(self.path), out=str(out), benchmarks=['partiprompts','pickv2','geneval'],
+                               resources=None, dry_run=False)
+        with redirect_stdout(io.StringIO()):
+            selected.plan(args)
+        frozen = read_json(out/'plan.json')
+        self.assertEqual(len(frozen['tasks']), 24)
+        self.assertEqual(sum(t['images'] for t in frozen['tasks']), 34648)
+        for task in frozen['tasks']:
+            self.assertEqual(task['sampling']['seeds'], [17,29,43,71] if task['benchmark']=='geneval' else [17])
+            self.assertEqual(task['sampling']['generation_batch_size'], 8)
+            self.assertFalse(task['sampling']['cpu_offload'])
+
     def test_v2_single_parti_hps_keeps_pick_two_geneval_four_and_cpu_offload(self):
         from self_correct_dpo.config import merge_config, load_config
         compact = load_config(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact-v2.json')

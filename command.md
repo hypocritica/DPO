@@ -1,3 +1,47 @@
+## 双H100最终命令：Parti/PickV2单seed，GenEval四seed（2026-11-15）
+
+新增`evaluation-suite-compact-h100-v3.json`，双H100串行脚本默认使用此配置与
+`sd35_medium/compact-h100-v3`新目录。主表八版本共34,648图：Parti13,056，PickV2 3,896，
+GenEval17,696。先继续原Z-Image batch4曲线：保留旧图，缺失图BF16；随后SD3.5 batch8/offload=false。
+四张5090的HPSv2独立任务继续使用v2，不受本次PickV2变更影响。旧selection/plan不可原地改seed。
+
+在已分配两张H100 80GB的容器执行；先等待旧evaluation worker退出，再更新原checkout：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_EVAL_PY="$SCD_FLOW_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+
+export SCD_Z_BATCH=4
+export SCD_Z_CURVES=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b4-v1
+export SCD_Z_PREP="${SCD_Z_CURVES}-prepared"
+export SCD_Z_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b1-v1-prepared
+export SCD_SD35_SOURCE_PREP=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-h100-b8-v1-prepared
+export SCD_SD35_COMPACT_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v3
+export SCD_H100_CONFIG=configs/evaluation-suite-compact-h100-v3.json
+
+bash scripts/run_zimage_then_sd35_compact.sh
+)
+```
+
+已有Flow/eval/HPSv3/GenEval环境必须可用；不自动安装下载，也不提交资源。
+Z曲线结束后自动打印session吞吐，再运行SD3.5生成、PickScore/ImageReward、HPSv3、GenEval、汇总和论文导出。
+失败停止，重跑同一整段命令恢复。原Z曲线/PNG身份和BF16兼容策略未修改；SD3.5结果在新v3目录的core下。
+
 ## Parti/HPSv2单seed与四张5090（2026-11-15 后续更新）
 
 最新命令见 [SINGLE_SEED_FLOW_EVALUATION.md](docs/SINGLE_SEED_FLOW_EVALUATION.md)。

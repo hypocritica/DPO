@@ -170,7 +170,7 @@ def initialize(args):
     config['protocols'][family]['generation_batch_size'] = ((8 if family == 'sd35_medium' else 1) if args.generation_batch_size is None else args.generation_batch_size)
     if family == 'zimage':
         config['protocols'][family]['seeds'] = [17]
-        if config.get('evaluation_profile') not in ('compact-v1', 'compact-v2'):
+        if config.get('evaluation_profile') not in ('compact-v1', 'compact-v2', 'compact-v3'):
             config['metric_groups']['modern'] = ['hpsv3', 'unifiedreward', 'pickscore', 'image_reward']
     if config['protocols'][family]['generation_batch_size'] < 1:
         raise ValueError('Generation batch size must be positive')

@@ -1,5 +1,13 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 双H100：PickV2也改为单seed
+
+新增H100 v3配置，在v2基础上将PickV2固定seed17；Parti仍seed17、GenEval四seed。
+串行脚本显式使用H100 v3配置与compact-h100-v3新目录，batch8常驻；原Z曲线batch4/BF16续跑不变。
+主表八版本三面板34,648图，四张5090 HPSv2任务仍用v2，旧v1/v2计划不改写。
+21项相关CPU检查通过，覆盖v3实际图片量、各面板seed、batch/offload及串行脚本的配置选择和恢复。
+Bash语法与diff检查通过；未运行远端GPU。完整命令已同步command.md首节。
+
 ## 2026-11-15 后续：Parti/HPSv2单seed与四张5090
 
 新增compact-v2配置：Parti/HPSv2面板单seed17，SD3.5 PickV2仍17/29，Z-Image PickV2仍17，

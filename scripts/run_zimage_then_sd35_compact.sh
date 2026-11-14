@@ -40,7 +40,8 @@ done
 
 # New SD3.5 formal protocol: Base0 + seven methods1600, batch8, no offload.
 export SCD_SELECTED_FAMILY=sd35_medium
-export SCD_SELECTED_ROOT="${SCD_SD35_COMPACT_ROOT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v2}"
+export SCD_COMPACT_CONFIG="${SCD_H100_CONFIG:-configs/evaluation-suite-compact-h100-v3.json}"
+export SCD_SELECTED_ROOT="${SCD_SD35_COMPACT_ROOT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v3}"
 export SCD_SELECTED_SELECTION="$SCD_SELECTED_ROOT/selection.json"
 export SCD_SELECTED_OUT="$SCD_SELECTED_ROOT/core"
 if [[ ! -f "$SCD_SELECTED_SELECTION" ]]; then
