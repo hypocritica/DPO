@@ -8,6 +8,85 @@ Base 只生成一次。默认先看已具备资产的 PickScore；可对同一�
 图片、逐图分数、来源清单、曲线和正式结果都保留在 AOSS。生成不要求评分模型已下载。
 本机仅完成 CPU 测试；以下命令在 SLAI 已分配 GPU 后执行，不申请平台资源。
 
+## 直接执行：两个SSH阶段和一个GPU任务
+
+先在SSH更新checkout，再启动GPU任务；不要在它运行期间pull这个checkout。
+SDXL盘点只读取training/checkpoint小文件，不加载tensor；结果不代表权重内容已通过hash验证，
+也不据此断言训练进程当前状态。可在训练继续时重新盘点，每次保存独立快照。
+
+**第一组：SSH更新与SDXL checkpoint盘点。**
+
+```bash
+(
+set -euo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+git log -1 --oneline
+eval_py=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+inventory_root=/mnt/aoss/xietianyu/self_correct/evaluations/inventory
+mkdir -p "$inventory_root"
+inventory_out=$(mktemp -d "$inventory_root/sdxl-$(date -u +%Y%m%dT%H%M%S)-XXXXXX")
+"$eval_py" evaluate_suite.py list --families sdxl \
+  --runs-root /mnt/aoss/xietianyu/self_correct/runs --json > "$inventory_out/checkpoints.json"
+"$eval_py" - "$inventory_out/checkpoints.json" <<'PY'
+import json, sys
+for run in json.load(open(sys.argv[1])):
+    print(run['name'])
+    print('  永久 checkpoint 步数:', [c['step'] for c in run['checkpoints']])
+print('完整路径及身份记录:', sys.argv[1])
+PY
+)
+```
+
+**第二组：SSH下载SD3.5M/Z-Image共用的新评分资产。** 先补HPSv3、Qwen2-VL骨干、
+UnifiedReward及固定源码；已有PickScore、ImageReward、CLIP、Aesthetic继续复用。
+本轮曲线只需已安装PickScore，不等待这些新资产。这里只下载，不新建或修改环境。
+GenEval/DPG资产仍后置，正式HPSv3/UnifiedReward评分使用各自环境，见H800说明。
+
+```bash
+(
+set -euo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+eval_py=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export HF_HOME=/mnt/aoss/xietianyu/cache/huggingface
+unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE DIFFUSERS_OFFLINE
+df -h /mnt/aoss/xietianyu
+"$eval_py" scripts/prepare_eval_assets.py plan --profile modern
+"$eval_py" scripts/prepare_eval_assets.py download --profile modern
+"$eval_py" scripts/prepare_eval_assets.py sources --profile modern
+"$eval_py" scripts/prepare_eval_assets.py check --profile modern
+)
+```
+
+默认下载到AOSS models/preference与models/backbones；resources.local.json/env覆盖时以plan
+打印位置为准。已有完整文件由下载器复用。离线check不加载评分模型，不等于实际GPU评分通过。
+
+**第三组：SLAI GPU任务的启动命令。** 使用两张已分配H800/H100 80GB；按平台正常方式提交，
+把下面填入任务启动脚本。不要在SSH登录节点执行GPU阶段。这里只安排Z-Image曲线，SDXL
+盘点/下载在另两个终端继续。平台未提供CUDA_VISIBLE_DEVICES时，显式设置SCD_Z_GPUS为
+实际分配设备编号；没有默认假定0,1。
+
+```bash
+set -euo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_FLOW_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export SCD_Z_CURVES=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b1-v1
+export SCD_Z_PREP="${SCD_Z_CURVES}-prepared"
+export SCD_Z_GPUS="${SCD_Z_GPUS:-${CUDA_VISIBLE_DEVICES:?Set allocated GPU tokens}}"
+bash scripts/run_zimage_curves.sh all
+```
+
+重复任务命令恢复缺失生成/评分；冻结后新增的Z-Image checkpoint需要新prepared/output版本。
+所有曲线PNG/PDF/CSV在 `$SCD_Z_CURVES/curves/`，原图在方法/step面板下，由
+`image-index.csv/json`索引，阶段日志在`logs/`。没有额外强制环境预检。
+若只想先生成，末行改为`generate`（首次先执行`prepare`、`plan`）；之后执行`score`和
+`summarize`即可。可选`score-hpsv3`需要SCD_HPSV3_PY，`summarize-hpsv3`复用原eval绘图，
+另存`curves-hpsv3/`。同一GPU不要同时启动另一项生图/评分任务。
+
 ## 1. 固定输入和计划
 
 从独立 evaluation checkout 执行；复用已有 Flow 和 legacy eval 环境。

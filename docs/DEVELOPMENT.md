@@ -1,5 +1,15 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-14 Z-Image快捷任务与SSH准备分离
+
+新增run_zimage_curves.sh包装既有evaluate_curves：Base一次、DPO和Stagewise K4的全部已保留
+永久checkpoint，每点固定128图/seed17。all依次prepare/plan/generate/index/PickScore/summary，
+前一阶段失败即停止；分阶段入口支持只生成、只评分、步数/方法筛选及可选HPSv3辅助曲线。
+专用SCD_Z_GPUS支持1/2/4张已分配卡，避免复用SDXL的GPU配置；CPU盘点和资产下载在SSH执行。
+准备与图片仍在原AOSS Z-Image路径，已冻结输入不自动纳入后续快照；原曲线身份和渲染代码不变。
+22项CPU检查通过，覆盖shell顺序、失败/中断停止、GPU隔离和既有曲线冻结/恢复/导出。
+没有执行SLAI GPU任务或下载；batch1、offload=false仍须远程验证。命令见command.md首节。
+
 ## 2026-11-14 SD3.5M 已确认主表与额外步数对照
 
 evaluate_selected.py init --handoff 导入原交接JSON并核对实际曲线prepared：Base0及七方法1600
