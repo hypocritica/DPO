@@ -36,24 +36,18 @@ bash scripts/run_zimage_then_sd35_compact.sh
 
 ## 四张5090独立完整命令
 
-在平台已分配的4×RTX5090容器中执行；使用独立checkout，以便与H100任务并行。
-目录已存在时先确认没有该checkout的worker仍在运行，再pull。
+在平台已分配的4×RTX5090容器中执行；统一使用已有DPO-eval-v2。
+先按command.md首节更新一次代码，再分别启动各组；任意组运行期间不要pull。
 
 ```bash
 (
 set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
-cd /mnt/afs/L202500030/xietianyu/workspace
-if [ ! -d DPO-eval-hpsv2-5090-v2 ]; then
-  git clone --single-branch --branch feat/unified-evaluation-slai-20261111 \
-    https://github.com/hypocritica/DPO.git DPO-eval-hpsv2-5090-v2
-fi
-cd DPO-eval-hpsv2-5090-v2
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$PWD"
-git pull --ff-only origin feat/unified-evaluation-slai-20261111
 
 export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python

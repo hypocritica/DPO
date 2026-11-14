@@ -5,21 +5,17 @@ SDXL主表Base0+九方法2000；仅DMPO、Stagewise DMPO K6、DSPO、Stagewise D
 不再需要手工编辑catalog。配置和恢复约定见[SDXL说明](docs/SDXL_PAPER_2000_EVALUATION.md)。
 SDXL沿用五个legacy偏好指标；SD3.5仍是PickScore/HPSv3/ImageReward。
 
-先在SSH准备一次SDXL共享checkout。三组资源必须访问同一个AFS路径；运行中不要pull或改配置。
+五组统一使用已有`/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2`。
+先在SSH更新一次；运行中不要pull或改配置。
 已有同checkout的worker须先退出。下面只更新代码，不申请GPU或运行评测。
 
 ```bash
 (
 set -eo pipefail
-cd /mnt/afs/L202500030/xietianyu/workspace
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
-export GIT_CONFIG_VALUE_0="$PWD/DPO-eval-sdxl-paper-v1"
-if [ ! -d DPO-eval-sdxl-paper-v1 ]; then
-  git clone --single-branch --branch feat/unified-evaluation-slai-20261111 \
-    https://github.com/hypocritica/DPO.git DPO-eval-sdxl-paper-v1
-fi
-cd DPO-eval-sdxl-paper-v1
+export GIT_CONFIG_VALUE_0="$PWD"
 git pull --ff-only origin feat/unified-evaluation-slai-20261111
 git rev-parse HEAD
 )
@@ -35,7 +31,7 @@ git rev-parse HEAD
 set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$PWD"
@@ -58,7 +54,7 @@ bash scripts/run_sdxl_paper.sh A all
 set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$PWD"
@@ -81,7 +77,7 @@ bash scripts/run_sdxl_paper.sh B all
 set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-sdxl-paper-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$PWD"
@@ -99,7 +95,7 @@ bash scripts/run_sdxl_paper.sh C all
 
 ### SD3.5M：原两张H100，先续跑Z-Image
 
-须先结束该checkout的旧worker再更新。保持原Z-Image图片与计划，缺图用BF16；
+完成上方统一更新后启动。保持原Z-Image图片与计划，缺图用BF16；
 随后SD3.5M batch8，Base0+七方法1600，Parti/PickV2单seed、GenEval四seed，共34,648图。
 
 ```bash
@@ -109,7 +105,6 @@ cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$PWD"
-git pull --ff-only origin feat/unified-evaluation-slai-20261111
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
 export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
@@ -132,7 +127,7 @@ bash scripts/run_zimage_then_sd35_compact.sh
 
 ### SD3.5M：原四张5090，HPSv2单seed
 
-独立checkout及输出，不与H100争抢同一任务。Base0+七方法1600，共25,600图；
+与其他组共享代码目录，评测输出独立。Base0+七方法1600，共25,600图；
 batch1/CPU offload，仍以PickScore、HPSv3、ImageReward评分。
 
 ```bash
@@ -140,16 +135,10 @@ batch1/CPU offload，仍以PickScore、HPSv3、ImageReward评分。
 set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
-cd /mnt/afs/L202500030/xietianyu/workspace
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
-export GIT_CONFIG_VALUE_0="$PWD/DPO-eval-hpsv2-5090-v2"
-if [ ! -d DPO-eval-hpsv2-5090-v2 ]; then
-  git clone --single-branch --branch feat/unified-evaluation-slai-20261111 \
-    https://github.com/hypocritica/DPO.git DPO-eval-hpsv2-5090-v2
-fi
-cd DPO-eval-hpsv2-5090-v2
-git pull --ff-only origin feat/unified-evaluation-slai-20261111
+export GIT_CONFIG_VALUE_0="$PWD"
 export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
 export SCD_EVAL_PY="$SCD_FLOW_PY"
@@ -164,7 +153,8 @@ bash scripts/run_hpsv2_5090.sh all
 ```
 
 五组均可重跑同一命令恢复，保留原输出根目录、checkpoint、seed和batch。更新源码前停止使用
-该checkout的worker；SDXL三组共享checkout，任意一组还在运行都不能更新它。
+该checkout的worker；五组共享checkout，任意一组还在运行都不能更新它。
+若此前已从另一个checkout建立SDXL plan，应继续用原checkout恢复；冻结配置含绝对路径，不能直接迁移已有plan。
 SDXL的all阶段按本组全部plan→逐面板generate/index/timing→score→summarize→paper执行。
 日志在`paper-2000-5090-v1/logs`，主表在`main/<panel>`，补充在`supplement/partiprompts`。
 

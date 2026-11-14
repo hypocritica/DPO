@@ -1,5 +1,12 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 运行目录统一为已有DPO-eval-v2
+
+按用户要求，command.md当前五组命令统一使用已有远端DPO-eval-v2，移除新clone步骤。
+只在启动所有worker前更新一次代码，运行阶段不再pull；评测输出、checkpoint、seed、batch均不改变。
+同步SDXL与SD3.5 HPSv2说明，注明已经从其他checkout冻结的SDXL计划不能直接更换配置绝对路径。
+本次仅文档调整，六段当前命令通过bash -n及diff检查，未操作远端文件或GPU。
+
 ## 2026-11-15 SDXL三组四卡：统一2000步与四个3000步Parti
 
 固定用户盘点中的九个SDXL训练run及历史run/checkpoint ID，主表Base0+九方法2000，

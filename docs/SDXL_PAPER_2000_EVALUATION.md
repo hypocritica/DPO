@@ -24,7 +24,9 @@ GenEval使用独立环境。此处HPSv2 scorer与SD3.5精简流程的HPSv3 score
 | C | 主表GenEval四seed | 22120 |
 | 合计 | 主表75310 + 补充6528 | 81838 |
 
-三组必须使用同一个固定checkout、资源表、batch和输出根目录，依赖同一个AFS/AOSS挂载。
+三组使用已有`/mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2`，
+与双H100/四5090 SD3.5任务共享固定代码。保持同一资源表、batch和输出根目录，依赖同一AFS/AOSS挂载。
+若已在其他checkout冻结了SDXL计划，继续使用该checkout恢复；配置绝对路径参与身份核验，不能直接迁移。
 共同选择的短锁支持并行规划；独立group锁防止误启动同组两次。不能在运行中更新checkout。
 主表根目录为`.../sdxl/paper-2000-5090-v1/main`，补充为同级`supplement`。
 其中每个面板独立保存plan、prompts、PNG、manifest、scores、image-index、summary和paper。
