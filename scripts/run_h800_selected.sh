@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Independent formal stages on two already allocated H800 GPUs; no scheduler/install.
+# Independent formal stages on two or four allocated GPUs; no scheduler/install.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 stage="${1:-}"; [[ $# == 0 ]] || shift
@@ -32,9 +32,15 @@ esac
 # Never invent device IDs or assume 0,1: preserve actual allocated tokens/UUIDs.
 gpus="${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-}}"
 IFS=',' read -r -a ids <<< "$gpus"
-if [[ ${#ids[@]} != 2 || -z "${ids[0]//[[:space:]]/}" || -z "${ids[1]//[[:space:]]/}" || "${ids[0]}" == "${ids[1]}" || "$gpus" =~ [[:space:]] || ",$gpus," == *,-1,* || "$gpus" == *, ]]; then
-  echo 'Exactly two distinct allocated GPU tokens required in SCD_EVAL_GPUS or CUDA_VISIBLE_DEVICES' >&2; exit 2
+gpu_count="${SCD_SELECTED_GPU_COUNT:-2}"
+if [[ ! "$gpu_count" =~ ^(2|4)$ || ${#ids[@]} != "$gpu_count" || "$gpus" =~ [[:space:]] || "$gpus" == *, ]]; then
+  echo "Exactly $gpu_count distinct allocated GPU tokens required in SCD_EVAL_GPUS or CUDA_VISIBLE_DEVICES" >&2; exit 2
 fi
+declare -A seen
+for id in "${ids[@]}"; do
+  [[ -n "$id" && "$id" != -1 && -z "${seen[$id]:-}" ]] || { echo 'Invalid allocated GPU tokens' >&2; exit 2; }
+  seen[$id]=1
+done
 case "$stage" in
   generate) : "${SCD_FLOW_PY:?Set existing Flow Python}"; worker="$SCD_FLOW_PY"; action=generate ;;
   score-legacy) : "${SCD_SD15_PY:?Set existing legacy eval Python}"; worker="$SCD_SD15_PY"; action=score; if [[ "$family" == sd35_medium ]]; then

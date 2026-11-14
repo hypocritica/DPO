@@ -189,9 +189,12 @@ class ZImageSelectedTest(unittest.TestCase):
         from self_correct_dpo.config import merge_config
         compact = read_json(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact.json')
         compact.pop('extends')
+        v2 = read_json(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact-v2.json')
+        v2.pop('extends')
+        compact = merge_config(compact, v2)
         self.fixture.config.write_text(json.dumps(merge_config(read_json(self.fixture.config), compact)))
         prepared = prepare_curve(self.fixture.args)
-        for panel in ('partiprompts', 'pickv2', 'geneval'):
+        for panel in ('partiprompts', 'pickv2', 'geneval', 'hpsv2'):
             Path(self.fixture.official[panel]).write_text(json.dumps({'scene_id': panel, 'variant_id': 'canonical',
                 'prompt': 'formal prompt', 'tag': 'formal', 'metadata': {'tag': 'formal', 'prompt': 'formal prompt'},
                 'suite_mode': 'canonical-only-v1', 'transform_type': 'canonical', 'template_family': 'canonical'}) + '\n')
@@ -207,7 +210,7 @@ class ZImageSelectedTest(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             plan(SimpleNamespace(selection=str(path), out=str(out), benchmarks=None, resources=None, dry_run=False))
         frozen = read_json(out / 'plan.json')
-        self.assertEqual(len(frozen['tasks']), 9)
+        self.assertEqual(len(frozen['tasks']), 12)
         for task in frozen['tasks']:
             self.assertEqual(task['sampling']['seeds'], [17, 29, 43, 71] if task['benchmark'] == 'geneval' else [17])
             self.assertEqual(task['sampling']['transformer_autocast_dtype'], 'bfloat16')

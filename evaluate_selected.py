@@ -21,6 +21,7 @@ def main(argv=None):
     init.add_argument('--config', default=str(ROOT / 'configs/evaluation-suite.json'))
     init.add_argument('--out', required=True)
     init.add_argument('--generation-batch-size', type=int, help='Frozen images per GPU forward (SD3.5 default 8; Z-Image default 1)')
+    init.add_argument('--cpu-offload', choices=('true', 'false'), default='false', help='Freeze model CPU offload for smaller GPUs; default false')
     for name in ('check', 'plan'):
         sub = commands.add_parser(name)
         sub.add_argument('--selection', required=True)

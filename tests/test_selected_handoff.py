@@ -216,3 +216,43 @@ class SelectedHandoffTest(unittest.TestCase):
         all_plan = read_json(Path(args.out) / 'plan.json')
         self.assertEqual(sum(t['images'] for t in all_plan['tasks']), 58050)
         self.assertEqual(len(selected.report_plan(all_plan, 'dpo-step-comparison')['tasks']), 6)
+
+    def test_v2_single_parti_hps_keeps_pick_two_geneval_four_and_cpu_offload(self):
+        from self_correct_dpo.config import merge_config, load_config
+        compact = load_config(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact-v2.json')
+        compact['benchmarks'] = self.fixture.official
+        compact['scorers_config'] = str(self.fixture.scorers)
+        self.fixture.config.write_text(json.dumps(merge_config(read_json(self.fixture.config), compact)))
+        for panel, count in (('partiprompts', 1632), ('pickv2', 487), ('geneval', 553), ('hpsv2', 3200)):
+            template = json.loads(Path(self.fixture.official[panel]).read_text())
+            Path(self.fixture.official[panel]).write_text(''.join(
+                json.dumps(dict(template, scene_id=f'{panel}-{i}')) + '\n' for i in range(count)))
+        original = selected.initialize(self.args)
+        args = SimpleNamespace(selection=str(self.path), out=str(self.fixture.root/'v2-core'),
+            benchmarks=['partiprompts', 'pickv2', 'geneval'], resources=None, dry_run=False)
+        with redirect_stdout(io.StringIO()):
+            selected.plan(args)
+        core = read_json(Path(args.out)/'plan.json')
+        self.assertEqual(sum(t['images'] for t in core['tasks']), 38544)
+        expected = {'partiprompts':[17], 'pickv2':[17,29], 'geneval':[17,29,43,71]}
+        for task in core['tasks']:
+            self.assertEqual(task['sampling']['seeds'], expected[task['benchmark']])
+            self.assertFalse(task['sampling']['cpu_offload'])
+            self.assertEqual(task['sampling']['generation_batch_size'], 8)
+        self.args.out = str(self.fixture.root/'selected-5090.json')
+        self.args.cpu_offload = 'true'
+        self.args.generation_batch_size = 1
+        offloaded = selected.initialize(self.args)
+        self.assertEqual(original['report_variants'], offloaded['report_variants'])
+        args.selection = self.args.out
+        args.out = str(self.fixture.root/'hps-only')
+        args.benchmarks = ['hpsv2']
+        with redirect_stdout(io.StringIO()):
+            selected.plan(args)
+        hps = read_json(Path(args.out)/'plan.json')
+        self.assertEqual(len(hps['tasks']), 8)
+        self.assertEqual(sum(t['images'] for t in hps['tasks']), 25600)
+        for task in hps['tasks']:
+            self.assertEqual(task['sampling']['seeds'], [17])
+            self.assertTrue(task['sampling']['cpu_offload'])
+            self.assertEqual(task['sampling']['generation_batch_size'], 1)

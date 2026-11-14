@@ -1,4 +1,13 @@
-## 精简评测与双H100串行入口（2026-11-15）
+## Parti/HPSv2单seed与四张5090（2026-11-15 后续更新）
+
+最新命令见 [SINGLE_SEED_FLOW_EVALUATION.md](docs/SINGLE_SEED_FLOW_EVALUATION.md)。
+Parti与HPSv2单seed17；SD3.5 PickV2仍双seed，Z-Image PickV2单seed，GenEval仍四seed。
+双H100原入口继续先恢复Z曲线，再运行SD3.5三面板38,544图，使用新compact-h100-v2目录。
+新增`bash scripts/run_hpsv2_5090.sh all`：独立4×5090，SD3.5八版本，HPSv2共25,600图，
+每卡batch1/CPU offload；PickScore、ImageReward、HPSv3评分与论文导出，原图和计时全部保留。
+脚本不申请资源、不安装下载，四卡命令使用独立checkout并行运行。
+
+## 精简评测与双H100串行入口（2026-11-15 初版，Parti双seed）
 
 最新范围与最终命令见 [COMPACT_H100_EVALUATION.md](docs/COMPACT_H100_EVALUATION.md)。
 `bash scripts/run_zimage_then_sd35_compact.sh`先恢复原batch4 Z-Image分段PickScore曲线，

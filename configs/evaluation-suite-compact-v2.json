@@ -1,0 +1,12 @@
+{
+  "extends": ["evaluation-suite-compact.json"],
+  "evaluation_profile": "compact-v2",
+  "selected_panels": ["partiprompts", "pickv2", "geneval", "hpsv2"],
+  "benchmark_seeds": {"partiprompts": [17], "hpsv2": [17], "geneval": [17, 29, 43, 71]},
+  "notes": [
+    "PartiPrompts and HPSv2 panels use seed17; SD3.5 PickV2 keeps seeds17/29, Z-Image PickV2 keeps seed17; GenEval keeps four seeds.",
+    "The H100 core job schedules Parti/PickV2/GenEval. A separate four-5090 job schedules HPSv2.",
+    "HPSv2 means the full 3200-prompt panel. Its core scorers remain PickScore, HPSv3 and ImageReward.",
+    "Use fresh v2 selections/output roots; existing v1 plans and images remain frozen."
+  ]
+}

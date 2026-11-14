@@ -1,6 +1,9 @@
 # Self Correct DPO
 
-最新精简方案：[双H100先Z-Image分段PickScore、再SD3.5M正式评测](docs/COMPACT_H100_EVALUATION.md)。
+最新：[Parti/HPSv2单seed与四张5090独立HPSv2评测](docs/SINGLE_SEED_FLOW_EVALUATION.md)。
+SD3.5的PickV2仍双seed、Z-Image单seed，GenEval四seed；原Z曲线续跑不变。
+
+初版精简方案：[双H100先Z-Image分段PickScore、再SD3.5M正式评测](docs/COMPACT_H100_EVALUATION.md)。
 Parti+PickV2+GenEval；SD3.5偏好双seed、Z-Image单seed、GenEval四seed，SD3.5 batch8。
 下文全量方案与旧曲线入口保留，精简正式评测使用独立配置和输出。
 

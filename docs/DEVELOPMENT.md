@@ -1,5 +1,19 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 后续：Parti/HPSv2单seed与四张5090
+
+新增compact-v2配置：Parti/HPSv2面板单seed17，SD3.5 PickV2仍17/29，Z-Image PickV2仍17，
+GenEval四seed不变。新H100默认目录compact-h100-v2，前三面板38,544图；旧v1配置和计划保留。
+新增run_hpsv2_5090入口：主表八版本、HPSv2完整3200prompt、25,600图，四个独立worker。
+默认batch1/CPU offload=true并冻结在独立selection中，支持原图索引、生成吞吐、三核心指标和论文导出。
+selected init增加显式cpu-offload选项，原入口默认false；两卡入口默认仍严格两卡，四卡入口显式声明四卡。
+renderer及BF16精确SHA兼容策略未修改，不影响旧Z曲线续跑。
+
+58项CPU检查通过，包括v1/v2实际面板图片数、单/双/四seed、5090 offload和H100常驻协议、
+相同checkpoint身份、四卡UUID传递、完整shell阶段顺序和生成失败停止评分，以及旧BF16恢复/正式suite回归。
+Bash语法与diff检查通过，未提交GPU作业或进行5090实测；模型、环境、显存和性能须远端核验。
+最终命令与独立checkout并行说明见SINGLE_SEED_FLOW_EVALUATION.md及command.md首节。
+
 ## 2026-11-15 精简正式评测与双H100串行流程
 
 新增独立evaluation-suite-compact配置：Parti+PickV2+GenEval；SD3.5偏好seed17/29，

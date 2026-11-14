@@ -1,5 +1,8 @@
 # 两张 H100：先恢复 Z-Image 分段 PickScore，再运行 SD3.5M 精简正式评测
 
+后续协议已更新为Parti单seed、PickV2不变、GenEval四seed，新增四张5090的HPSv2单seed任务。
+最新命令见[SINGLE_SEED_FLOW_EVALUATION.md](SINGLE_SEED_FLOW_EVALUATION.md)。本页保留初版v1规模作历史记录。
+
 本方案按2026-11-15确认的范围执行；只在平台已分配两张H100 80GB的容器中运行。
 脚本不申请资源、不安装依赖、不下载模型。先等待旧evaluation worker退出，再更新checkout。
 

@@ -8,6 +8,7 @@ export SCD_EVAL_PY="${SCD_EVAL_PY:-$SCD_FLOW_PY}"
 export SCD_RESOURCES="${SCD_RESOURCES:-$PWD/configs/resources.json}"
 export SCD_EVAL_GPUS="${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
 export SCD_Z_GPUS="$SCD_EVAL_GPUS"
+export SCD_SELECTED_GPU_COUNT=2
 export SCD_HPSV3_PY="${SCD_HPSV3_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python}"
 export SCD_GENEVAL_PY="${SCD_GENEVAL_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python}"
 for executable in "$SCD_EVAL_PY" "$SCD_FLOW_PY" "$SCD_SD15_PY"; do
@@ -39,7 +40,7 @@ done
 
 # New SD3.5 formal protocol: Base0 + seven methods1600, batch8, no offload.
 export SCD_SELECTED_FAMILY=sd35_medium
-export SCD_SELECTED_ROOT="${SCD_SD35_COMPACT_ROOT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v1}"
+export SCD_SELECTED_ROOT="${SCD_SD35_COMPACT_ROOT:-/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/compact-h100-v2}"
 export SCD_SELECTED_SELECTION="$SCD_SELECTED_ROOT/selection.json"
 export SCD_SELECTED_OUT="$SCD_SELECTED_ROOT/core"
 if [[ ! -f "$SCD_SELECTED_SELECTION" ]]; then
