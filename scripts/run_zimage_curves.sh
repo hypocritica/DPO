@@ -13,7 +13,8 @@ all: prepare -> plan -> generate -> index -> PickScore -> summarize.
 GPU/score failures stop all; rerun the same command to resume.
 Generate/score accept --methods base dpo stagewise_k4 and --steps N ... .
 Plan accepts --dry-run; generate/score accept --check-only.
-SCD_Z_GPUS overrides SCD_EVAL_GPUS/CUDA_VISIBLE_DEVICES (1, 2 or 4 GPUs).
+GPU selection is optional: SCD_Z_GPUS > SCD_EVAL_GPUS > CUDA_VISIBLE_DEVICES
+> 0,1, matching the existing two-GPU launcher. Supports 1, 2 or 4 GPUs.
 SCD_Z_CURVES/SCD_Z_PREP override AOSS outputs; SCD_Z_RUNS_ROOT,
 SCD_Z_DPO_RUN/SCD_Z_K4_RUN select exact runs. SCD_Z_BATCH defaults to 1.
 SCD_FLOW_PY generates; SCD_SD15_PY scores PickScore/plots; SCD_HPSV3_PY
@@ -30,16 +31,17 @@ fi
 out="${SCD_Z_CURVES:-/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b1-v1}"
 prepared="${SCD_Z_PREP:-${out}-prepared}"
 meta_py="${SCD_EVAL_PY:-${SCD_FLOW_PY:-python3}}"
-gpus="${SCD_Z_GPUS-${SCD_EVAL_GPUS-${CUDA_VISIBLE_DEVICES-}}}"
+# Match the user's working H100 launcher: unset/empty settings use two GPUs.
+gpus="${SCD_Z_GPUS:-${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-0,1}}}"
 if [[ "$stage" == generate || "$stage" == score || "$stage" == score-hpsv3 || "$stage" == all ]]; then
   IFS=',' read -r -a ids <<< "$gpus"
   if [[ ! ${#ids[@]} =~ ^(1|2|4)$ || "$gpus" =~ [[:space:]] || "$gpus" == *, ]]; then
-    echo 'Set 1, 2 or 4 distinct allocated GPU tokens in SCD_Z_GPUS' >&2; exit 2
+    echo "Invalid GPU list: '$gpus' (expected 1, 2 or 4 devices)" >&2; exit 2
   fi
   seen=','
   for id in "${ids[@]}"; do
     if [[ -z "$id" || "$id" == -1 || "$seen" == *",$id,"* ]]; then
-      echo 'Missing/disabled/duplicate GPU token; set SCD_Z_GPUS explicitly' >&2; exit 2
+      echo "Invalid GPU list: '$gpus' (empty, disabled or duplicate device)" >&2; exit 2
     fi
     seen+="$id,"
   done

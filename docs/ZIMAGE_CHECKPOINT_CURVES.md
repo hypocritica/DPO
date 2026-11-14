@@ -64,8 +64,8 @@ df -h /mnt/aoss/xietianyu
 
 **第三组：SLAI GPU任务的启动命令。** 使用两张已分配H800/H100 80GB；按平台正常方式提交，
 把下面填入任务启动脚本。不要在SSH登录节点执行GPU阶段。这里只安排Z-Image曲线，SDXL
-盘点/下载在另两个终端继续。平台未提供CUDA_VISIBLE_DEVICES时，显式设置SCD_Z_GPUS为
-实际分配设备编号；没有默认假定0,1。
+盘点/下载在另两个终端继续。GPU变量无需填写：优先使用已有SCD_Z_GPUS、SCD_EVAL_GPUS、
+CUDA_VISIBLE_DEVICES，未设置或为空时默认0,1，与已跑通的H100双卡脚本一致。
 
 ```bash
 set -euo pipefail
@@ -76,7 +76,6 @@ export SCD_EVAL_PY="$SCD_FLOW_PY"
 export SCD_RESOURCES="$PWD/configs/resources.json"
 export SCD_Z_CURVES=/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b1-v1
 export SCD_Z_PREP="${SCD_Z_CURVES}-prepared"
-export SCD_Z_GPUS="${SCD_Z_GPUS:-${CUDA_VISIBLE_DEVICES:?Set allocated GPU tokens}}"
 bash scripts/run_zimage_curves.sh all
 ```
 
@@ -127,11 +126,10 @@ PickV2 或正式测试集。准备了缺失面板后若要重新抽样，使用�
 
 ## 2. 两卡先生成、保存，再打分
 
-`SCD_EVAL_GPUS` 必须是平台已分配的真实 GPU token；已有 CUDA_VISIBLE_DEVICES 时直接继承。
-若平台未设置该变量，先根据容器实际分配显式设置 SCD_EVAL_GPUS，例如确为 0、1 时才填 0,1。
+下方底层CLI命令同样沿用原H100脚本的默认双卡逻辑；快捷脚本已内置，无需额外设置。
 
 ```bash
-export SCD_EVAL_GPUS="${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:?Set allocated GPU tokens}}"
+export SCD_EVAL_GPUS="${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-0,1}}"
 "$SCD_FLOW_PY" evaluate_curves.py generate \
   --out "$SCD_Z_CURVES" --gpus "$SCD_EVAL_GPUS" --python "$SCD_FLOW_PY"
 "$SCD_FLOW_PY" evaluate_suite.py index --out "$SCD_Z_CURVES"

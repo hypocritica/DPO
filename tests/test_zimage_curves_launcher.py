@@ -76,7 +76,7 @@ if sys.argv[2] == os.environ.get('FAIL_STAGE'):
         self.assertEqual(rows[0][-2:], ['--metric', 'hpsv3'])
 
     def test_invalid_gpu_allocation_and_all_options_fail_before_work(self):
-        for tokens in ('', '-1', '0,0', '0,', '0,,2,3', '0, 1', '0,1,2'):
+        for tokens in ('-1', '0,0', '0,', '0,,2,3', '0, 1', '0,1,2'):
             with self.subTest(tokens=tokens):
                 result, rows, _ = self.run_stage('generate', SCD_FLOW_PY='/flow/python', SCD_Z_GPUS=tokens)
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -84,9 +84,19 @@ if sys.argv[2] == os.environ.get('FAIL_STAGE'):
         result, rows, _ = self.run_stage('all', ['--dry-run'])
         self.assertEqual(result.returncode, 2)
         self.assertEqual(rows, [])
-        result, rows, _ = self.run_stage('generate', SCD_FLOW_PY='/flow/python', SCD_Z_GPUS='', CUDA_VISIBLE_DEVICES='0,1')
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(rows, [])
+
+    def test_optional_gpu_settings_match_working_two_gpu_launcher(self):
+        cases = [({}, '0,1'),
+                 ({'SCD_Z_GPUS': '', 'SCD_EVAL_GPUS': '', 'CUDA_VISIBLE_DEVICES': ''}, '0,1'),
+                 ({'CUDA_VISIBLE_DEVICES': 'GPU-c,GPU-d'}, 'GPU-c,GPU-d'),
+                 ({'SCD_Z_GPUS': '', 'SCD_EVAL_GPUS': '4,5', 'CUDA_VISIBLE_DEVICES': '0,1'}, '4,5')]
+        for variables, expected in cases:
+            with self.subTest(variables=variables):
+                result, rows, _ = self.run_stage('all', SCD_FLOW_PY='/flow/python', SCD_SD15_PY='FAKE', **variables)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for row in rows:
+                    if row[1] in ('generate', 'score'):
+                        self.assertEqual(row[row.index('--gpus') + 1], expected)
 
 
 if __name__ == '__main__':

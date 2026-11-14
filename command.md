@@ -5,7 +5,8 @@
 仅Z-Image的Base/DPO/Stagewise K4曲线使用已分配GPU任务。
 `bash scripts/run_zimage_curves.sh all`依次准备固定128prompt、规划、生成、索引、PickScore、绘图；
 生成失败/中断会停止，原命令重跑恢复。独立generate无需评分环境，score/score-hpsv3不重生PNG。
-SCD_Z_GPUS可单独指定设备，1/2/4卡；默认每卡batch1、cpu_offload=false，显存需远程验证。
+GPU变量可省略，按SCD_Z_GPUS → SCD_EVAL_GPUS → CUDA_VISIBLE_DEVICES → 0,1取首个非空值，
+与原H100双卡入口一致。支持1/2/4卡；默认每卡batch1、cpu_offload=false，显存需远程验证。
 盘点与下载不启动GPU；下载的modern资产供SD3.5M和Z-Image共用，不改既有PickScore/legacy环境。
 
 ## SD3.5M 1600步主表、DPO800额外对照（2026-11-14 已确认）

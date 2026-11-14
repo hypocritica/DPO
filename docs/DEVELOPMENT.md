@@ -1,5 +1,12 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-14 Z-Image默认双卡恢复
+
+按用户已跑通的H100命令调整GPU默认值：SCD_Z_GPUS、SCD_EVAL_GPUS、CUDA_VISIBLE_DEVICES
+依次取首个非空值，全部未设置或为空时默认0,1，启动命令不再要求额外配置GPU变量。
+7项launcher CPU测试通过，包含无变量/空变量时all完整执行、已有编号/UUID继承、生成和评分
+路由一致、失败/中断停止及非法显式配置拒绝。未改变冻结输入、采样或渲染身份；未跑GPU。
+
 ## 2026-11-14 Z-Image快捷任务与SSH准备分离
 
 新增run_zimage_curves.sh包装既有evaluate_curves：Base一次、DPO和Stagewise K4的全部已保留
