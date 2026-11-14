@@ -183,6 +183,8 @@ def make_plan(args):
             'config_sha256': sha256(args.config), 'panels': panels, 'tasks': tasks,
             'scorers_config': config['scorers_config'], 'compositional_config': str(comp.resolve()),
             'metric_groups': config['metric_groups'], 'all_scheduled_samples_required': True}
+    if getattr(args, 'report_selection', None) is not None:
+        plan['report_selection'] = copy.deepcopy(args.report_selection)
     plan['plan_id'] = digest(plan)
     if not args.dry_run:
         with output_lock(str(out) + '.plan'):

@@ -1,4 +1,4 @@
-"""SD3.5M checkpoint curves: fixed 128 development prompts, seed 17, PickScore."""
+"""SD3.5M / Z-Image checkpoint curves: fixed 128 development prompts and seed 17."""
 import argparse
 import json
 import os
@@ -14,6 +14,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     prepare = commands.add_parser('prepare', help='Freeze runs, permanent checkpoints and 128 validation prompts')
+    prepare.add_argument('--family', choices=('sd35_medium', 'zimage'), default='sd35_medium')
+    prepare.add_argument('--selection-metric', choices=('pickscore', 'hpsv3'), help='Fresh preparation defaults to PickScore; forks inherit the frozen metric')
     prepare.add_argument('--runs-root', nargs='+')
     prepare.add_argument('--catalog', help='Explicit reviewed catalog to resolve duplicate method candidates')
     prepare.add_argument('--run-glob', nargs='+')
@@ -22,7 +24,7 @@ def main(argv=None):
     prepare.add_argument('--cpu-offload', choices=('true', 'false'), help='Explicit sampling override for a new preparation')
     prepare.add_argument('--config', default=str(ROOT / 'configs/evaluation-suite.json'))
     prepare.add_argument('--target-steps', type=int, default=3200)
-    prepare.add_argument('--generation-batch-size', type=int, default=4)
+    prepare.add_argument('--generation-batch-size', type=int, default=None)
     prepare.add_argument('--exclude-prompts', nargs='+', action='extend', default=[])
     prepare.add_argument('--out', dest='prepare_dir', required=True)
     plan = commands.add_parser('plan', help='Create immutable generation/scoring plan')
@@ -42,12 +44,18 @@ def main(argv=None):
         p.add_argument('--steps', nargs='+', type=int)
     summary = commands.add_parser('summarize', help='Update points.csv/json and PNG/PDF curves, including pending points')
     summary.add_argument('--out', required=True)
+    summary.add_argument('--metric', choices=('pickscore', 'hpsv3'))
+    commands.choices['score'].add_argument('--metrics', nargs='+', choices=('pickscore', 'hpsv3'))
     args = parser.parse_args(argv)
     if getattr(args, 'resources', None):
         os.environ['SCD_RESOURCES'] = str(Path(args.resources).expanduser().resolve())
     if args.command == 'prepare':
         from self_correct_dpo.evaluation.curve_prepare import prepare_curve
         args.prompt_count, args.seed = 128, 17
+        if args.generation_batch_size is None:
+            args.generation_batch_size = 1 if args.family == 'zimage' else 4
+        if args.family == 'zimage' and args.cpu_offload is None:
+            args.cpu_offload = 'false'
         print(json.dumps(prepare_curve(args), ensure_ascii=False, indent=2))
         return 0
     from self_correct_dpo.evaluation import suite
@@ -57,9 +65,12 @@ def main(argv=None):
         directory = Path(args.prepared).expanduser().resolve()
         prepared = {'catalog': str(directory / 'catalog.json'), 'config': str(directory / 'suite.json'),
                     'prompts_root': str(directory / 'prompts')}
+        from self_correct_dpo.common import read_json
+        from self_correct_dpo.evaluation.curve_prepare import curve_methods
+        family = next(iter(read_json(directory / 'catalog.json')['models']))
         command = ['plan', '--catalog', prepared['catalog'], '--config', prepared['config'],
-                   '--prompts-root', prepared['prompts_root'], '--families', 'sd35_medium',
-                   '--methods', *METHODS, '--benchmarks', 'pickv2', '--seeds', '17', '--out', args.out]
+                   '--prompts-root', prepared['prompts_root'], '--families', family,
+                   '--methods', *curve_methods(family), '--benchmarks', 'pickv2', '--seeds', '17', '--out', args.out]
         if args.resources:
             command += ['--resources', args.resources]
         if args.dry_run:
@@ -67,7 +78,7 @@ def main(argv=None):
         return suite.main(command)
     if args.command == 'summarize':
         from self_correct_dpo.evaluation.curves import summarize_curves
-        result = summarize_curves(args.out)
+        result = summarize_curves(args.out, metric=args.metric)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result['complete'] else 1
     # The existing scheduler splits checkpoints across one process per allocated
@@ -87,7 +98,10 @@ def main(argv=None):
         if getattr(args, name):
             command += ['--' + name, *map(str, getattr(args, name))]
     if args.command == 'score':
-        command += ['--metrics', 'pickscore']
+        frozen = plan['metric_groups']['modern']
+        if plan['tasks'][0]['family'] == 'sd35_medium' and args.metrics not in (None, ['pickscore']):
+            raise ValueError('SD3.5 checkpoint curves require only PickScore')
+        command += ['--metrics', *(args.metrics or frozen)]
     return suite.main(command)
 
 

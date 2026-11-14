@@ -1,3 +1,42 @@
+## SD3.5M / Z-Image H800 与 SDXL 三组四卡评测（2026-11-14）
+
+本轮先保留选点与正式评测的边界，所有输出位于 AOSS；生成和评分是独立命令。
+没有提交 GPU 任务或下载模型，现有 Flow / eval 环境可继续复用。
+
+| 工作 | 入口与完整命令 | 还需填写 |
+|---|---|---|
+| SD3.5M 八方法正式评测 | [H800_SELECTED_EVALUATION.md](docs/H800_SELECTED_EVALUATION.md) | 七个训练方法各一个 selected_step |
+| Z-Image Base / DPO / Stagewise K4 的128图曲线 | [ZIMAGE_CHECKPOINT_CURVES.md](docs/ZIMAGE_CHECKPOINT_CURVES.md) | 核实当前两个 run 路径，先用 PickScore |
+| Z-Image 三行正式表 | 同上曲线后继承 prepared，再按 H800 文档运行 Parti + GenEval | DPO、K4 各一个 selected_step |
+| SDXL 三组各4×5090，分别跑三个偏好面板 | [SDXL_FORMAL_EVALUATION.md](docs/SDXL_FORMAL_EVALUATION.md) | 审阅当前 catalog，明确方法与 steps |
+
+在独立 evaluation checkout 内，停止该 checkout 当前进程后更新；运行中的训练继续使用原代码。
+
+```bash
+git pull --ff-only origin feat/unified-evaluation-slai-20261111
+git log -1 --oneline
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+
+# 此步骤只建立待填选择表，不生成图片、不读取评分模型。
+export SCD_SELECTED_FAMILY=sd35_medium
+export SCD_SELECTED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/formal-h800-v1
+export SCD_SELECTED_SELECTION="$SCD_SELECTED_ROOT/selection.json"
+bash scripts/run_h800_selected.sh init --from-prepared \
+  /mnt/aoss/xietianyu/self_correct/evaluations/sd35_medium/curves-h100-b8-v1-prepared
+```
+
+SD3.5M 正式配置继续使用每 prompt 四个 seeds；仅 Parti 八方法已有52,224图，完整五面板
+221,984图，所以入口不会默认串行启动全部五面板。先看128图开发曲线、明确步数，再分阶段。
+Z-Image 的额外 PickScore / ImageReward 复用 Parti 图片；正式 Parti + GenEval 三方法11,532图。
+新增 export_zimage_table.py 可将两个面板核验后合成三行五指标表，保留原始分数尺度和来源。
+SDXL 每个已选模型版本三个面板5,319图，三组各四卡可以同时生成不同面板，稍后单独评分。
+
+以下旧H100试跑记录中的batch16/32后来在SD3.5M的VAE阶段发生OOM；新H800正式入口使用
+batch8、cpu_offload=false，Z-Image使用batch1、cpu_offload=false。这些是待远程验证的候选，
+不会改变旧冻结计划或自动把失败batch降级后混入同一结果。
+
 ## SD1.5 H100独立batch试跑（2026-11-13）
 
 SD1.5 renderer本来就走pipe.to(cuda)，不启用CPU offload、attention slicing或VAE slicing。

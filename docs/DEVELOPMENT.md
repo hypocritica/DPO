@@ -1,5 +1,26 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-14 选定 checkpoint、Z-Image 曲线和 SDXL 分组评测
+
+新增 evaluate_selected.py：SD3.5M 八方法与 Z-Image 三方法从冻结曲线导入精确 run、
+永久快照与选点来源，selected_step 留空，人工填写后才能正式计划；首次发布选择封存，
+后续各面板不能换步数。report_selection 随 plan 和论文导出保留训练数据身份、预算和
+开发面板独立性限制，不把相同 pair-view 预算写成相同图片对曝光。
+
+evaluate_curves.py 扩展 Z-Image Base/DPO/Stagewise K4 的固定128图开发曲线；默认PickScore，
+HPSv3 可事先指定为选点指标或事后作为辅助评分，同一PNG复用、图表分目录。既有SD3.5
+默认准备身份和PickScore输出保持兼容。renderer、评分器实现和旧H100入口未改动。
+
+run_h800_selected.sh 分离生成、各环境评分、图片索引和论文导出；Z-Image 两正式面板可
+用 export_zimage_table.py 核验后合为三行五指标。run_sdxl_formal.sh 支持三组各4×5090
+分别生成Parti/PickV2/HPSv2，共享冻结catalog和协议，面板产物独立，稍后再评分。
+所有运行产物在AOSS；不提交资源、不隐式安装下载、不自动选择checkpoint或降低batch。
+
+88项CPU检查通过，包括新选择封存/输入漂移、Z曲线与辅助指标、真实三进程并发规划、
+GPU token转发、生成/评分分离及既有SD35/SD15恢复、索引和论文导出回归。Python/Bash
+语法与diff检查通过。未执行H800/5090推理、安装环境或下载权重；默认SD35 batch8、
+ZImage batch1、SDXL batch4的显存及吞吐须远程验证。完整命令从command.md首节进入。
+
 ## 2026-11-13 SD1.5 batch试跑
 
 确认SD1.5使用整套GPU常驻，未启用offload/attention或VAE slicing；保留原render源码与
