@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_h800_selected.sh'
 
@@ -63,3 +64,24 @@ class H800LauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(rows[0][rows[0].index('--gpus')+1], '5,6')
         self.assertEqual(len(rows), 1)
+
+    def test_compact_initialization_and_core_scorer_sequence(self):
+        compact_script = SCRIPT.with_name('run_compact_evaluation.sh')
+        with patch(__name__ + '.SCRIPT', compact_script):
+            result, rows = self.run_stage('init')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('configs/evaluation-suite-compact.json', rows[0])
+            result, rows = self.run_stage('score', SCD_EVAL_GPUS='0,1',
+                SCD_SD15_PY='/legacy/python', SCD_HPSV3_PY='/hpsv3/python', SCD_GENEVAL_PY='/geneval/python')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(rows[0][-6:], ['--metrics', 'pickscore', 'image_reward', '--benchmarks', 'partiprompts', 'pickv2'])
+            self.assertIn('hpsv3', rows[1])
+            self.assertIn('geneval', rows[2])
+            self.assertNotIn('unifiedreward', ' '.join(' '.join(row) for row in rows))
+
+    def test_compact_optional_judge_uses_only_three_methods_and_parti(self):
+        with patch(__name__ + '.SCRIPT', SCRIPT.with_name('run_compact_evaluation.sh')):
+            result, rows = self.run_stage('score-unifiedreward', SCD_EVAL_GPUS='2,3', SCD_UNIFIEDREWARD_PY='/judge/python')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(rows[0][-6:], ['--methods', 'base', 'dpo', 'stagewise_k4', '--benchmarks', 'partiprompts'])

@@ -172,3 +172,47 @@ class SelectedHandoffTest(unittest.TestCase):
         self.assertFalse(gaps)
         self.assertTrue(all(e['steps'] == [1600] for e in catalog['experiments']))
         self.assertNotIn('extras', selection)
+
+    def test_compact_main_panels_seed_counts_and_optional_dpo800(self):
+        from self_correct_dpo.config import merge_config
+        compact = read_json(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact.json')
+        compact.pop('extends')
+        config = merge_config(read_json(self.fixture.config), compact)
+        self.fixture.config.write_text(json.dumps(config))
+        for panel, count in (('partiprompts', 1632), ('pickv2', 487), ('geneval', 553)):
+            template = json.loads(Path(self.fixture.official[panel]).read_text())
+            Path(self.fixture.official[panel]).write_text(''.join(
+                json.dumps(dict(template, scene_id=f'{panel}-{i}', prompt=f'{panel} prompt {i}',
+                                metadata=dict(template['metadata'], prompt=f'{panel} prompt {i}'))) + '\n'
+                for i in range(count)))
+        selection = selected.initialize(self.args)
+        self.assertEqual(selection['suite']['metric_groups']['modern'], ['pickscore', 'hpsv3', 'image_reward'])
+        # Removed panels need not exist even though retained in the old full config.
+        for panel in ('dpg', 'hpsv2'):
+            Path(self.fixture.official[panel]).unlink()
+        out = self.fixture.root / 'compact'
+        args = SimpleNamespace(selection=str(self.path), out=str(out), benchmarks=None, resources=None, dry_run=False)
+        with redirect_stdout(io.StringIO()):
+            selected.plan(args)
+        frozen = read_json(out / 'plan.json')
+        self.assertEqual(len(frozen['tasks']), 24)
+        self.assertEqual(sum(t['images'] for t in frozen['tasks']), 51600)
+        self.assertNotIn(800, {t['step'] for t in frozen['tasks']})
+        self.assertEqual(len(selected.report_plan(frozen, 'main')['tasks']), 24)
+        export_args = SimpleNamespace(out=str(out), report='main', paper_name='compact-draft', comparison_name='unused',
+            benchmarks=None, metrics=None, metric_group=None, allow_incomplete=True)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(selected.export(export_args), 1)
+        rows = read_json(out / 'paper/compact-draft/results.json')['rows']
+        self.assertEqual(len(rows), 56)
+        self.assertEqual({r['metric'] for r in rows}, {'pickscore', 'hpsv3', 'image_reward', 'geneval'})
+        for task in frozen['tasks']:
+            self.assertEqual(task['sampling']['seeds'], [17, 29, 43, 71] if task['benchmark'] == 'geneval' else [17, 29])
+            self.assertEqual(task['sampling']['generation_batch_size'], 8)
+        args.out = str(self.fixture.root / 'with-extra')
+        args.report = 'all'
+        with redirect_stdout(io.StringIO()):
+            selected.plan(args)
+        all_plan = read_json(Path(args.out) / 'plan.json')
+        self.assertEqual(sum(t['images'] for t in all_plan['tasks']), 58050)
+        self.assertEqual(len(selected.report_plan(all_plan, 'dpo-step-comparison')['tasks']), 6)

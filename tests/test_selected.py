@@ -184,3 +184,30 @@ class ZImageSelectedTest(unittest.TestCase):
         metadata_path.write_text(json.dumps(metadata))
         with self.assertRaisesRegex(ValueError, 'dataset identities differ'):
             initialize(args)
+
+    def test_compact_zimage_includes_pickv2_with_one_seed_and_geneval_four(self):
+        from self_correct_dpo.config import merge_config
+        compact = read_json(Path(__file__).resolve().parents[1] / 'configs/evaluation-suite-compact.json')
+        compact.pop('extends')
+        self.fixture.config.write_text(json.dumps(merge_config(read_json(self.fixture.config), compact)))
+        prepared = prepare_curve(self.fixture.args)
+        for panel in ('partiprompts', 'pickv2', 'geneval'):
+            Path(self.fixture.official[panel]).write_text(json.dumps({'scene_id': panel, 'variant_id': 'canonical',
+                'prompt': 'formal prompt', 'tag': 'formal', 'metadata': {'tag': 'formal', 'prompt': 'formal prompt'},
+                'suite_mode': 'canonical-only-v1', 'transform_type': 'canonical', 'template_family': 'canonical'}) + '\n')
+        path = self.fixture.root / 'compact-z.json'
+        args = SimpleNamespace(family='zimage', from_prepared=prepared['prepare_dir'], catalog=None, runs_root=None,
+            config=str(self.fixture.config), resources=None, out=str(path), generation_batch_size=None)
+        selection = initialize(args)
+        self.assertEqual(selection['suite']['metric_groups']['modern'], ['pickscore', 'hpsv3', 'image_reward'])
+        for choice in selection['choices']:
+            choice['selected_step'] = 1000
+        path.write_text(json.dumps(selection))
+        out = self.fixture.root / 'compact-z-out'
+        with redirect_stdout(io.StringIO()):
+            plan(SimpleNamespace(selection=str(path), out=str(out), benchmarks=None, resources=None, dry_run=False))
+        frozen = read_json(out / 'plan.json')
+        self.assertEqual(len(frozen['tasks']), 9)
+        for task in frozen['tasks']:
+            self.assertEqual(task['sampling']['seeds'], [17, 29, 43, 71] if task['benchmark'] == 'geneval' else [17])
+            self.assertEqual(task['sampling']['transformer_autocast_dtype'], 'bfloat16')

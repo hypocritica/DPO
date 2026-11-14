@@ -1,5 +1,9 @@
 # Self Correct DPO
 
+最新精简方案：[双H100先Z-Image分段PickScore、再SD3.5M正式评测](docs/COMPACT_H100_EVALUATION.md)。
+Parti+PickV2+GenEval；SD3.5偏好双seed、Z-Image单seed、GenEval四seed，SD3.5 batch8。
+下文全量方案与旧曲线入口保留，精简正式评测使用独立配置和输出。
+
 当前 SLAI 操作入口：**[SD1.5 正式评测与 SD3.5M 曲线两条工作流](docs/SLAI_TWO_TRACK_EVALUATION.md)**。
 四卡每卡生图 batch 分别为32和4；先生成再评分，全部图片与结果保存在 AOSS。
 SD1.5固定11个版本、三套偏好面板、原五指标；SD3.5M八方法每checkpoint固定128图、仅PickScore。

@@ -161,7 +161,7 @@ def initialize(args):
             raise ValueError('Z-Image DPO/StagewiseK4 training dataset identities differ')
         provenance['dataset_comparability'] = ('matching recorded metadata; content independence not established' if known
                                                else 'unknown: training dataset identity missing; fairness not established')
-    config = load_config(args.config, benchmarks=list(PANELS[family]), resources=args.resources)
+    config = load_config(args.config, resources=args.resources)
     # Resolve config-relative scorer/source paths before embedding the config.
     for key in ('scorers_config', 'compositional_config'):
         if config.get(key) and not Path(config[key]).is_absolute():
@@ -170,7 +170,8 @@ def initialize(args):
     config['protocols'][family]['generation_batch_size'] = ((8 if family == 'sd35_medium' else 1) if args.generation_batch_size is None else args.generation_batch_size)
     if family == 'zimage':
         config['protocols'][family]['seeds'] = [17]
-        config['metric_groups']['modern'] = ['hpsv3', 'unifiedreward', 'pickscore', 'image_reward']
+        if config.get('evaluation_profile') != 'compact-v1':
+            config['metric_groups']['modern'] = ['hpsv3', 'unifiedreward', 'pickscore', 'image_reward']
     if config['protocols'][family]['generation_batch_size'] < 1:
         raise ValueError('Generation batch size must be positive')
     provenance['training_data'] = training_data
@@ -257,9 +258,16 @@ def plan(args):
     if gaps:
         raise ValueError('; '.join(gaps))
     family = selection['family']
-    panels = args.benchmarks or list(PANELS[family])
-    if not panels or set(panels) - set(PANELS[family]):
+    allowed_panels = selection['suite'].get('selected_panels', list(PANELS[family]))
+    panels = args.benchmarks or allowed_panels
+    if not panels or len(set(panels)) != len(panels) or set(panels) - set(allowed_panels):
         raise ValueError('Benchmark subset is outside the frozen family protocol')
+    report = getattr(args, 'report', None) or selection['suite'].get('selected_report', 'all')
+    if report == 'main' and selection.get('report_variants'):
+        main_ids = set(selection['reports']['main'])
+        variants = [v for v in selection['report_variants'] if v['selection_id'] in main_ids]
+        for entry in catalog['experiments']:
+            entry['steps'] = [v['step'] for v in variants if v['experiment_id'] == entry['id'] and v['step']]
     out = Path(args.out).expanduser().resolve()
     if getattr(args, 'dry_run', False):
         import tempfile

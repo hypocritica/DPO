@@ -1,3 +1,13 @@
+## 精简评测与双H100串行入口（2026-11-15）
+
+最新范围与最终命令见 [COMPACT_H100_EVALUATION.md](docs/COMPACT_H100_EVALUATION.md)。
+`bash scripts/run_zimage_then_sd35_compact.sh`先恢复原batch4 Z-Image分段PickScore曲线，
+保留旧图、缺失图用BF16；再以batch8运行SD3.5主表八版本的Parti+PickV2+GenEval。
+SD3.5前两面板seed17/29，Z-Image正式前两面板seed17，GenEval保留四seed。
+核心评分为PickScore/HPSv3/ImageReward与GenEval；UnifiedReward仅可选关键三方法Parti。
+新配置`configs/evaluation-suite-compact.json`与新compact输出保护历史全量计划。
+脚本不提交GPU、不安装下载；HPSv3/GenEval环境须已准备。Z-Image正式选点后单独推进。
+
 ## Z-Image评估默认BF16计算（2026-11-15）
 
 Z-Image renderer默认只在Transformer forward内启用BF16 autocast，包含Base和PEFT模型；

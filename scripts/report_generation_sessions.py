@@ -20,7 +20,10 @@ def main():
         images = record.get('generation_images_computed', 0)
         forward = record.get('generation_forward_seconds', 0)
         print(json.dumps({'method': task['method'], 'step': task['step'],
+            'benchmark': task['benchmark'],
             'generation_batch_size': task['sampling'].get('generation_batch_size', 1),
+            'transformer_autocast_dtype': record.get('effective_sampling', {}).get('transformer_autocast_dtype', 'none'),
+            'images_at_start': record.get('images_at_start'), 'images_at_end': record.get('images_at_end'),
             'images_computed': images, 'batches': record.get('generation_batches'),
             'forward_seconds': forward, 'session_seconds': record['elapsed_seconds'],
             'forward_images_per_second': images / forward if forward else None,

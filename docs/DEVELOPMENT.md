@@ -1,5 +1,21 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-15 精简正式评测与双H100串行流程
+
+新增独立evaluation-suite-compact配置：Parti+PickV2+GenEval；SD3.5偏好seed17/29，
+Z-Image偏好seed17，GenEval保持四seed。核心偏好指标为PickScore/HPSv3/ImageReward，
+UnifiedReward作为关键三方法Parti的可选补充。旧full配置与renderer不改。
+selected plan支持main/all范围；compact默认仅主表八版本，交接DPO800仍保留可单独规划。
+SD3.5主表三面板51,600图，Z-Image三方法12,993图，完整prompt集不抽样。
+
+run_zimage_then_sd35_compact先恢复用户原batch4曲线与PickScore，再以batch8运行SD3.5；
+任一阶段失败停止，已完成图片与导出复用。仅既有Z-Image流程使用上一版批准的BF16恢复策略，
+未改renderer/common/padding或精确SHA白名单。独立compact输出不会接管旧全量计划。
+55项CPU检查通过：主表/补充对照分离、完整面板图片量、核心表导出、Z-Image seed与BF16协议、
+shell顺序与失败停止、重跑跳过init/已有导出、缺正式评分环境仍完成Z曲线、旧曲线/全量suite回归。
+另通过Bash语法和diff空白检查。未运行远端H100生成/评分、未下载模型或安装环境；吞吐仍需远端日志。
+最终命令、环境路径、输出和有条件时间预算见COMPACT_H100_EVALUATION.md及command.md首节。
+
 ## 2026-11-15 Z-Image评估默认BF16 autocast
 
 仅Z-Image评估的Transformer forward默认启用BF16 autocast，在PEFT加载后包装，

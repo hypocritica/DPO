@@ -28,6 +28,7 @@ def main(argv=None):
             sub.add_argument('--out', required=True)
             sub.add_argument('--dry-run', action='store_true')
             sub.add_argument('--benchmarks', nargs='+')
+            sub.add_argument('--report', choices=('main', 'all'), help='Checkpoint scope; compact defaults to main, original protocol to all')
     for sub in (init, *[commands.choices[k] for k in ('check', 'plan')]):
         sub.add_argument('--resources')
     export = commands.add_parser('export', help='Export fixed main/comparison rows from frozen plan only')

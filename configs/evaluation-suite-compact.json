@@ -1,0 +1,20 @@
+{
+  "extends": ["evaluation-suite.json"],
+  "evaluation_profile": "compact-v1",
+  "selected_panels": ["partiprompts", "pickv2", "geneval"],
+  "selected_report": "main",
+  "protocols": {
+    "sd35_medium": {"seeds": [17, 29], "generation_batch_size": 8, "cpu_offload": false},
+    "zimage": {"seeds": [17], "generation_batch_size": 1, "cpu_offload": false,
+               "transformer_autocast_dtype": "bfloat16"}
+  },
+  "benchmark_seeds": {"geneval": [17, 29, 43, 71]},
+  "metric_groups": {"modern": ["pickscore", "hpsv3", "image_reward"]},
+  "notes": [
+    "Compact main comparison: full PartiPrompts and Pick-a-Pic v2 prompt panels plus full four-sample GenEval.",
+    "SD3.5 uses two preference seeds; Z-Image uses one. These are inference seeds, not independent training runs.",
+    "DPO800 remains in the confirmed selection but is omitted from default main plans; plan --report all includes it.",
+    "UnifiedReward is optional on Base/DPO/StagewiseK4 Parti images; it is not required for core table completion.",
+    "No HPSv2 or DPG panel is scheduled by this profile. Existing full plans and development curves remain frozen."
+  ]
+}
