@@ -30,6 +30,12 @@ class H800LauncherTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(rows[0][:2], ['evaluate_selected.py', stage])
 
+    def test_paper_uses_fixed_report_selection_without_gpu(self):
+        result, rows = self.run_stage('paper', ['--report', 'all'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(rows[0][:2], ['evaluate_selected.py', 'export'])
+        self.assertEqual(rows[0][-2:], ['--report', 'all'])
+
     def test_generation_preserves_allocated_uuid_and_indexes_before_scoring(self):
         result, rows = self.run_stage('generate', SCD_FLOW_PY='/existing/flow/python', CUDA_VISIBLE_DEVICES='GPU-abc,GPU-def')
         self.assertEqual(result.returncode, 0, result.stderr)

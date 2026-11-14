@@ -1,4 +1,4 @@
-"""One manually selected permanent checkpoint per method, sharing suite execution."""
+"""Fixed permanent checkpoint selections and report roles, sharing suite execution."""
 import copy
 from pathlib import Path
 
@@ -16,12 +16,74 @@ PANELS = {'sd35_medium': suite.PANELS, 'zimage': ('partiprompts', 'geneval')}
 
 
 def identity(selection):
-    """Only selected_step is editable after importing training identities."""
+    """Manual steps remain editable; confirmed handoff selections are immutable."""
     result = copy.deepcopy(selection)
     result.pop('identity_sha256', None)
-    for entry in result['choices']:
-        entry.pop('selected_step', None)
+    if 'handoff' not in result:
+        for entry in result['choices']:
+            entry.pop('selected_step', None)
     return digest(result)
+
+def _apply_handoff(selection, records, path, prepared):
+    """Resolve the confirmed nine SD3.5 rows against the actual curve catalog."""
+    from self_correct_dpo.evaluation.checkpoint_catalog import resolve_checkpoint
+    if selection['family'] != 'sd35_medium' or not prepared:
+        raise ValueError('--handoff requires SD3.5 --from-prepared')
+    path = Path(path).expanduser().resolve()
+    handoff = read_json(path)
+    if handoff.get('schema') != 'sd35_evaluation_selection_handoff_v1' or handoff.get('family') != 'sd35_medium':
+        raise ValueError('Unsupported SD3.5 handoff schema/family')
+    variants = handoff.get('variants', [])
+    expected = {(method, 0 if method == 'base' else 1600, 'main') for method in METHODS['sd35_medium']}
+    expected.add(('dpo', 800, 'development_selected_baseline'))
+    if len(variants) != 9 or {(v['method'], v['step'], v['report_role']) for v in variants} != expected:
+        raise ValueError('Handoff must contain eight main variants at Base0/trained1600 and extra DPO800')
+    ids = [v['selection_id'] for v in variants]
+    if len(set(ids)) != 9:
+        raise ValueError('Handoff selection IDs must be unique')
+    main_ids = {v['selection_id'] for v in variants if v['report_role'] == 'main'}
+    dpo_ids = {v['selection_id'] for v in variants if v['method'] == 'dpo'}
+    if set(handoff.get('main_selection_ids', [])) != main_ids or set(handoff.get('dpo_step_comparison_ids', [])) != dpo_ids:
+        raise ValueError('Handoff explicit report selection IDs disagree with variant roles')
+    by_method = {r['method']: r for r in records}
+    for key, value in handoff['model'].items():
+        if by_method['base']['model'].get(key) != value:
+            raise ValueError(f'Handoff Base model identity differs: {key}')
+    resolved = []
+    for source in variants:
+        variant = copy.deepcopy(source)
+        run = by_method[variant['method']]
+        step = variant['step']
+        if step:
+            if step not in run.get('selected_steps', run['steps']):
+                raise ValueError(f'Curve catalog does not retain exact {variant["method"]} step {step}')
+            checkpoint = next(c for c in run['checkpoints'] if c['step'] == step)
+            observed = {'run_path': run['path'], 'run_name': Path(run['path']).name, 'run_id': run['run_id'],
+                        'checkpoint_path': checkpoint['path'], 'adapter_path': str(Path(checkpoint['path']) / 'adapter'),
+                        'checkpoint_id': checkpoint['checkpoint_id']}
+            for key, value in observed.items():
+                if variant['method'] != 'sft' and source.get(key) != value:
+                    raise ValueError(f'Handoff historical identity mismatch: {variant["selection_id"]} {key}')
+                if variant['method'] == 'sft' and source.get(key) is not None and source[key] != value:
+                    raise ValueError(f'Handoff SFT identity mismatch: {key}')
+            # Checks registered payload hashes, without importing/loading tensors.
+            resolve_checkpoint(run['path'], step)
+            variant.update(observed)
+        variant.update(experiment_id=run['experiment_id'], curve_experiment_id=run['experiment_id'],
+                       historical_experiment_id=source.get('experiment_id'),
+                       resolution='unique actual curve catalog SFT' if variant['method'] == 'sft' else 'historical identity verified against actual curve catalog')
+        resolved.append(variant)
+    for choice in selection['choices']:
+        choice['selected_step'] = 1600
+    dpo = next(c for c in selection['choices'] if c['method'] == 'dpo')
+    selection['extras'] = [{'method': 'dpo', 'experiment_id': dpo['experiment_id'], 'selected_step': 800,
+                            'label': 'DPO (development-selected)'}]
+    selection['report_variants'] = resolved
+    selection['reports'] = {'main': handoff['main_selection_ids'], 'dpo-step-comparison': handoff['dpo_step_comparison_ids'], 'all': ids}
+    companions = [path, *[path.parent / name for name in ('SD35_EVALUATION_HANDOFF.txt', 'checkpoints.csv') if (path.parent / name).is_file()]]
+    selection['handoff'] = {'path': str(path), 'sha256': sha256(path), 'document': handoff,
+                            'source_files': {str(source): sha256(source) for source in companions},
+                            'sampling_note': 'sampling_reference is provenance; execution sampling is frozen in suite.protocols.sd35_medium.'}
 
 
 def initialize(args):
@@ -114,6 +176,9 @@ def initialize(args):
     provenance['training_data'] = training_data
     result = {'version': 1, 'family': family, 'methods': list(METHODS[family]), 'choices': choices,
               'catalog': frozen, 'suite': config, 'provenance': provenance}
+    if getattr(args, 'handoff', None):
+        _apply_handoff(result, records, args.handoff, args.from_prepared)
+        provenance['selection_policy'] = 'Confirmed common 1600-update main comparison plus separately reported development-selected DPO800; no formal-score ranking.'
     result['identity_sha256'] = identity(result)
     path = Path(args.out).expanduser().resolve()
     if path.exists():
@@ -127,7 +192,7 @@ def check(path, resources=None):
     if selection.get('version') != 1 or selection.get('family') not in METHODS:
         raise ValueError('Unsupported selected checkpoint file')
     if selection.get('identity_sha256') != identity(selection):
-        raise ValueError('Imported identities/protocol changed; edit only selected_step or initialize a fresh selection')
+        raise ValueError('Imported identities/protocol changed; confirmed handoff steps are fixed; initialize a fresh selection')
     seal = Path(str(Path(path).resolve()) + '.frozen.json')
     if seal.exists() and read_json(seal) != selection:
         raise ValueError('Selected steps already frozen by a formal plan; copy to a new selection file and use a new output root')
@@ -142,6 +207,13 @@ def check(path, resources=None):
             gaps.append(f"{choice['method']}: select exactly one available positive integer step")
         else:
             entry['steps'] = [step]
+    for extra in selection.get('extras', []):
+        choice = next(c for c in selection['choices'] if c['method'] == extra['method'])
+        entry = next(e for e in catalog['experiments'] if e['id'] == choice['experiment_id'])
+        step = extra['selected_step']
+        if type(step) is not int or step not in choice['available_steps'] or step in entry['steps']:
+            raise ValueError('Extra checkpoint must be a distinct retained exact step')
+        entry['steps'].append(step)
     if gaps:
         return selection, catalog, gaps
     # Recheck exact permanent checkpoints, current training identity and adapter manifest.
@@ -155,11 +227,12 @@ def check(path, resources=None):
         run = by_method[choice['method']]
         if run['training_sha256'] != choice['training_sha256'] or run['path'] != choice['run_path']:
             raise ValueError(f"Training identity changed: {choice['method']}")
-        step = choice['selected_step']
-        original = next(c for c in choice['checkpoints'] if c['step'] == step)
-        current = next(c for c in run['checkpoints'] if c['step'] == step)
-        if current != original:
-            raise ValueError(f"Retained checkpoint identity changed: {choice['method']} step {step}")
+        steps = [choice['selected_step'], *[e['selected_step'] for e in selection.get('extras', []) if e['method'] == choice['method']]]
+        for step in steps:
+            original = next(c for c in choice['checkpoints'] if c['step'] == step)
+            current = next(c for c in run['checkpoints'] if c['step'] == step)
+            if current != original:
+                raise ValueError(f"Retained checkpoint identity changed: {choice['method']} step {step}")
     return selection, catalog, []
 
 
@@ -230,3 +303,57 @@ def plan(args):
                               'selection_sha256': sha256(inputs / 'selection.json'), 'benchmarks': panels,
                               'plan_id': read_json(out / 'plan.json')['plan_id']})
         return result
+
+
+def report_plan(plan, report):
+    """Select explicit frozen variant identities; never rank by formal scores."""
+    result = copy.deepcopy(plan)
+    selection = plan.get('report_selection', {}).get('selection', {})
+    if selection and (selection.get('identity_sha256') != identity(selection)
+                      or plan['report_selection'].get('selection_id') != digest(selection)):
+        raise ValueError('Frozen report selection identity mismatch')
+    variants = selection.get('report_variants')
+    if not variants:
+        if report != 'main':
+            raise ValueError('DPO step comparison requires a confirmed handoff with explicit report variants')
+        return result
+    ids = selection['reports'][report]
+    by_id = {variant['selection_id']: variant for variant in variants}
+    if len(set(ids)) != len(ids) or set(ids) - by_id.keys():
+        raise ValueError('Frozen report selection IDs are missing or duplicated')
+    tasks = []
+    for selection_id in ids:
+        variant = by_id[selection_id]
+        matched = [t for t in result['tasks'] if t['experiment_id'] == variant['experiment_id']
+                   and t['family'] == variant['family'] and t['method'] == variant['method']
+                   and t['step'] == variant['step']]
+        if len(matched) != len(plan['panels']) or {t['benchmark'] for t in matched} != set(plan['panels']):
+            raise ValueError(f'Frozen report variant does not uniquely match every planned panel: {selection_id}')
+        for task in matched:
+            if task['step'] and (task['checkpoint']['checkpoint_id'] != variant['checkpoint_id']
+                                 or task['checkpoint']['run_id'] != variant['run_id']
+                                 or task['run_path'] != variant['run_path']):
+                raise ValueError(f'Frozen report variant checkpoint mismatch: {selection_id}')
+            task['method_label'] = variant['label']
+        tasks.extend(matched)
+    result['tasks'] = tasks
+    result['report_selection']['active_report'] = {'name': report, 'selection_ids': ids,
+                                                  'task_ids': [t['task_id'] for t in tasks]}
+    return result
+
+
+def export(args):
+    import json
+    from self_correct_dpo.evaluation.paper import export_paper
+    plan, out = suite.read_plan(args.out)
+    reports = ('main', 'dpo-step-comparison') if args.report == 'all' else (args.report,)
+    results = []
+    # Resolve all requested report filters before publishing either export.
+    views = [(report, report_plan(plan, report)) for report in reports]
+    for report, view in views:
+        options = copy.copy(args)
+        options.families = options.methods = options.run_glob = options.steps = None
+        options.paper_name = args.comparison_name if report == 'dpo-step-comparison' and args.report == 'all' else args.paper_name
+        results.append(export_paper(view, out, options))
+    print(json.dumps({'reports': results}, indent=2))
+    return 0 if all(r['complete'] for r in results) else 1

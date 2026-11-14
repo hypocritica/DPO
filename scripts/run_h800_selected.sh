@@ -25,7 +25,7 @@ case "$stage" in
   check) exec "$py" evaluate_selected.py check --selection "$selection" "$@" ;;
   plan) exec "$py" evaluate_selected.py plan --selection "$selection" --out "$out" "$@" ;;
   index|summarize|gallery) exec "$py" evaluate_suite.py "$stage" --out "$out" "$@" ;;
-  paper) exec "$py" export_paper.py --out "$out" "$@" ;;
+  paper) exec "$py" evaluate_selected.py export --out "$out" "$@" ;;
   generate|score-legacy|score-hpsv3|score-unifiedreward|score-geneval|score-dpg) ;;
   *) echo 'Usage: run_h800_selected.sh init|check|plan|generate|score-legacy|score-hpsv3|score-unifiedreward|score-geneval|score-dpg|index|summarize|gallery|paper [stage arguments]' >&2; exit 2 ;;
 esac

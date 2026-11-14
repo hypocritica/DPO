@@ -14,6 +14,7 @@ def main(argv=None):
     init = commands.add_parser('init')
     init.add_argument('--family', required=True, choices=('sd35_medium', 'zimage'))
     init.add_argument('--from-prepared')
+    init.add_argument('--handoff', help='Confirmed SD3.5 handoff JSON; resolve identities against --from-prepared')
     init.add_argument('--runs-root', nargs='+')
     init.add_argument('--catalog')
     init.add_argument('--run-glob', nargs='+', help='Explicit discovery paths/globs; resolve smoke/backup ambiguity')
@@ -29,11 +30,22 @@ def main(argv=None):
             sub.add_argument('--benchmarks', nargs='+')
     for sub in (init, *[commands.choices[k] for k in ('check', 'plan')]):
         sub.add_argument('--resources')
+    export = commands.add_parser('export', help='Export fixed main/comparison rows from frozen plan only')
+    export.add_argument('--out', required=True)
+    export.add_argument('--report', choices=('main', 'dpo-step-comparison', 'all'), default='main')
+    export.add_argument('--paper-name', default='paper-v1')
+    export.add_argument('--comparison-name', default='dpo-step-comparison-v1')
+    export.add_argument('--benchmarks', nargs='+')
+    export.add_argument('--metrics', nargs='+')
+    export.add_argument('--metric-group', choices=('legacy', 'modern'))
+    export.add_argument('--allow-incomplete', action='store_true')
     args = parser.parse_args(argv)
     from self_correct_dpo.evaluation import selected
+    if args.command == 'export':
+        return selected.export(args)
     if args.command == 'init':
         result = selected.initialize(args)
-        print(json.dumps({'selection': str(Path(args.out).resolve()), 'pending_methods': [c['method'] for c in result['choices']]}, indent=2))
+        print(json.dumps({'selection': str(Path(args.out).resolve()), 'pending_methods': [c['method'] for c in result['choices'] if c['selected_step'] is None]}, indent=2))
         return 0
     if args.command == 'check':
         _, _, gaps = selected.check(args.selection, args.resources)

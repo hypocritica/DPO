@@ -1,10 +1,15 @@
 # H800：单 checkpoint 正式评测
 
+**SD3.5M 已于2026-11-14确定步数，执行请使用
+[1600步主表与DPO800对照命令](SD35_MAIN_1600_EVALUATION.md)。** 该入口自动核验并导入
+已确认清单，共9个版本，Parti58,752图；本页下面的八版本规模和手填流程保留为通用说明。
+Z-Image继续按独立曲线选择DPO与Stagewise K4的步数。
+
 这套入口只执行独立阶段，不提交任务、不安装环境、不下载资产。使用已分配的两张 H800，
 保留原 H100 启动器、renderer 和历史曲线。SD3.5 八项为 Base、SFT、DPO、LinearDPO、
 Global K2、Stagewise K2、Global K4、Stagewise K4；Z-Image 只比较 Base、DPO、Stagewise K4。
-每个训练方法只填一个精确永久 checkpoint；Base 为 step 0。现在可以建立待填选择表，
-明天根据独立 128 图 validation 曲线填入步数。正式 benchmark 分数不参与 checkpoint 选择，
+未提供已确认handoff时，每个训练方法只填一个精确永久 checkpoint；Base 为 step 0。
+先建立待填选择表，再根据独立128图开发曲线填入步数。正式 benchmark 分数不参与 checkpoint 选择，
 不自动挑 best/latest，不以缺失方法或快照替代。Z-Image 使用其独立选点证据，不冒称来自
 SD3.5 曲线。selection 中冻结曲线来源及精确 run/step；选点理由写在相邻 checkpoint-selection-notes.md，
 不修改 selection 的 provenance。开始 plan 后不修改选择。
@@ -35,7 +40,7 @@ GenEval 的官方使用先例支持面板选择，不表示本项目协议应复
 pairs_id 和 pair_views=128 预算须核对；K 不同会改变 pair 曝光，选点步数不同也不代表
 相同训练更新数，不把此比较描述为相同数据曝光。
 
-## 现在初始化；明天填步数
+## 通用手填初始化（已确认的SD3.5M请用上方专用命令）
 
 在独立 eval checkout 中运行。`SCD_EVAL_PY` 只需能执行 CPU 编排，不等于生成或评分环境。
 绝对 Python 路径应替换为已有可用环境；不要重装已有 Flow/legacy eval。

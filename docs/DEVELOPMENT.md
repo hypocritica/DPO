@@ -1,5 +1,20 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-14 SD3.5M 已确认主表与额外步数对照
+
+evaluate_selected.py init --handoff 导入原交接JSON并核对实际曲线prepared：Base0及七方法1600
+进入主表，额外DPO800标记development-selected，3200仅保留开发曲线。新SFT从唯一实际条目
+解析，旧run/path/checkpoint身份及权重内容hash不匹配则拒绝；确认后所有步数不可手改。
+计划只生成九个版本一次，export按冻结selection ID分别导出八版本主表与DPO800/1600对照，
+复用DPO1600图片。导出只依赖冻结计划和评测产物，原训练目录移除后仍能读取报告。
+没有handoff的旧选择表与Z-Image保留手填单步行为。renderer、scorer与SD1.5入口未修改。
+
+50项CPU检查通过：49项选择/启动器/论文导出/Z-Image/SD1.5/catalog回归，以及1项首次plan前
+禁止修改已确认步数的检查。包含身份不符、损坏/缺失adapter、SFT歧义、报告ID漂移、九版本
+唯一输出和移除训练文件后的实际草稿导出。JSON与原交接逐字一致，Bash语法及diff检查通过。
+未执行GPU推理、安装环境或下载模型。当前batch8、offload=false须远程验证。
+新AOSS输出和完整命令见docs/SD35_MAIN_1600_EVALUATION.md及command.md首节。
+
 ## 2026-11-14 选定 checkpoint、Z-Image 曲线和 SDXL 分组评测
 
 新增 evaluate_selected.py：SD3.5M 八方法与 Z-Image 三方法从冻结曲线导入精确 run、
