@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "models": {
+    "sd15": {
+      "family": "sd15",
+      "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sd15",
+      "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+    }
+  },
+  "runs_roots": {
+    "sd15": "/mnt/aoss/xietianyu/self_correct/runs"
+  },
+  "experiments": [
+    {
+      "id": "sd15-ablation-gaussian_b_k2",
+      "family": "sd15",
+      "method": "gaussian_b_k2",
+      "root": "sd15",
+      "run": "sd15-B-k2-fixedviews384-cu130-v1",
+      "steps": [
+        10000
+      ],
+      "expected_run_id": "3c95182f42efc8072ab2b7d92543bacbaa58c868a9d606676354174edee51476",
+      "expected_checkpoint_ids": {
+        "10000": "75aa646f09d23b26019d9d4692d83826732a5d7358d4d23757ac1b7059a83641"
+      }
+    },
+    {
+      "id": "sd15-ablation-global_k2",
+      "family": "sd15",
+      "method": "global_k2",
+      "root": "sd15",
+      "run": "sd15-C-k2-fixedviews384-cu130-v2",
+      "steps": [
+        10000
+      ],
+      "expected_run_id": "3ee7bac59afc79f2943e0237283925da699e7ba06555ffe76db327d081b58d73",
+      "expected_checkpoint_ids": {
+        "10000": "afb0805428452df6fe425ad3c74148d6be3c2027f0adc338b8c50639fc7d1543"
+      }
+    },
+    {
+      "id": "sd15-ablation-global_k6",
+      "family": "sd15",
+      "method": "global_k6",
+      "root": "sd15",
+      "run": "sd15-gaussian-C-k6-v384-cu130-v1",
+      "steps": [
+        10000
+      ],
+      "expected_run_id": "befd532bca84a4d7766e6a3d77faf12bd7f982d67abe492eeaab48e72366e14e",
+      "expected_checkpoint_ids": {
+        "10000": "fcb50ee0e8ad00334a71edc31b9229be407050c1c20193bb5462c41e93299776"
+      }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "extends": [
+    "evaluation-suite.json"
+  ],
+  "evaluation_profile": "sd15-ablation-a-v1",
+  "protocols": {
+    "sd15": {
+      "seeds": [
+        0
+      ],
+      "generation_batch_size": 32,
+      "cpu_offload": false
+    }
+  },
+  "benchmark_seeds": {
+    "partiprompts": [
+      0
+    ]
+  },
+  "metric_groups": {
+    "legacy": [
+      "pickscore",
+      "image_reward"
+    ],
+    "modern": [
+      "pickscore",
+      "image_reward"
+    ]
+  },
+  "notes": [
+    "Only Gaussian B K2, Global C K2 and Global C K6 at step10000; no Base. Parti 1632 prompts, seed0; 4896 images. Reuse SD1.5 main Euler50/CFG7.5/BF16/512 protocol."
+  ]
+}
