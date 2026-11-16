@@ -1,3 +1,12 @@
+## SDXL四行峰值补评：HPS与Parti/PickV2两组（2026-11-17）
+
+完整命令见[SDXL_PEAK_SUPPLEMENT.md](docs/SDXL_PEAK_SUPPLEMENT.md)。
+先SSH运行`bash scripts/run_sdxl_peak.sh A init`固定准确checkpoint；再分别申请4×5090，
+运行`bash scripts/run_sdxl_peak.sh A all`（HPS）与`bash scripts/run_sdxl_peak.sh B all`（Parti+PickV2）。
+沿用原eval环境、batch4、SDXL paper v1协议和五指标，新根目录为AOSS sdxl/peak-5090-v1。
+DSPO两行3000、DMPO10000、Stagewise DMPO只选最新永久LoRA（优先10000，否则如9000），忽略9525滚动checkpoint。
+每组先生成再评分；同协议已完成3000 Parti可导入复用。总量最多21276图，保留原2k主表。
+
 ## 最新五组评测命令：SDXL 2000主表 + 3000 Parti补充，及SD3.5（2026-11-15）
 
 SDXL主表Base0+九方法2000；仅DMPO、Stagewise DMPO K6、DSPO、Stagewise DSPO K6补3000步Parti。

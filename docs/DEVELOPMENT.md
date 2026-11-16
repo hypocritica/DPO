@@ -1,5 +1,15 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-17 SDXL峰值补评
+
+新增prepare_sdxl_peak.py与run_sdxl_peak.sh，固定DSPO两行3000、DMPO10000及Stagewise DMPO
+最新永久LoRA（优先10000，否则例如9000），忽略latest.json、resume-*及9525滚动checkpoint。
+核验所选run/永久checkpoint身份及权重哈希，首次catalog封存后不会随训练变化。
+A组HPS，B组Parti/PickV2，各四卡、先生成再评分，沿用2k协议和五指标；兼容完成原图/分数
+导入包含身份与协议核验及来源记录。17项CPU测试通过，覆盖永久9000固定、首选10000、
+忽略滚动指针、损坏永久权重拒绝回退、图像/分数复用、两组顺序和失败停止及旧SDXL/导出回归。
+未执行远端GPU加载、提交任务或下载模型。完整命令见SDXL_PEAK_SUPPLEMENT.md。
+
 ## 2026-11-15 运行目录统一为已有DPO-eval-v2
 
 按用户要求，command.md当前五组命令统一使用已有远端DPO-eval-v2，移除新clone步骤。
