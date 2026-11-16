@@ -197,6 +197,20 @@ def noise_for(pipe, root, row, seed, sampling, torch):
     return value, {'initial_noise_sha256': noise_hash, 'noise_path': str(path), 'latent_shape': list(shape)}
 
 
+def checked_active_adapters(component, method):
+    if method == 'Base':
+        if getattr(component, 'peft_config', None):
+            raise RuntimeError('Base has PEFT adapters')
+        # Diffusers exposes active_adapters() even when no adapter is loaded.
+        return []
+    active = getattr(component, 'active_adapters', [])
+    if callable(active):
+        active = active()
+    if len(active) != 1:
+        raise RuntimeError(f'Expected exactly one active adapter, found {active}')
+    return active
+
+
 def worker(args):
     import torch
     require_gpu_allocation({'mode': 'standalone', 'run_label': 'SLAI-qualitative-30'})
@@ -229,13 +243,7 @@ def worker(args):
             freeze(root / f'pipeline-defaults-{method}-rank{args.rank}.json', call_defaults)
             freeze(root / f'scheduler-{method}-rank{args.rank}.json', json.loads(json.dumps(scheduler_config)))
             component = getattr(pipe, FAMILIES[args.backbone][2])
-            active = getattr(component, 'active_adapters', [])
-            if callable(active):
-                active = active()
-            if method == 'Base' and getattr(component, 'peft_config', None):
-                raise RuntimeError('Base has PEFT adapters')
-            if method != 'Base' and len(active) != 1:
-                raise RuntimeError(f'Expected exactly one active adapter, found {active}')
+            active = checked_active_adapters(component, method)
             print(f'{method}: active adapters={active}; sampling={sampling}', flush=True)
             for batch in needed:
                 noise = [noise_for(pipe, root, p, s, sampling, torch) for p, s in batch]
