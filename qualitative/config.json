@@ -1,0 +1,180 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "backbones": {
+    "sd15": {
+      "sampling": {
+        "scheduler": "EulerDiscreteScheduler",
+        "dtype": "bfloat16",
+        "height": 512,
+        "width": 512,
+        "num_inference_steps": 50,
+        "guidance_scale": 7.5,
+        "negative_prompt": "",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "prompt_truncation": "truncate",
+        "safety_checker": "disabled",
+        "generation_batch_size": 16,
+        "cpu_offload": false
+      },
+      "workers": 4,
+      "methods": {
+        "DPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dpo-p384-cu130-v1",
+          "step": 10000,
+          "run_id": "defa3ccadaf5d3fab96ce09cfce6cde32c22c2e6f60d732fd97d022943540517",
+          "checkpoint_id": "7d6cd430ecff524d92534308fd193d45d2ace2c86ba1d816c5dd42c8b2540bc9",
+          "source_method": "dpo"
+        },
+        "MVPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/runs/sd15-dmpo-k6-stage-pv384-2gpu-10000-final-v1",
+          "step": 10000,
+          "run_id": "160cf76c2a43d824812587eae9b371472656c8e880e4356c42cf42979dafc84d",
+          "checkpoint_id": "72e3c7292e16e59c1ab221563391aab57c5781a73e5e6b98f4fa931d901d7ece",
+          "source_method": "stagewise_dmpo_k6"
+        }
+      },
+      "model": {
+        "family": "sd15",
+        "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sd15",
+        "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14"
+      }
+    },
+    "sdxl": {
+      "sampling": {
+        "scheduler": "EulerDiscreteScheduler",
+        "dtype": "bfloat16",
+        "height": 1024,
+        "width": 1024,
+        "num_inference_steps": 50,
+        "guidance_scale": 5.0,
+        "negative_prompt": "",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "prompt_truncation": "truncate",
+        "generation_batch_size": 4,
+        "cpu_offload": false
+      },
+      "workers": 4,
+      "methods": {
+        "DPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/runs/sdxl-dpo-p192-cu130-v1",
+          "step": 2000,
+          "run_id": "388ae5b017de89fc3ec859e634351ecbd894225d14d1d003371e63ed5fbeb99b",
+          "checkpoint_id": "fbfec8c5c61487dc15b73948b66d067566949aa3cf9c5cd8a1d2c3f4fa0af366",
+          "source_method": "dpo"
+        },
+        "MVPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/runs/sdxl-dmpo-k6-stage-4gpu-b2-pv192-10000-v2",
+          "step": 2000,
+          "run_id": "e6fc5d7fab8831b1f25aecbaa0b13c2e6a5db263295ec5f5d6802b6192cea943",
+          "checkpoint_id": "e6ef04bf74d9a40f47698ffd556de7f5d4562b82d99eb0509b0a190a355db329",
+          "source_method": "stagewise_dmpo_k6"
+        }
+      },
+      "model": {
+        "family": "sdxl",
+        "path": "/mnt/aoss/xietianyu/models/stable_diffusion/sdxl",
+        "revision": "462165984030d82259a11f4367a4eed129e94a7b"
+      }
+    },
+    "sd35_medium": {
+      "sampling": {
+        "scheduler": "FlowMatchEulerDiscreteScheduler",
+        "dtype": "bfloat16",
+        "height": 1024,
+        "width": 1024,
+        "num_inference_steps": 28,
+        "guidance_scale": 4.5,
+        "negative_prompt": "",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "max_sequence_length": 256,
+        "prompt_truncation": "truncate",
+        "cpu_offload": true,
+        "generation_batch_size": 4
+      },
+      "workers": 4,
+      "methods": {
+        "DPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs/sd35_medium-dpo-k1-pair_views128-45090-b4-3200-C-bfloat16-trainonly-paper-v2-flow-b4-stat-v1",
+          "step": 1600,
+          "run_id": "c520c231fa74cecb70870d687e7635c20c3c0cb3c1463a751d11b58ac9e791eb",
+          "checkpoint_id": "3d6cc23e4e808ec0d131a840bcccdda14a5b7e4f35ab24bd9ba9dbea314d8fff",
+          "source_method": "dpo"
+        },
+        "MVPO": {
+          "run": "/mnt/aoss/xietianyu/self_correct/flow-paper-v2/runs/sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-C-bfloat16-trainonly-paper-v2-flow-microviews4-modelreport-v2",
+          "step": 1600,
+          "run_id": "a54e9188016e5679d51698f20305d6063533265de116ad22ff58f6d866eba817",
+          "checkpoint_id": "9d2fba88a824f1ace8741d55440b7683f66f16a2012228e597978454b2770f1f",
+          "source_method": "global_k4"
+        }
+      },
+      "model": {
+        "family": "sd35_medium",
+        "path": "/mnt/aoss/xietianyu/models/sd3.5-medium",
+        "revision": "local-inventory:fe8fa9d0c4bbe5be84655c73013611ed685497e321ec3186b5f1a7ddb69530eb",
+        "max_sequence_length": 256,
+        "prompt_truncation": "truncate"
+      }
+    },
+    "zimage": {
+      "sampling": {
+        "scheduler": "FlowMatchEulerDiscreteScheduler",
+        "dtype": "bfloat16",
+        "transformer_autocast_dtype": "bfloat16",
+        "height": 1024,
+        "width": 1024,
+        "num_inference_steps": 50,
+        "guidance_scale": 4.0,
+        "negative_prompt": "",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "max_sequence_length": 256,
+        "prompt_truncation": "truncate",
+        "cpu_offload": false,
+        "generation_batch_size": 4,
+        "latent_dtype": "float32"
+      },
+      "workers": 2,
+      "methods": {
+        "DPO": {
+          "step": 2300,
+          "source_method": "dpo"
+        },
+        "MVPO": {
+          "step": 2300,
+          "source_method": "stagewise_k4"
+        }
+      },
+      "prepared": "/mnt/aoss/xietianyu/self_correct/evaluations/zimage/curves-h800-b4-v1-prepared",
+      "model": {
+        "family": "zimage",
+        "path": "/mnt/aoss/xietianyu/models/zimage/Z-Image",
+        "revision": "04cc4abb7c5069926f75c9bfde9ef43d49423021"
+      }
+    }
+  }
+}

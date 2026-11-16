@@ -1749,3 +1749,24 @@ python scripts/download_assets.py extract-hpdv3
 SDXL 下载后用 `--family sdxl`、`--model "$SDXL_MODEL"`、`--out "$PICKAPIC_SDXL_PREPARED"` 另行准备清单；复用同一图片池，再生成 `$BENCHMARKS_ROOT/sdxl` 面板。随后重复资源检查、同 K 小跑、配置冻结和正式训练。不要拿 SD1.5 的 batch/β 直接覆盖 SDXL 默认值。
 
 HPDv3 的 SD3 数据可用 `prepare_downloaded_data.py hpdv3 --family unfiltered` 导出。这只准备数据；当前 SD3 训练入口尚未实现。
+
+## 2026-11-17 qualitative 30 recovered launchers
+
+See `qualitative/README.md`. In the existing SLAI DPO-eval-v2 checkout,
+use the existing eval and scd-eval-flow-v1 Python environments.
+Run these groups in separate allocated containers:
+
+```bash
+# 4 x RTX 5090: SD1.5 then SDXL
+bash qualitative/run_slai.sh sd15 all && bash qualitative/run_slai.sh sdxl all
+# 4 x RTX 5090: SD3.5-M
+bash qualitative/run_slai.sh sd35_medium all
+# 2 x H100: Z-Image
+bash qualitative/run_slai.sh zimage all
+```
+
+Each `all` runs smoke, checks output integrity, then full generation and contact
+sheets; it is not human visual review. Outputs default to
+`/mnt/aoss/xietianyu/self_correct/outputs/qualitative_30`.
+Deploy only the additive qualitative folder while existing evaluation jobs run.
+Do not pull or replace shared evaluator sources in a live checkout.
