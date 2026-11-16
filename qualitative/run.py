@@ -22,6 +22,9 @@ from self_correct_dpo.evaluation.render import (FAMILIES, effective_sampling,
     load_pipeline, validate_config)
 
 METHODS = ('Base', 'DPO', 'MVPO')
+# Only the release immediately before the scheduler metadata fix can resume.
+# Revisit this allowlist if the rendering behavior in this file changes.
+PREVIOUS_RUN_SHA = '37d760f35a81c09b6a7dcb5a5d7c0ff7c8445d83c4005431ff9ef4d6d5a7ad50'
 
 
 def atomic_json(path, value):
@@ -32,9 +35,9 @@ def atomic_json(path, value):
     os.replace(tmp, path)
 
 
-def freeze(path, value):
+def freeze(path, value, *, normalize=lambda value: value):
     if path.exists():
-        if read_json(path) != value:
+        if normalize(read_json(path)) != normalize(value):
             raise ValueError(f'Frozen inputs changed; use a new output directory: {path}')
     else:
         atomic_json(path, value)
@@ -52,6 +55,33 @@ def prompts(path):
 def source_identity():
     paths = [*sorted((ROOT / 'src/self_correct_dpo').rglob('*.py')), Path(__file__).resolve()]
     return {str(p.relative_to(ROOT)): sha256(p) for p in paths}
+
+
+def scheduler_metadata(config):
+    config = json.loads(json.dumps(config))
+    if '_use_default_values' in config:
+        # Diffusers builds this list from a set. Its order has no effect.
+        config['_use_default_values'] = sorted(config['_use_default_values'])
+    return config
+
+
+def compatible_sources(saved, current):
+    return (saved == current or
+            saved == {**current, 'qualitative/run.py': PREVIOUS_RUN_SHA})
+
+
+def freeze_plan(path, plan):
+    if path.exists():
+        saved = read_json(path)
+        if compatible_sources(saved['sources'], plan['sources']):
+            # Reconstruct the exact saved plan before reusing its identity.
+            candidate = {**plan, 'sources': saved['sources']}
+            candidate.pop('plan_id')
+            candidate['plan_id'] = digest(candidate)
+            if saved == candidate:
+                return saved
+    freeze(path, plan)
+    return plan
 
 
 def resolve_spec(spec):
@@ -127,7 +157,7 @@ def prepare(args):
                 'noise_policy': 'CPU standard-normal raw latents cached once per case; cloned per method',
                 'workers': spec['workers']}
         plan['plan_id'] = digest(plan)
-        freeze(root / 'run_config.json', plan)
+        plan = freeze_plan(root / 'run_config.json', plan)
         freeze(root / 'prompt_list.json', rows)
         prompt_copy = root / 'MVPO_qualitative_prompts.jsonl'
         if not prompt_copy.exists():
@@ -218,7 +248,7 @@ def worker(args):
         raise RuntimeError('CUDA is required in an allocated SLAI container')
     root = Path(args.out).resolve() / args.backbone
     plan = read_json(root / 'run_config.json')
-    if plan['sources'] != source_identity():
+    if not compatible_sources(plan['sources'], source_identity()):
         raise ValueError('Source changed after planning')
     if args.workers != plan['workers']:
         raise ValueError('Worker count differs from frozen plan')
@@ -241,7 +271,8 @@ def worker(args):
             call_defaults = {k: repr(v.default) for k, v in inspect.signature(pipe.__call__).parameters.items()
                              if v.default is not inspect.Parameter.empty}
             freeze(root / f'pipeline-defaults-{method}-rank{args.rank}.json', call_defaults)
-            freeze(root / f'scheduler-{method}-rank{args.rank}.json', json.loads(json.dumps(scheduler_config)))
+            freeze(root / f'scheduler-{method}-rank{args.rank}.json',
+                   scheduler_metadata(scheduler_config), normalize=scheduler_metadata)
             component = getattr(pipe, FAMILIES[args.backbone][2])
             active = checked_active_adapters(component, method)
             print(f'{method}: active adapters={active}; sampling={sampling}', flush=True)
@@ -272,7 +303,8 @@ def worker(args):
                     record = dict(plan_id=plan['plan_id'], backbone=args.backbone, method=method,
                                   checkpoint=entry['identity'], adapter=entry['config'].get('aligned'),
                                   model=entry['config']['model'], prompt_id=p['id'], prompt=p['prompt'], seed=seed,
-                                  sampling=sampling, scheduler_config=scheduler_config, pipeline_defaults=call_defaults, active_adapters=list(active),
+                                  sampling=sampling, scheduler_config=scheduler_metadata(scheduler_config),
+                                  pipeline_defaults=call_defaults, active_adapters=list(active),
                                   image_path=str(path), image_sha256=sha256(path), **meta)
                     atomic_json(path.with_suffix('.json'), record)
                     print(f'saved {path}', flush=True)
@@ -298,6 +330,7 @@ def audit(root, smoke=False):
     for row in records:
         key = row['prompt_id'], row['seed']
         pair = {k: row[k] for k in ('prompt', 'seed', 'sampling', 'initial_noise_sha256', 'scheduler_config', 'pipeline_defaults', 'model')}
+        pair['scheduler_config'] = scheduler_metadata(pair['scheduler_config'])
         if key in grouped and grouped[key] != pair:
             raise ValueError(f'Pairing mismatch: {key}')
         grouped[key] = pair
@@ -325,7 +358,7 @@ def launch(args):
         revision = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True)
         freeze(root / 'logs' / f'command-{stamp}.json', {'argv': sys.argv, 'command': shlex.join([sys.executable, *sys.argv]),
                'cwd': os.getcwd(), 'git_revision': revision.stdout.strip() if revision.returncode == 0 else None,
-               'source_identity': plan['sources']})
+               'source_identity': source_identity()})
         if args.phase == 'full' and not audit(root, smoke=True):
             raise RuntimeError('Run smoke before full generation')
         processes = []
