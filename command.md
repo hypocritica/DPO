@@ -4,6 +4,39 @@
 
 逐作业启动、SLAI 作业号、实测结论与待补问题统一记在 [MVPO 附录实验台账](docs/MVPO_APPENDIX_EXPERIMENTS.md)。
 
+## D 正式汇总与 SD3.5-M 机制复验
+
+在原 checkout 内使用现有解释器。D 的正式报告校验 16 对完整记录。F/S 使用原 22edcb6 的 Flow 协议，输出到原 v1 根。各自 pilot 通过后，两个正式分片独立提交。
+
+```bash
+# D 正式汇总
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh report-D
+
+# F pilot（4 对、两阶段梯度）
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-gradient --smoke --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# S pilot（4 对、两阶段前向）
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-stage --smoke --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# F1
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-gradient --group 1/2 --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# F2
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-gradient --group 2/2 --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# S1
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-stage --group 1/2 --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# S2
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_jobs.py sd35-stage --group 2/2 --out /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1
+
+# sd35-gradient 两个分片完成后在 CPU 汇总
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_gradient_report.py --input /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1/sd35-gradient
+
+# sd35-stage 两个分片完成后在 CPU 汇总
+/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10 /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/scripts/appendix_stage_report.py --input /mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1/sd35-stage
+```
+
 ## D pilot 同视图梯度复算失败后的重试（2×5090）
 
 在 22edcb6 的 SD1.5 pilot，pair 1267633 两次 t=499 的 margin 均为 −0.0391528010，梯度范数 75.37484，差范数 0.55958（相对 0.7424%）。初始化检查通过，已加载权重的重复性检查失败。日志尚不能定位到具体 CUDA 算子。
