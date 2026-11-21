@@ -5,6 +5,7 @@ import hashlib
 import heapq
 from importlib.metadata import version
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -285,6 +286,25 @@ def gradient_measurement(probe, condition, sampling, experiment, checkpoint_id, 
     }
 
 
+def repeat_view_check(probe, condition, seed):
+    import torch
+
+    # Reset only the explicit view generator inside gradient(). Leave the global RNG advancing.
+    m1, g1, t1 = probe.gradient(condition, seed)
+    m2, g2, t2 = probe.gradient(condition, seed)
+    atol, rtol = 1e-7, 1e-5
+    diff = g2 - g1
+    norm = float(g1.norm())
+    diff_norm = float(diff.norm())
+    finite = all(math.isfinite(x) for x in (m1, m2, norm, diff_norm))
+    passed = (finite and t1 == t2 and math.isclose(m1, m2, abs_tol=atol, rel_tol=rtol)
+              and torch.allclose(g1, g2, atol=atol, rtol=rtol) and diff_norm <= atol + rtol * norm)
+    return dict(condition=condition["condition"], seed=seed, indices=[t1, t2], finite=finite,
+                margins=[x if math.isfinite(x) else None for x in (m1, m2)],
+                gradient_norm=norm if finite else None, gradient_difference_norm=diff_norm if finite else None,
+                atol=atol, rtol=rtol, passed=passed)
+
+
 def initialization_check(backend, beta, rows, pairs, conditions, checkpoint_id, view_seed, init_seed):
     import torch
 
@@ -500,6 +520,20 @@ def run(args, sampling):
             atomic_json(check_path, record)
         if not init["passed"]:
             raise RuntimeError(f"Initialized policy/reference gradient check failed: {check_path}")
+    if check_initial:
+        pair = pairs[0]
+        probe = PairProbe(backend, parameters, float(settings["beta"]), rows[0], pair["prompt"], pair["latent_seed"])
+        checks = [repeat_view_check(probe, c, seed_for("repeat", checkpoint["checkpoint_id"], sampling["view_seed"],
+                                                       pair["pair_id"], c["condition"])) for c in conditions]
+        record = dict(protocol_id=protocol["protocol_id"], pair_id=pair["pair_id"], execution=execution,
+                      checks=checks, passed=all(c["passed"] for c in checks))
+        record["result_id"] = digest(record)
+        check_path = output / "repeat-view-check.json"
+        with output_lock(check_path):
+            atomic_json(check_path, record)
+        del probe
+        if not record["passed"]:
+            raise RuntimeError(f"Loaded checkpoint failed the train-mode repeat-view check: {check_path}")
     for index in range(args.shard_index, len(rows), args.shard_count):
         pair = pairs[index]
         shared = {"protocol_id": protocol["protocol_id"], "pair_index": index, "pair_id": pair["pair_id"]}

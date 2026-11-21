@@ -1,6 +1,6 @@
 # MVPO 附录实验（2026-11-21）
 
-使用 GitHub 分支 `codex/mvpo-appendix-experiments`。下面 14 个正式 GPU 作业可以独立领取 SLAI 容器，全部复用现有 LoRA。先准备一遍输入。生成线按历史协议匹配 GPU，梯度和前向诊断可以另用 2/4 张 5090 或 2 张 H100。卡紧张时优先跑直接对照、SD1.5 梯度与跨阶段前向。其余作业可以随后补齐。
+使用 GitHub 分支 `codex/mvpo-appendix-experiments`。下面 14 个正式 GPU 作业可以独立领取 SLAI 容器，全部复用现有 LoRA。先准备一遍输入。生成线按历史协议匹配 GPU，梯度和前向诊断可以另用 2/4 张 5090 或 2 张 H100。P0 并行准备 G1、D pilot 与 CPU 统计，通过 pilot 后跑 D1–D4。P1 跑三生成种子和阶段前向，P2 跑 Flow 梯度复验与 checkpoint 曲线。
 
 逐作业启动、SLAI 作业号、实测结论与待补问题统一记在 [MVPO 附录实验台账](docs/MVPO_APPENDIX_EXPERIMENTS.md)。
 
@@ -62,7 +62,7 @@ python scripts/appendix_generation.py prepare --out "$MVPO_APPENDIX_ROOT/generat
 # 在六个生成作业和生成汇总 shell 中均设置同一个 MVPO_APPENDIX_ROOT。
 ```
 
-**四对样本 pilot。** 在正式梯度作业前各用一组两卡测量速度和显存。pilot 写在独立 `smoke/` 根。两个梯度 pilot 各用 2×24 个 source、2×8 个独立 audit views，另在新初始化 LoRA 上比较同视图 LossAvg/MVPO 原始梯度。检查 `init-check.json`、每对 JSON 的 `execution` 和 worker 日志，再按实际秒数分配正式任务。若需调小阶段前向批量，可在准备和计算阶段都传 `--stage-batch-size 1` 并使用新输出根。
+**四对样本 pilot。** 在正式梯度作业前各用一组两卡测量速度和显存。pilot 写在独立 `smoke/` 根。两个梯度 pilot 各用 2×24 个 source、2×8 个独立 audit views，另在新初始化 LoRA 上比较同视图 LossAvg/MVPO 原始梯度。两个梯度 pilot 还在已训练权重的 train 模式下，用相同 view seed 重算同一对的 margin 和完整 LoRA 梯度，检验数值容差内的一致性。检查 `repeat-view-check.json`、`init-check.json`、每对 JSON 的 `execution` 和 worker 日志，再按实际秒数分配正式任务。若需调小阶段前向批量，可在准备和计算阶段都传 `--stage-batch-size 1` 并使用新输出根。
 
 ```bash
 python3 scripts/appendix_jobs.py sd15-gradient --smoke
@@ -81,6 +81,8 @@ python3 scripts/appendix_jobs.py sd35-stage --smoke
 | 权重–梯度关联 | 对同一 pair、同一条件使用全部异 view 权重与梯度交叉配对；同一份反向结果用于所有 K | `pair-metrics.csv` 与 coupling 图给出去耦合前后对齐度、协方差平行/垂直分量。均值的 Monte Carlo 误差、audit 分半和跨 pair 区间分别导出 |
 | Flow 阶段内复验 | 1,600 步 Flow-DPO，8 对预选 HPDv3 样本，两段分别 K=1/2/4。每对每段 4×24 source + 4×32 audit，共 3,584 个 pair–views | `sd35-gradient/report/` 分阶段输出逐对表、block 误差、差值和初图。Flow 使用较小复验预算 |
 | 跨阶段抵消与负阶段监督 | 同一 Flow-DPO checkpoint，128 对，每对每段 96 个前向 views；索引 [0,500) 是高噪声段，索引 500 的原生流时间是 0.75 | `sd35-stage/report/pair-margins.csv`、`stage-weights.csv`、`stage-mechanism.png` 和 `summary.json`。两个比例分母均为全部 128 对。负阶段报告样本数和有符号 gate 差分布，区间按 pair 整组重采样 |
+
+E1 主图使用 `source_corrected_distance_squared`，从平方距离中减去 source 均值的估计方差，保留负值。有限 audit 的误差仍在，结合 audit 分半结果解读；原始距离保留在 CSV。E3 的 `stage-weights.csv` 还报告固定同一个焦点 view 时，两种 K4 采样的均值、分位数和差值。每对每阶段默认有放回重采样 10,000 次，global 的另外三个 view 独立选阶段；负阶段按原 bank 均值判定。可用 `--k4-draws` 和 `--k4-seed` 重算。旧版已完成的 banks 可以直接汇总；已冻结的旧 probe 如需续跑，沿用原提交，新版 pilot 使用独立输出根。
 
 生成表与阶段监督表分别保留，供并列呈现。只有实际 adapter 对应的方法可以参与方法归因。所有差值保留原符号，逐图评分、逐对统计和置信区间可以脱离 GPU 在本地重算。
 
@@ -157,12 +159,14 @@ python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/sdxl/paper-20
   --method stagewise_k6 --baseline dpo --step 2000 --benchmark partiprompts \
   --metrics pickscore hpsv2 image_reward clip aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/sdxl-parti"
 python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/sd15/main-h100-b64-v1/plan.json" \
-  --method stagewise_dspo_k6 --step 6000 --baseline dspo --baseline-step 10000 --benchmark partiprompts \
-  --metrics pickscore hpsv2 image_reward clip aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/sd15-dspo-parti"
+  --method stagewise_dspo_k6 --step 10000 --baseline dspo --baseline-step 10000 --benchmark partiprompts \
+  --metrics pickscore hpsv2 image_reward clip aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/sd15-dspo-parti-10k-matched"
 python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/zimage/formal-h800-v1/core/plan.json" \
   --method stagewise_k4 --baseline dpo --step 2300 --benchmark partiprompts \
   --metrics pickscore hpsv3 image_reward aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/zimage-parti"
 ```
+
+SD1.5 目录登记了双方 10,000 步权重，优先比较同一步数的逐图结果。如历史评分只覆盖 Stage-wise 6,000 对 DSPO 10,000，可单列为异步数描述性比较，使用独立输出目录并标注双方步数。
 
 若某次历史评测只保存了三种评分器，`--metrics` 只填写双方共有的逐图指标。旧表只有均值时，配对区间保留缺项。
 

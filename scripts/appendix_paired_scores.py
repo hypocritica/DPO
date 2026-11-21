@@ -118,6 +118,7 @@ def report(args):
         statistics = bootstrap(np, deltas.reshape(len(prompts), len(seeds)))
         metric_rows.append({
             "metric": metric, "prompts": len(prompts), "images": len(deltas), "seed_count": len(seeds),
+            "method_step": args.step, "baseline_step": baseline_step, "matched_updates": args.step == baseline_step,
             "method_mean": float(method_values.mean()), "baseline_mean": float(baseline_values.mean()), **statistics,
         })
         paired_rows.extend({

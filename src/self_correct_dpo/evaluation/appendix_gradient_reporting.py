@@ -201,7 +201,7 @@ def summarize_gradient_statistics(records, *, bootstrap_repeats=2000, seed=17):
                     "direction_cosine": _estimate(_cosine(half_h[:1], gram, half_h[1:])[0]),
                     "objectives": _objective_rows({
                         key: {metric: [_estimate(x) for x in entry[metric]]
-                              for metric in ("distance", "descent_cosine", "signed_projection")}
+                              for metric in ("distance", "source_corrected_distance_squared", "stochastic_variance", "descent_cosine", "signed_projection")}
                         for key, entry in split.items()
                     }),
                     "coupling": {key: [_estimate(x) for x in samples] for key, samples in split_coupling.items()},
@@ -233,7 +233,7 @@ def summarize_gradient_statistics(records, *, bootstrap_repeats=2000, seed=17):
         "pair_bootstrap_95_unit": "Preference pairs, with objectives matched within each pair",
         "paired_difference": "MVPO minus LossAvg at the same K",
         "covariance_sign": "Loss gradient convention, with derivative -sigmoid(-margin)",
-        "source_correction": "Squared distance minus the estimated trace variance of the source mean",
+        "source_correction": "Squared distance minus the estimated trace variance of the source mean; audit error remains. Negative estimates are retained.",
         "conditions": conditions,
         "pairs": pair_results,
     }
@@ -278,11 +278,11 @@ def plot_gradient_statistics(summary, output_dir):
             if interval is not None:
                 axis.vlines(x, *interval, color=color, linewidth=1.15, alpha=0.64)
 
-        figure, axes = plt.subplots(1, 3, figsize=(10, 3.7), layout="constrained")
+        figure, axes = plt.subplots(2, 2, figsize=(9, 6.5), layout="constrained")
         for axis, metric, ylabel in zip(
-            axes,
-            ("distance", "stochastic_variance", "descent_cosine"),
-            ("Distance to audit gradient", "Trace of gradient variance", "Descent cosine to audit direction"),
+            axes.flat,
+            ("source_corrected_distance_squared", "stochastic_variance", "descent_cosine", "signed_projection"),
+            ("Source-corrected squared displacement", "Trace of gradient variance", "Descent cosine to audit direction", "Signed projection on audit margin gradient"),
         ):
             for method, (label, color, marker) in styles.items():
                 rows = [row for row in condition["objectives"] if row["objective"] == method]
@@ -296,8 +296,9 @@ def plot_gradient_statistics(summary, output_dir):
                 axis.set_xticks(x)
             axis.set(xlabel="Views per group (K)", ylabel=ylabel)
             axis.grid(axis="y", alpha=0.24)
-        axes[0].legend(frameon=False)
-        figure.suptitle(title, fontsize=11)
+        axes.flat[0].axhline(0, color="0.5", linewidth=0.7)
+        axes.flat[0].legend(frameon=False)
+        figure.suptitle(title + "\nFinite audit reference; source correction can give negative estimates", fontsize=10)
         figure.savefig(output_dir / f"{name}-gradients.png", dpi=180)
         plt.close(figure)
 

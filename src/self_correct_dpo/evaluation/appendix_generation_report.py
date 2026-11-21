@@ -134,6 +134,7 @@ def summarize(out, bundle, panels, indexed):
                    'baseline': baseline, 'step': step, 'generation_seeds': ','.join(map(str, seeds)),
                    'prompts': len(keys), 'training_runs_per_method': 1}
             paired_rows.append({**row, 'bootstrap_unit': 'prompt', 'confidence_level': 0.95,
+                                'across_generation_seed_sd': float(difference.mean(axis=0).std(ddof=1)) if len(seeds) > 1 else None,
                                 'bootstrap_replicates': BOOTSTRAP_REPLICATES, **bootstrap(np, difference)})
             prompt_rows.extend({**row, 'scene_id': key[0], 'variant_id': key[1],
                                 'mean_prompt_delta': float(delta.mean())} for key, delta in zip(keys, difference))

@@ -17,7 +17,28 @@ def gate(margin):
     return e / (1 + e) if margin >= 0 else 1 / (1 + e)
 
 
-def pair_rows(root, protocol):
+def finite_k4(banks, stage, draws, rng):
+    """Condition on a tagged view from this stage. The other three views are independent."""
+    values = np.asarray(banks, dtype=float)
+    positions = rng.integers(values.shape[1], size=(draws, 4))
+    stage_margins = values[stage, positions]
+    global_stages = rng.integers(2, size=(draws, 4))
+    global_stages[:, 0] = stage
+    global_margins = values[global_stages, positions]
+    # Common random numbers: both groups contain exactly the same tagged view.
+    stage_gate = np.exp(-np.logaddexp(0, stage_margins.mean(axis=1)))
+    global_gate = np.exp(-np.logaddexp(0, global_margins.mean(axis=1)))
+    delta = stage_gate - global_gate
+    result = {}
+    for name, data in (("stage", stage_gate), ("global", global_gate), ("delta", delta)):
+        result[f"k4_{name}_mean"] = float(data.mean())
+        for q in (5, 50, 95):
+            result[f"k4_{name}_q{q:02d}"] = float(np.percentile(data, q))
+    result["k4_delta_mc_se"] = float(delta.std(ddof=1) / math.sqrt(draws))
+    return result
+
+
+def pair_rows(root, protocol, k4_draws=10000, k4_seed=17):
     """Only compare both stages of the exact preselected pairs on the frozen run."""
     if protocol["experiment"] != "sd35-stage" or protocol["protocol_id"] != digest(
             {k: v for k, v in protocol.items() if k != "protocol_id"}):
@@ -39,7 +60,7 @@ def pair_rows(root, protocol):
         banks = record["stages"]
         if len(banks) != 2:
             raise ValueError(f"Expected two stages for {pair_id}")
-        means, errors, seen = [], [], set()
+        means, errors, seen, margins = [], [], set(), []
         for j, bank in enumerate(banks):
             lo, hi = 500 * j, 500 * (j + 1)
             if (bank["stage_index"], bank["index_start"], bank["index_stop"], bank["probability"]) != (j, lo, hi, 0.5):
@@ -53,6 +74,7 @@ def pair_rows(root, protocol):
                     raise ValueError(f"Invalid or repeated view for {pair_id}")
                 seen.add(v["seed"])
                 vals.append(v["margin"])
+            margins.append(vals)
             means.append(float(np.mean(vals)))
             errors.append(float(np.std(vals, ddof=1) / math.sqrt(n_views)))
         mu = 0.5 * (means[0] + means[1])
@@ -63,7 +85,8 @@ def pair_rows(root, protocol):
         for j, m in enumerate(means):
             stages.append(dict(pair_index=i, pair_id=pair_id, stage=j, views=n_views, stage_margin=m,
                                global_margin=mu, negative_stage=int(m < 0), stage_gate=gate(m),
-                               global_gate=gate(mu), gate_difference=gate(m) - gate(mu)))
+                               global_gate=gate(mu), gate_difference=gate(m) - gate(mu),
+                               **finite_k4(margins, j, k4_draws, np.random.default_rng([k4_seed, i, j]))))
     if not rows or len({r["pair_id"] for r in rows}) != len(rows) or len({r["pair_index"] for r in rows}) != len(rows):
         raise ValueError("Expected a nonempty frozen panel of distinct preference pairs")
     return rows, stages
@@ -88,7 +111,13 @@ def summarize(rows, stages, repeats, seed):
         return dict(estimate=point, ci95=np.quantile(samples, [0.025, 0.975]).tolist() if len(samples) else None,
                     valid_bootstrap_draws=len(samples))
 
-    return dict(n_pairs=n, n_negative_stages=int(counts.sum()), n_pairs_with_negative_stage=int((counts > 0).sum()),
+    k4 = np.array([r["k4_delta_mean"] for r in stages]).reshape(n, 2)
+    k4_sum = np.where(negative, k4, 0).sum(axis=1)
+    return dict(negative_stage_k4_mean_delta=estimate(
+                    float(k4[negative].mean()) if negative.any() else None,
+                    k4_sum[draws[valid]].sum(axis=1) / n_weak[valid]),
+                all_stages_k4_mean_delta=estimate(float(k4.mean()), k4.mean(axis=1)[draws].mean(axis=1)),
+                n_pairs=n, n_negative_stages=int(counts.sum()), n_pairs_with_negative_stage=int((counts > 0).sum()),
                 n_opposite_sign=int(opposite.sum()), n_global_positive_with_negative=int(masked.sum()),
                 bootstrap=dict(unit="preference pair, both stages kept together", repeats=repeats, seed=seed),
                 opposite_fraction=estimate(float(opposite.mean()), opposite[draws].mean(axis=1)),
@@ -105,7 +134,7 @@ def plot(report, rows, stages, summary):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, (ax, hist) = plt.subplots(1, 2, figsize=(9.5, 4.2), constrained_layout=True)
+    fig, (ax, hist, finite) = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True)
     for key, color, label in (
             (0, "#798791", "Other pairs"), (1, "#306c98", "Opposite signs"),
             (2, "#c45728", "Opposite signs, global mean > 0")):
@@ -124,6 +153,11 @@ def plot(report, rows, stages, summary):
     hist.axvline(0, color="black", linewidth=.8)
     hist.set(xlabel="Stage gate − global gate", ylabel="Number of stages",
              title=f'{summary["n_negative_stages"]} negative-margin stages')
+    finite.scatter(weak, [r["k4_delta_mean"] for r in stages if r["negative_stage"]], s=18, alpha=.7)
+    finite.axhline(0, color="0.5", linewidth=.7)
+    finite.axvline(0, color="0.5", linewidth=.7)
+    finite.set(xlabel="Gate difference at bank means", ylabel="Mean K=4 gate difference",
+               title="Tagged view from a negative stage")
     fig.suptitle(f"SD3.5-M Flow-DPO at update 1,600 · {len(stages) // len(rows)} stages, "
                  f"{stages[0]['views']} views per pair and stage\n"
                  f"View RNG seed {summary['view_seed']} · one point per preference pair", fontsize=10)
@@ -136,11 +170,17 @@ def main():
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=20261121, help="whole-pair bootstrap RNG seed")
+    parser.add_argument("--k4-draws", type=int, default=10000)
+    parser.add_argument("--k4-seed", type=int, default=17)
     args = parser.parse_args()
+    if args.k4_draws < 2 or args.k4_seed < 0:
+        parser.error("require at least two K4 draws and a nonnegative K4 seed")
     protocol = read_json(args.input / "protocol.json")
-    rows, stages = pair_rows(args.input, protocol)
+    rows, stages = pair_rows(args.input, protocol, args.k4_draws, args.k4_seed)
     summary = summarize(rows, stages, args.repeats, args.seed)
-    summary.update(protocol_id=protocol["protocol_id"], view_seed=protocol["sampling"]["view_seed"],
+    summary.update(k4_draws_per_pair_stage=args.k4_draws, k4_seed=args.k4_seed,
+                   k4_design="Empirical banks sampled with replacement. Same tagged first view. Stage-wise companions from its stage; global companions independently select either stage with probability 0.5. Negative status from bank mean. Quantiles of paired deltas use common random numbers. Pair intervals condition on saved banks.",
+                   protocol_id=protocol["protocol_id"], view_seed=protocol["sampling"]["view_seed"],
                    pair_selection_seed=protocol["sampling"]["pair_seed"], views_per_stage=protocol["sampling"]["stage_views"],
                    sampling_unit="independent noise and scheduler-index draw conditional on a fixed latent pair",
                    fraction_denominator="all preselected preference pairs",
