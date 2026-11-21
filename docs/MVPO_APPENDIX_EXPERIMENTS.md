@@ -35,10 +35,10 @@ source paths.sh
 | G4 | 800 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step800` | 待回填 | — |
 | G5 | 2,400 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step2400` | 待回填 | — |
 | G6 | 3,200 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step3200` | 待回填 | — |
-| D1 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 1/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D1` | 等待确定性 D pilot 通过 | — |
-| D2 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 2/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D2` | 等待确定性 D pilot 通过 | — |
-| D3 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 3/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D3` | 等待确定性 D pilot 通过 | — |
-| D4 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 4/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D4` | 等待确定性 D pilot 通过 | — |
+| D1 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 1/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh D1` | 等待确定性 D pilot 通过 | — |
+| D2 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 2/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh D2` | 等待确定性 D pilot 通过 | — |
+| D3 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 3/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh D3` | 等待确定性 D pilot 通过 | — |
+| D4 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 4/4） | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh D4` | 等待确定性 D pilot 通过 | — |
 | F1 | SD3.5-M Flow-DPO 1,600 步，8 对。分两个噪声阶段复验 K=1/2/4 的梯度机制（分片 1/2） | `python3 scripts/appendix_jobs.py sd35-gradient --group 1/2` | 待回填 | — |
 | F2 | SD3.5-M Flow-DPO 1,600 步，8 对。分两个噪声阶段复验 K=1/2/4 的梯度机制（分片 2/2） | `python3 scripts/appendix_jobs.py sd35-gradient --group 2/2` | 待回填 | — |
 | S1 | 同一 Flow-DPO，128 对，每对每阶段 96 个前向视图。测跨阶段抵消和负阶段监督（分片 1/2） | `python3 scripts/appendix_jobs.py sd35-stage --group 1/2` | 待回填 | — |
@@ -69,7 +69,7 @@ source paths.sh
 
 | 实验 | 启动入口 | 当前记录 |
 |---|---|---|
-| SD1.5 梯度 pilot，4 对样本 | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh pilot-D` | 核对 `repeat-view-check.json`、耗时和峰值显存，本次输出在 `d-repeat-v2/smoke/sd15-gradient/`。 |
+| SD1.5 梯度 pilot，4 对样本 | `bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code/scripts/run_appendix_slai.sh pilot-D` | 核对 `repeat-view-check.json`、耗时和峰值显存，本次输出在 `d-repeat-v2/smoke/sd15-gradient/`。 |
 | Flow 梯度 pilot，4 对样本 | `python3 scripts/appendix_jobs.py sd35-gradient --smoke` | 核对 `repeat-view-check.json`、耗时和峰值显存，输出在 `smoke/sd35-gradient/`。 |
 | Flow 阶段前向 pilot，4 对样本 | `python3 scripts/appendix_jobs.py sd35-stage --smoke` | 待回填耗时和峰值显存，输出在 `smoke/sd35-stage/`。 |
 | SD3.5-M 同噪声定性图，4×5090 | [定性图启动命令](../command.md#长版计划中的低成本补充) | 可选第 15 个 GPU 作业；归档 Base / DPO / Stage-wise K4 三列图。 |

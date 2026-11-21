@@ -5,29 +5,44 @@ job=${1:?Pass a task ID from command.md}
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$PWD"
-source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
-conda activate eval
 export SCD_RESOURCES="$PWD/configs/resources.json"
-source paths.sh
 export PYTHONUNBUFFERED=1
+driver=python
 case "$job" in
   pilot-D|D[1-4]|report-D)
-    # Read the existing machine resource overrides; run the revised D code in this checkout.
+    # Use the interpreters that loaded the actual SLAI pilot. No shell activation needed.
+    envs=/mnt/afs/L202500030/xietianyu/miniconda3/envs
+    driver=${SCD_SD15_PY:-$envs/eval/bin/python3.10}
+    export MVPO_SD15_PROBE_PY=${MVPO_SD15_PROBE_PY:-$envs/dpo/bin/python3.10}
+    if [[ ! -x "$driver" ]]; then driver="$MVPO_SD15_PROBE_PY"; fi
+    required=("$driver")
+    if [[ "$job" != report-D ]]; then required+=("$MVPO_SD15_PROBE_PY"); fi
+    for exe in "${required[@]}"; do
+      if [[ ! -x "$exe" ]]; then
+        echo "SLAI interpreter unavailable in this container: $exe" >&2
+        exit 1
+      fi
+    done
+    root=$(PYTHONPATH="$PWD/src" "$driver" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["MVPO_APPENDIX_ROOT"])')
+    export MVPO_APPENDIX_ROOT="$root/d-repeat-v2"
     cd "$launcher_dir/.."
-    export GIT_CONFIG_VALUE_0="$PWD"
-    export MVPO_APPENDIX_ROOT="$MVPO_APPENDIX_ROOT/d-repeat-v2"
-    echo "D checkout: $PWD; output: $MVPO_APPENDIX_ROOT"
+    echo "D source: $PWD; driver: $driver; worker: $MVPO_SD15_PROBE_PY; output: $MVPO_APPENDIX_ROOT"
+    ;;
+  *)
+    source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+    conda activate eval
+    source paths.sh
+    loss_run="$FLOW_RUNS_ROOT/sd35-global-lossavg-k4-pv128-seed17-appendix"
+    loss_gen="$MVPO_APPENDIX_ROOT/lossavg-k4/generation"
     ;;
 esac
 scratch=${TMPDIR:-/tmp}
-loss_run="$FLOW_RUNS_ROOT/sd35-global-lossavg-k4-pv128-seed17-appendix"
-loss_gen="$MVPO_APPENDIX_ROOT/lossavg-k4/generation"
 
 case "$job" in
   G2|G3|G4|G5|G6)
     case "$job" in G2) group=seed23;; G3) group=seed42;; G4) group=step800;; G5) group=step2400;; G6) group=step3200;; esac
     python scripts/appendix_jobs.py "$group" ;;
-  D[1-4]) python scripts/appendix_jobs.py sd15-gradient --group "${job#D}/4" --scratch-dir "$scratch" ;;
+  D[1-4]) "$driver" scripts/appendix_jobs.py sd15-gradient --group "${job#D}/4" --scratch-dir "$scratch" ;;
   F[12]) python scripts/appendix_jobs.py sd35-gradient --group "${job#F}/2" --scratch-dir "$scratch" ;;
   S[12]) python scripts/appendix_jobs.py sd35-stage --group "${job#S}/2" ;;
   prepare-FS)
@@ -42,13 +57,13 @@ case "$job" in
       python scripts/appendix_stage_report.py --input "$MVPO_APPENDIX_ROOT/smoke/$probe"
     else
       pilot="$MVPO_APPENDIX_ROOT/smoke/$probe"
-      if ! python scripts/appendix_jobs.py "$probe" --smoke --scratch-dir "$scratch"; then
+      if ! "$driver" scripts/appendix_jobs.py "$probe" --smoke --scratch-dir "$scratch"; then
         if [[ -f "$pilot/repeat-view-check.json" ]]; then cat "$pilot/repeat-view-check.json"; fi
         echo "Pilot worker logs: $pilot/logs/" >&2
         exit 1
       fi
-      python scripts/appendix_gradient_report.py --input "$pilot"
-      python - "$pilot" <<'PY'
+      "$driver" scripts/appendix_gradient_report.py --input "$pilot"
+      "$driver" - "$pilot" <<'PY'
 import json, sys
 from pathlib import Path
 root = Path(sys.argv[1])
@@ -95,7 +110,7 @@ PY
   report-seeds|report-curve)
     python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section "${job#report-}" ;;
   report-G) python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" ;;
-  report-D) python scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/sd15-gradient" ;;
+  report-D) "$driver" scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/sd15-gradient" ;;
   report-F) python scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/sd35-gradient" ;;
   report-S) python scripts/appendix_stage_report.py --input "$MVPO_APPENDIX_ROOT/sd35-stage" ;;
   cpu-sd15|cpu-sdxl|cpu-zimage)
