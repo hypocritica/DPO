@@ -290,19 +290,33 @@ def repeat_view_check(probe, condition, seed):
     import torch
 
     # Reset only the explicit view generator inside gradient(). Leave the global RNG advancing.
+    def rng_state():
+        return (torch.get_rng_state(), torch.cuda.get_rng_state(probe.backend.device))
+
+    before = rng_state()
     m1, g1, t1 = probe.gradient(condition, seed)
+    between = rng_state()
     m2, g2, t2 = probe.gradient(condition, seed)
+    after = rng_state()
     atol, rtol = 1e-7, 1e-5
     diff = g2 - g1
-    norm = float(g1.norm())
+    norm, norm2 = float(g1.norm()), float(g2.norm())
     diff_norm = float(diff.norm())
-    finite = all(math.isfinite(x) for x in (m1, m2, norm, diff_norm))
-    passed = (finite and t1 == t2 and math.isclose(m1, m2, abs_tol=atol, rel_tol=rtol)
-              and torch.allclose(g1, g2, atol=atol, rtol=rtol) and diff_norm <= atol + rtol * norm)
+    finite = all(math.isfinite(x) for x in (m1, m2, norm, norm2, diff_norm))
+    criteria = dict(finite=finite, same_index=t1 == t2,
+                    margin_close=finite and math.isclose(m1, m2, abs_tol=atol, rel_tol=rtol),
+                    gradient_elementwise_close=finite and torch.allclose(g1, g2, atol=atol, rtol=rtol),
+                    gradient_l2_close=finite and diff_norm <= atol + rtol * norm)
     return dict(condition=condition["condition"], seed=seed, indices=[t1, t2], finite=finite,
                 margins=[x if math.isfinite(x) else None for x in (m1, m2)],
-                gradient_norm=norm if finite else None, gradient_difference_norm=diff_norm if finite else None,
-                atol=atol, rtol=rtol, passed=passed)
+                gradient_norm=norm if finite else None, second_gradient_norm=norm2 if finite else None,
+                gradient_difference_norm=diff_norm if finite else None,
+                relative_l2_difference=diff_norm / norm if finite and norm > 0 else None,
+                max_abs_difference=float(diff.abs().max()) if finite else None,
+                default_rng_changed={name: [not torch.equal(before[j], between[j]),
+                                            not torch.equal(between[j], after[j])]
+                                     for j, name in enumerate(("cpu", "cuda"))},
+                atol=atol, rtol=rtol, criteria=criteria, passed=all(criteria.values()))
 
 
 def initialization_check(backend, beta, rows, pairs, conditions, checkpoint_id, view_seed, init_seed):
@@ -503,6 +517,14 @@ def run(args, sampling):
             "draw_order": "torch CUDA generator: shared Gaussian noise in latent dtype, then uniform integer index within condition",
         },
     }
+    if family == "sd15":
+        protocol["numerics"] = {
+            "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+            "cudnn_deterministic": torch.backends.cudnn.deterministic,
+            "cudnn_benchmark": torch.backends.cudnn.benchmark,
+            "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"],
+            "sdpa_backend": "math",
+        }
     protocol["protocol_id"] = digest(protocol)
     (output / "pairs").mkdir(parents=True, exist_ok=True)
     publish_protocol(output, protocol)
@@ -531,6 +553,7 @@ def run(args, sampling):
         check_path = output / "repeat-view-check.json"
         with output_lock(check_path):
             atomic_json(check_path, record)
+        print(json.dumps({"event": "repeat_view", **record}), flush=True)
         del probe
         if not record["passed"]:
             raise RuntimeError(f"Loaded checkpoint failed the train-mode repeat-view check: {check_path}")
@@ -604,4 +627,16 @@ def main():
     parser.add_argument("--scratch-dir", type=Path)
     args = parser.parse_args()
     sampling = probe_settings(args, parser)
-    run(args, sampling)
+    if args.experiment == "sd15-gradient" and not args.prepare_only:
+        # Set before importing the GPU stack and creating the first CUDA context.
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        import torch
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        with sdpa_kernel(SDPBackend.MATH):
+            run(args, sampling)
+    else:
+        run(args, sampling)

@@ -10,6 +10,15 @@ conda activate eval
 export SCD_RESOURCES="$PWD/configs/resources.json"
 source paths.sh
 export PYTHONUNBUFFERED=1
+case "$job" in
+  pilot-D|D[1-4]|report-D)
+    # Read the existing machine resource overrides; run the revised D code in this checkout.
+    cd "$launcher_dir/.."
+    export GIT_CONFIG_VALUE_0="$PWD"
+    export MVPO_APPENDIX_ROOT="$MVPO_APPENDIX_ROOT/d-repeat-v2"
+    echo "D checkout: $PWD; output: $MVPO_APPENDIX_ROOT"
+    ;;
+esac
 scratch=${TMPDIR:-/tmp}
 loss_run="$FLOW_RUNS_ROOT/sd35-global-lossavg-k4-pv128-seed17-appendix"
 loss_gen="$MVPO_APPENDIX_ROOT/lossavg-k4/generation"
@@ -32,8 +41,12 @@ case "$job" in
       python scripts/appendix_jobs.py "$probe" --smoke
       python scripts/appendix_stage_report.py --input "$MVPO_APPENDIX_ROOT/smoke/$probe"
     else
-      python scripts/appendix_jobs.py "$probe" --smoke --scratch-dir "$scratch"
       pilot="$MVPO_APPENDIX_ROOT/smoke/$probe"
+      if ! python scripts/appendix_jobs.py "$probe" --smoke --scratch-dir "$scratch"; then
+        if [[ -f "$pilot/repeat-view-check.json" ]]; then cat "$pilot/repeat-view-check.json"; fi
+        echo "Pilot worker logs: $pilot/logs/" >&2
+        exit 1
+      fi
       python scripts/appendix_gradient_report.py --input "$pilot"
       python - "$pilot" <<'PY'
 import json, sys

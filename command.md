@@ -4,17 +4,46 @@
 
 逐作业启动、SLAI 作业号、实测结论与待补问题统一记在 [MVPO 附录实验台账](docs/MVPO_APPENDIX_EXPERIMENTS.md)。
 
+## D pilot 同视图梯度复算失败后的重试（2×5090）
+
+在 22edcb6 的 SD1.5 pilot，pair 1267633 两次 t=499 的 margin 均为 −0.0391528010，梯度范数 75.37484，差范数 0.55958（相对 0.7424%）。初始化检查通过，已加载权重的重复性检查失败。日志尚不能定位到具体 CUDA 算子。
+
+登录节点在 AFS 建立单独 checkout，并在重试期间固定此 checkout。原 22edcb6 checkout 的资源配置继续由启动器读取。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace
+git clone --single-branch --branch codex/mvpo-appendix-experiments https://github.com/hypocritica/DPO.git DPO-appendix-d-repeat-v2
+```
+
+2×5090 容器的完整启动命令：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh pilot-D
+```
+
+这个入口自动准备输入并运行四对 pilot、汇总和两项检查。相同 view 的默认 RNG 消耗与逐项误差见新的 `repeat-view-check.json`。D 在 train 模式和原容差下使用 PyTorch 严格确定性算法、确定性 cuDNN、固定 cuBLAS workspace 和 math SDPA；数值设置写入 protocol。math SDPA 的显存和耗时以本次 pilot 为准。数据写到 `$MVPO_APPENDIX_ROOT/d-repeat-v2/smoke/sd15-gradient`（相对原始输出根）。若失败，查看本轮 JSON 或本轮 shard 日志末尾最先报错的算子。
+
+pilot 输出 `Pilot passed` 并核对资源后，分别在四个容器运行 D1–D4。全部结束后，CPU 跑 report-D。
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D1
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D3
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh report-D
+```
+
 ## SLAI 平台任务入口（G1 已完成）
 
 登录节点将本分支单独克隆到 `/mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs`。入口自动进入已冻结的 `DPO-mvpo-appendix-22edcb6` 做诊断与评估，训练在已有 `DPO-flow-microbatch` 中运行。每个容器的启动命令是一整行：
 
 ```bash
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh prepare-FS
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh pilot-D
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D1
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D2
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D3
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh pilot-D
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D1
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D3
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh D4
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G2
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G3
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh train-lossavg
@@ -36,7 +65,7 @@ bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appen
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-seeds
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-curve
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-G
-bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-D
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-d-repeat-v2/scripts/run_appendix_slai.sh report-D
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-S
 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-F
 ```
