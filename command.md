@@ -2,6 +2,8 @@
 
 使用 GitHub 分支 `codex/mvpo-appendix-experiments`。下面 14 个正式 GPU 作业可以独立领取 SLAI 容器，全部复用现有 LoRA。先准备一遍输入。生成线按历史协议匹配 GPU，梯度和前向诊断可以另用 2/4 张 5090 或 2 张 H100。卡紧张时优先跑直接对照、SD1.5 梯度与跨阶段前向。其余作业可以随后补齐。
 
+逐作业启动、SLAI 作业号、实测结论与待补问题统一记在 [MVPO 附录实验台账](docs/MVPO_APPENDIX_EXPERIMENTS.md)。
+
 ## 部署与 CPU 准备
 
 在 SLAI 登录 shell 中执行一次。代码使用新 AFS checkout，输出写 AOSS。操作沿用原 Flow paper-v2 和统一评测的环境。
