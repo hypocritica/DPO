@@ -1,13 +1,13 @@
 # MVPO 附录实验台账
 
-更新于 2026-11-21。正式实验复用已有 checkpoint，共 14 个 SLAI 作业。每行对应一个可单独领取的容器。状态按已收到的记录填写；目前尚未收到 SLAI 作业号或正式结果。
+更新于 2026-11-21。正式实验复用已有 checkpoint，共 14 个 SLAI 作业。每行对应一个可单独领取的容器。状态按已收到的记录填写；已收到第一批 CPU 准备日志，正式汇总和 GPU 作业号待回填。
 
 ## 启动前
 
 首次部署及 4 条 CPU 准备命令见[部署与 CPU 准备](../command.md#部署与-cpu-准备)。每个新容器先运行以下命令，再复制表中对应的一行。
 
 ```bash
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix-22edcb6
 export SCD_RESOURCES="$PWD/configs/resources.json"
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate eval
 source paths.sh
@@ -29,16 +29,16 @@ source paths.sh
 
 | 编号 | 实验描述 | SLAI 容器内启动命令 | 状态 | SLAI 作业号 |
 |---|---|---|---|---|
-| G1 | 1,600 步，seed 17，1,632 条 PartiPrompts。比较 Flow-DPO、Global K4、Stage-wise K4 四项评分 | `python3 scripts/appendix_jobs.py direct` | 待回填 | — |
+| G1 | 1,600 步，seed 17，1,632 条 PartiPrompts。比较 Flow-DPO、Global K4、Stage-wise K4 四项评分 | `python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section direct` | 历史 3×4 项齐全，待 CPU 汇总 | — |
 | G2 | 1,600 步，seed 23，固定 512 条。配对比较 Flow-DPO 与 Stage-wise K4 | `python3 scripts/appendix_jobs.py seed23` | 待回填 | — |
 | G3 | 与 G2 同一面板，生成 seed 42。三种子分析复用 G1 的 seed 17 子集 | `python3 scripts/appendix_jobs.py seed42` | 待回填 | — |
 | G4 | 800 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step800` | 待回填 | — |
 | G5 | 2,400 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step2400` | 待回填 | — |
 | G6 | 3,200 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step3200` | 待回填 | — |
-| D1 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 1/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 1/4` | 待回填 | — |
-| D2 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 2/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 2/4` | 待回填 | — |
-| D3 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 3/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 3/4` | 待回填 | — |
-| D4 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 4/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 4/4` | 待回填 | — |
+| D1 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 1/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 1/4` | 16 对输入已冻结，待 pilot 放行 | — |
+| D2 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 2/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 2/4` | 16 对输入已冻结，待 pilot 放行 | — |
+| D3 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 3/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 3/4` | 16 对输入已冻结，待 pilot 放行 | — |
+| D4 | SD1.5 DPO 1,000 步，16 对、t=499。比较五个 K 的原始梯度并检验权重–梯度关联（分片 4/4） | `python3 scripts/appendix_jobs.py sd15-gradient --group 4/4` | 16 对输入已冻结，待 pilot 放行 | — |
 | F1 | SD3.5-M Flow-DPO 1,600 步，8 对。分两个噪声阶段复验 K=1/2/4 的梯度机制（分片 1/2） | `python3 scripts/appendix_jobs.py sd35-gradient --group 1/2` | 待回填 | — |
 | F2 | SD3.5-M Flow-DPO 1,600 步，8 对。分两个噪声阶段复验 K=1/2/4 的梯度机制（分片 2/2） | `python3 scripts/appendix_jobs.py sd35-gradient --group 2/2` | 待回填 | — |
 | S1 | 同一 Flow-DPO，128 对，每对每阶段 96 个前向视图。测跨阶段抵消和负阶段监督（分片 1/2） | `python3 scripts/appendix_jobs.py sd35-stage --group 1/2` | 待回填 | — |
@@ -50,7 +50,7 @@ source paths.sh
 
 | 研究问题 | 依赖作业 | 复盘时查看 | 当前缺口 / 后续决策 |
 |---|---|---|---|
-| 三种方法的生成效果如何？ | G1 | `generation/report/direct-comparison.csv` | 核对四指标与实际 adapter。独立 LossAvg K4 权重尚待查证；若缺失，聚合顺序的最终生成效果归因仍待补。 |
+| 三种方法的生成效果如何？ | G1 | `generation/report/direct-comparison.csv` | 核对四指标与实际 adapter。本轮指定训练根未检出匹配的独立 LossAvg K4 权重；若缺失，聚合顺序的最终生成效果归因仍待补。 |
 | 优势对生成种子是否稳定？ | G1–G3 | `generation/report/paired-differences.csv` | 回填各 seed 与三 seed 平均分差、三个 seed 各自平均分差的样本标准差、胜率、按 prompt 配对的 95% CI。 |
 | 优势在哪些训练步出现？ | G1、G4–G6 | `generation/report/checkpoint-differences.png` | 记录 PickScore 与 HPSv3 是否同向以及哪些步数的区间跨零。 |
 | 原始平均梯度是否改变？权重与梯度关联贡献多少？ | D1–D4 | `sd15-gradient/report/pair-metrics.csv` | 回填 source 校正的平方偏移、audit 分半稳定性、方差、下降方向、有符号投影和去耦合差异。 |
@@ -74,4 +74,5 @@ source paths.sh
 
 | 日期 | 实验编号 / SLAI 作业号 | 代码提交 / 结果位置 | 实测结果与不确定性 | 决定补什么、为什么 |
 |---|---|---|---|---|
-| 待填写 | | | | |
+| 2026-11-21 | G1 准备 | `22edcb6`，`generation/plan.json`，plan `5a416430e694` | 三种方法共 12 项历史评分可复用，直接对照表等待 CPU 汇总。配对环境为 NVIDIA H100 80GB HBM3、Torch 2.14.1+cu130、Diffusers 0.37.1。 | G2/G3 的新图沿用冻结环境。 |
+| 2026-11-21 | D pilot、D1–D4 准备 | `22edcb6`，`smoke/sd15-gradient/prepared.json` 与 `sd15-gradient/prepared.json` | 4 对 pilot 输入 `8d5218e4d49c`、16 对正式输入 `254cbde541a2` 均已冻结。 | 先开 2×5090 pilot，按专项检查、完整性和资源实测放行。 |
