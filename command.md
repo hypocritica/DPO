@@ -4,6 +4,43 @@
 
 逐作业启动、SLAI 作业号、实测结论与待补问题统一记在 [MVPO 附录实验台账](docs/MVPO_APPENDIX_EXPERIMENTS.md)。
 
+## SLAI 平台任务入口（G1 已完成）
+
+登录节点将本分支单独克隆到 `/mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs`。入口自动进入已冻结的 `DPO-mvpo-appendix-22edcb6` 做诊断与评估，训练在已有 `DPO-flow-microbatch` 中运行。每个容器的启动命令是一整行：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh prepare-FS
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh pilot-D
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D1
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D3
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh D4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G3
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh train-lossavg
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh pilot-S
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh S1
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh S2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh pilot-F
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh F1
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh F2
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G5
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh G6
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh prepare-lossavg
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh eval-lossavg
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh qualitative
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh cpu-sd15
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh cpu-sdxl
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh cpu-zimage
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-seeds
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-curve
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-G
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-D
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-S
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-appendix-jobs/scripts/run_appendix_slai.sh report-F
+```
+
 ## 部署与 CPU 准备
 
 在 SLAI 登录 shell 中执行一次。代码使用新 AFS checkout，输出写 AOSS。操作沿用原 Flow paper-v2 和统一评测的环境。

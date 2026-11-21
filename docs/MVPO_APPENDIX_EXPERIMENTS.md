@@ -1,6 +1,6 @@
 # MVPO 附录实验台账
 
-更新于 2026-11-21。正式实验复用已有 checkpoint，共 14 个 SLAI 作业。每行对应一个可单独领取的容器。状态按已收到的记录填写；已收到第一批 CPU 准备日志，正式汇总和 GPU 作业号待回填。
+更新于 2026-11-21。正式实验复用已有 checkpoint，共 14 个 SLAI 作业。每行对应一个可单独领取的容器。状态按已收到的记录填写；已收到 G1 汇总完成反馈；实测分数与作业号待回填。
 
 ## 启动前
 
@@ -29,7 +29,7 @@ source paths.sh
 
 | 编号 | 实验描述 | SLAI 容器内启动命令 | 状态 | SLAI 作业号 |
 |---|---|---|---|---|
-| G1 | 1,600 步，seed 17，1,632 条 PartiPrompts。比较 Flow-DPO、Global K4、Stage-wise K4 四项评分 | `python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section direct` | 历史 3×4 项齐全，待 CPU 汇总 | — |
+| G1 | 1,600 步，seed 17，1,632 条 PartiPrompts。比较 Flow-DPO、Global K4、Stage-wise K4 四项评分 | `python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section direct` | 已汇总（用户确认） | — |
 | G2 | 1,600 步，seed 23，固定 512 条。配对比较 Flow-DPO 与 Stage-wise K4 | `python3 scripts/appendix_jobs.py seed23` | 待回填 | — |
 | G3 | 与 G2 同一面板，生成 seed 42。三种子分析复用 G1 的 seed 17 子集 | `python3 scripts/appendix_jobs.py seed42` | 待回填 | — |
 | G4 | 800 步，seed 17，同一批 512 条。与 G1 的 1,600 步子集组成四个 checkpoint 的差值曲线 | `python3 scripts/appendix_jobs.py step800` | 待回填 | — |
@@ -43,6 +43,14 @@ source paths.sh
 | F2 | SD3.5-M Flow-DPO 1,600 步，8 对。分两个噪声阶段复验 K=1/2/4 的梯度机制（分片 2/2） | `python3 scripts/appendix_jobs.py sd35-gradient --group 2/2` | 待回填 | — |
 | S1 | 同一 Flow-DPO，128 对，每对每阶段 96 个前向视图。测跨阶段抵消和负阶段监督（分片 1/2） | `python3 scripts/appendix_jobs.py sd35-stage --group 1/2` | 待回填 | — |
 | S2 | 同一 Flow-DPO，128 对，每对每阶段 96 个前向视图。测跨阶段抵消和负阶段监督（分片 2/2） | `python3 scripts/appendix_jobs.py sd35-stage --group 2/2` | 待回填 | — |
+
+## 新增的匹配训练
+
+| 作业 | 资源 | 启动任务名 | 状态与产物 |
+|---|---|---|---|
+| Global LossAvg K4，匹配原 SD3.5-M Global K4 的数据、初始底模、随机种子、每步预算与学习率日程，使用原训练代码 B 臂 | 4×5090 | `train-lossavg` | 待运行；原 3,200 步日程在 1,600 步暂停并保留 adapter。 |
+| 核验证书并将第四行纳入独立评估计划 | CPU | `prepare-lossavg` | 依赖新 checkpoint，冻结在 `lossavg-k4/generation/`。 |
+| 对比 Global K4 与 LossAvg K4 的四项逐图评分 | 2×H100 | `eval-lossavg` | 依赖新计划；补全后四方法表和配对分差在 `lossavg-k4/generation/report/direct/`。 |
 
 ## 结果与待补证据
 
