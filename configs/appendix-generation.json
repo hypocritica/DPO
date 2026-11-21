@@ -1,0 +1,40 @@
+{
+  "source": "SLAI run inventory and configs/evaluation-sd35-main-selection.json",
+  "suite_config": "evaluation-suite-compact-h100-v3.json",
+  "history_roots": [
+    "compact-h100-v3",
+    "compact-h100-v2",
+    "main1600-dpo800-h800-v1",
+    "formal-h800-v1",
+    "."
+  ],
+  "runs": {
+    "dpo": {
+      "run": "sd35_medium-dpo-k1-pair_views128-45090-b4-3200-C-bfloat16-trainonly-paper-v2-flow-b4-stat-v1",
+      "run_id": "c520c231fa74cecb70870d687e7635c20c3c0cb3c1463a751d11b58ac9e791eb",
+      "checkpoints": {
+        "800": "c01770cf024a8fe05104ec5772996e42c119f4a532d63017f3b7dddca7e39c3b",
+        "1600": "3d6cc23e4e808ec0d131a840bcccdda14a5b7e4f35ab24bd9ba9dbea314d8fff",
+        "2400": "c28b2ac812a6a731bb30ce4189a83a4c4f33333660a81c7af62fb72847cc1c81",
+        "3200": "625a30eb72f002e3a111d96780c090a53a2a3aa26bf518d5ac0c15a6cfb60efd"
+      }
+    },
+    "global_k4": {
+      "run": "sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-C-bfloat16-trainonly-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "a54e9188016e5679d51698f20305d6063533265de116ad22ff58f6d866eba817",
+      "checkpoints": {
+        "1600": "9d2fba88a824f1ace8741d55440b7683f66f16a2012228e597978454b2770f1f"
+      }
+    },
+    "stagewise_k4": {
+      "run": "sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-C-bfloat16-trainonly-stage500-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "1effaa621eff65fa3297985959d7fcea136ce0900e07ee7806360bc6d148e582",
+      "checkpoints": {
+        "800": "8ac2364e01aebc1ac38acab521a8912ac30e26cd0435d2d3ee7845dde2c63e29",
+        "1600": "830ec96c3b40ebdeb8b93498372f6fb9ee5f9caf1707a973a8bb608d7d948c21",
+        "2400": "34a12f92aa0122777d0d06d32c96f957097651a0aa6a898a568ae5b02274d992",
+        "3200": "41f534935493f7d5f6970eaa13b1efb5dd5425dabec26f8396de6099f8649208"
+      }
+    }
+  }
+}

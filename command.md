@@ -1,3 +1,171 @@
+# MVPO 附录实验（2026-11-21）
+
+使用 GitHub 分支 `codex/mvpo-appendix-experiments`。下面 14 个正式 GPU 作业可以独立领取 SLAI 容器，全部复用现有 LoRA。先准备一遍输入。生成线按历史协议匹配 GPU，梯度和前向诊断可以另用 2/4 张 5090 或 2 张 H100。卡紧张时优先跑直接对照、SD1.5 梯度与跨阶段前向。其余作业可以随后补齐。
+
+## 部署与 CPU 准备
+
+在 SLAI 登录 shell 中执行一次。代码使用新 AFS checkout，输出写 AOSS。操作沿用原 Flow paper-v2 和统一评测的环境。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace
+git clone --single-branch --branch codex/mvpo-appendix-experiments https://github.com/hypocritica/DPO.git DPO-mvpo-appendix
+cd DPO-mvpo-appendix
+git rev-parse HEAD
+if [ -f ../DPO-eval-v2/configs/resources.local.json ]; then cp -n ../DPO-eval-v2/configs/resources.local.json configs/resources.local.json; fi
+export SCD_RESOURCES="$PWD/configs/resources.json"
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate eval
+source paths.sh
+df -h "$EVALUATIONS_ROOT" "${TMPDIR:-/tmp}"
+
+python scripts/appendix_jobs.py prepare-generation
+python scripts/appendix_jobs.py sd15-gradient --prepare-only
+python scripts/appendix_jobs.py sd35-gradient --prepare-only
+python scripts/appendix_jobs.py sd35-stage --prepare-only
+```
+
+资源、解释器路径都在 `configs/resources.json`，机器差异放进同目录的 `resources.local.json`。诊断默认用原训练环境 `dpo`、`mvpo-flow`，生成和打分用 `scd-eval-flow-v1`、`eval`、`scd-eval-hpsv3-v1`。`MVPO_APPENDIX_ROOT` 默认是 `/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-v1`。若自定义根目录，所有容器使用同一份配置。
+
+`prepare-generation` 在 SD3.5-M 历史评测根寻找原 plan、manifest 和逐图评分，按文件校验和核对 checkpoint 和 adapter。输出 `generation/plan.json` 会记录历史可复用项、拒绝原因、所需渲染 GPU 型号及 Torch/Diffusers 版本，还会检索同采样、同预算的独立 Global LossAvg K=4。历史目录在其他挂载时，首次准备可直接用 `python scripts/appendix_generation.py prepare --out "$MVPO_APPENDIX_ROOT/generation" --history-root /实际历史评测根`。有多个匹配的 LossAvg 时，用 `--lossavg-run /准确训练目录` 显式选择。只有方法均值的旧导出无法用于逐图配对。三个 probe 准备命令输出各自的 `prepared.json`，绑定训练 split、输入哈希和预选样本。
+
+## 正式作业与 GPU 分片
+
+**每个已获分配的容器**先执行以下两行，再执行表中分配给它的命令。脚本读取实际可见卡并记录日志。可用 `--gpus 0,1` 明确选择分配中的两个设备，`--dry-run --gpus 0,1` 仅打印分片命令。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-appendix
+export SCD_RESOURCES="$PWD/configs/resources.json"
+```
+
+| 作业 | 每个容器的资源 | 容器内命令 |
+|---|---|---|
+| 直接对照，1,600 步、seed 17、1,632 prompts | 2×H100，或与 plan 一致的 2/4×5090 | `python3 scripts/appendix_jobs.py direct` |
+| 生成 seed 23，512 prompts | 同上 | `python3 scripts/appendix_jobs.py seed23` |
+| 生成 seed 42，512 prompts | 同上 | `python3 scripts/appendix_jobs.py seed42` |
+| 800 步，seed 17，512 prompts | 同上 | `python3 scripts/appendix_jobs.py step800` |
+| 2,400 步，seed 17，512 prompts | 同上 | `python3 scripts/appendix_jobs.py step2400` |
+| 3,200 步，seed 17，512 prompts | 同上 | `python3 scripts/appendix_jobs.py step3200` |
+| SD1.5 原始梯度，4 个独立作业 | 每个 2/4×5090 | `python3 scripts/appendix_jobs.py sd15-gradient --group 1/4`，另外三个容器分别把分子改为 `2`、`3`、`4` |
+| SD3.5-M 两阶段原始梯度，2 个独立作业 | 每个 2×H100 或 2/4×5090 | `python3 scripts/appendix_jobs.py sd35-gradient --group 1/2` 和 `python3 scripts/appendix_jobs.py sd35-gradient --group 2/2` |
+| SD3.5-M 两阶段前向，2 个独立作业 | 每个 2/4×5090 或 2×H100 | `python3 scripts/appendix_jobs.py sd35-stage --group 1/2` 和 `python3 scripts/appendix_jobs.py sd35-stage --group 2/2` |
+
+同一 probe 的所有作业共用分母，每组处理预选清单中的不同 pair。也可以只用一个容器，去掉 `--group` 计算全部。中断后重跑原命令，worker 核验并复用已完成的 pair/condition，各次日志在对应实验的 `logs/`。梯度临时向量写节点本地临时盘，可传 `--scratch-dir /已存在的本地盘目录`。按默认 LoRA 规模，SD1.5 每个并行 worker 的向量文件约 0.67 GiB，Flow 约 0.70 GiB。每张卡跑一个 worker，共享挂载按同机 worker 数预留空间。
+
+**生成配对。** 对同一 prompt/seed，每图独立重置 CUDA generator。新旧渲染需匹配 plan 记录的 CUDA 噪声实现和 GPU 型号。若历史只缺指标且原图在，评分作业可在另一种卡上补。历史 compact-H100 协议通常是 resident、batch 8、1024²、28 步、CFG 4.5。若本轮生图只准备使用 5090，可在独立输出根首次执行以下命令，六个生成作业都使用这个根，并在同型号卡上生图。新作业复用同一份 512-prompt 清单。1600 步 seed 17 的子集从全表提取，只生成一次。
+
+```bash
+# 仅在选择新的 5090 生成协议时执行。其余梯度作业可继续使用原根。
+export MVPO_APPENDIX_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-5090-v1
+python scripts/appendix_generation.py prepare --out "$MVPO_APPENDIX_ROOT/generation" \
+    --fresh --generation-batch-size 2 --cpu-offload
+# 在六个生成作业和生成汇总 shell 中均设置同一个 MVPO_APPENDIX_ROOT。
+```
+
+**四对样本 pilot。** 在正式梯度作业前各用一组两卡测量速度和显存。pilot 写在独立 `smoke/` 根。两个梯度 pilot 各用 2×24 个 source、2×8 个独立 audit views，另在新初始化 LoRA 上比较同视图 LossAvg/MVPO 原始梯度。检查 `init-check.json`、每对 JSON 的 `execution` 和 worker 日志，再按实际秒数分配正式任务。若需调小阶段前向批量，可在准备和计算阶段都传 `--stage-batch-size 1` 并使用新输出根。
+
+```bash
+python3 scripts/appendix_jobs.py sd15-gradient --smoke
+python3 scripts/appendix_jobs.py sd35-gradient --smoke
+python3 scripts/appendix_jobs.py sd35-stage --smoke
+```
+
+## 清单与交付物核对
+
+| 附录证据 | 冻结设计 | 主要交付物 |
+|---|---|---|
+| 生成效果与归因 | SD3.5-M 1,600 步，全 1,632 prompts；DPO `3d6cc23e4e80`、Global K4 `9d2fba88a824`、Stage-wise K4 `830ec96c3b40`，逐行核实 adapter | `generation/report/direct-comparison.csv` 给 PickScore、HPSv3、ImageReward、Aesthetic。独立 LossAvg 有匹配权重时加入，缺失或歧义保留状态 |
+| 生成随机性 | 同一对固定 checkpoint、固定 512 prompts、生成 seed 17/23/42，每个方法各一次训练 | `paired-differences.csv` 给每 seed 与三 seed 均值的分差、评分器胜率和 95% CI。先在 prompt 内平均，再按整个 prompt 做 10,000 次配对 bootstrap |
+| 训练轨迹 | 同一面板、生成 seed 17，800/1,600/2,400/3,200 步 | `checkpoint-differences.png`、逐 prompt 差值及 PickScore/HPSv3 区间 |
+| 原始期望梯度与解耦 | SD1.5 DPO 1,000 步 `11c4dbedab00`，16 对 Pick-a-Pic，t=499，K=1/2/4/6/8。每对 8×96 source、独立 8×128 audit，共 28,672 个 pair–views | `sd15-gradient/pairs/` 归档原始 margin、独立 block 统计量与重建梯度几何量所需点积。`report/` 输出到独立 mean-margin 参照的距离、随机梯度方差、先平均原始梯度后的下降对齐度和有符号投影 |
+| 权重–梯度关联 | 对同一 pair、同一条件使用全部异 view 权重与梯度交叉配对；同一份反向结果用于所有 K | `pair-metrics.csv` 与 coupling 图给出去耦合前后对齐度、协方差平行/垂直分量。均值的 Monte Carlo 误差、audit 分半和跨 pair 区间分别导出 |
+| Flow 阶段内复验 | 1,600 步 Flow-DPO，8 对预选 HPDv3 样本，两段分别 K=1/2/4。每对每段 4×24 source + 4×32 audit，共 3,584 个 pair–views | `sd35-gradient/report/` 分阶段输出逐对表、block 误差、差值和初图。Flow 使用较小复验预算 |
+| 跨阶段抵消与负阶段监督 | 同一 Flow-DPO checkpoint，128 对，每对每段 96 个前向 views；索引 [0,500) 是高噪声段，索引 500 的原生流时间是 0.75 | `sd35-stage/report/pair-margins.csv`、`stage-weights.csv`、`stage-mechanism.png` 和 `summary.json`。两个比例分母均为全部 128 对。负阶段报告样本数和有符号 gate 差分布，区间按 pair 整组重采样 |
+
+生成表与阶段监督表分别保留，供并列呈现。只有实际 adapter 对应的方法可以参与方法归因。所有差值保留原符号，逐图评分、逐对统计和置信区间可以脱离 GPU 在本地重算。
+
+## SLAI 汇总、回传与本地重绘
+
+使用已有含 NumPy、Matplotlib 的评估 Python。在 SLAI checkout 中执行 `source paths.sh` 后，下面各条使用同一输出根。三个生成子报告可独立提前出图，全量报告则检查全部计划单元。
+
+```bash
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate eval
+source paths.sh
+python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section direct
+python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section seeds
+python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation" --section curve
+
+python scripts/appendix_generation.py summarize --out "$MVPO_APPENDIX_ROOT/generation"
+python scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/sd15-gradient"
+python scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/sd35-gradient"
+python scripts/appendix_stage_report.py --input "$MVPO_APPENDIX_ROOT/sd35-stage"
+```
+
+以下打包主实验数据与图。若生成与诊断分别运行在两个根目录，各自打包相应目录。pilot 的 `smoke/*/init-check.json` 和 `smoke/*/pairs/` 可另行回传，用于保留性能测量和初始化检验。
+
+```bash
+(
+  set -e
+  cd "$MVPO_APPENDIX_ROOT"
+  tar -czf "../mvpo-appendix-return-$(date +%Y%m%dT%H%M%S).tar.gz" \
+    generation/report generation/plan.json generation/scorers.resolved.json generation/full.jsonl generation/subset.jsonl \
+    sd15-gradient/{prepared.json,protocol.json,pairs,report} \
+    sd35-gradient/{prepared.json,protocol.json,pairs,report} \
+    sd35-stage/{prepared.json,protocol.json,pairs,report}
+)
+```
+
+本地用这个分支的源码，解包后让 `RETURN` 指向含 `generation/`、`sd15-gradient/` 等子目录的目录。重算只需要 Python、NumPy、Matplotlib，无需挂载训练盘。
+
+```bash
+python scripts/appendix_generation.py summarize --out "$RETURN/generation" --bundle "$RETURN/generation/report/data"
+python scripts/appendix_gradient_report.py --input "$RETURN/sd15-gradient"
+python scripts/appendix_gradient_report.py --input "$RETURN/sd35-gradient"
+python scripts/appendix_stage_report.py --input "$RETURN/sd35-stage"
+```
+
+## 长版计划中的低成本补充
+
+- **A 的实测配置与开销。** 从盘点提取四个 backbone 的训练身份、split、K/B/N、计时统计和显存记录。空项表示原记录不足；`training_seconds × world_size` 对应优化步 GPU-hours，单进程日志可见峰值与所有 rank 的峰值分列。
+- **C.2.3 的解析推论。** 标量 flow 的反向 ODE 给出 `X0 = exp(-θ) X1`。偏好对 (0,1) 的参考相对对数密度比为 `R=(exp(2θ)-1)/2`。脚本用 Gauss–Hermite 求积计算 θ=2 的期望下降步与 `-R′J′`，输出 CSV、PDF 和 PNG。
+- **D 的同噪声横向图。** 单独的 SD3.5-M 附录配置使用主表 Stage-wise K4，生成 Base / Flow-DPO / Stage-wise K4 三列。每个 prompt/seed 显式共享缓存的初始噪声并核对哈希。Z-Image 已有同协议流程及 2,300 步权重，对应 11 月 17 日的已生成 contact sheets 可直接沿用。
+
+```bash
+# 本地 CPU，在仓库根运行
+python scripts/appendix_training_cost.py --inventory "$HOME/Desktop/MVPO appendix/远程做的实验目录.json" --output runs/appendix-local/training-cost.csv
+python scripts/appendix_exact_likelihood.py --out runs/appendix-local/exact-likelihood
+
+# 可选的第 15 个 GPU 作业，4×5090。SLAI 已分配容器中使用新的附录输出目录
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate eval
+source paths.sh
+qual_out="$MVPO_APPENDIX_ROOT/qualitative-stagewise"
+(
+set -e
+python scripts/appendix_qualitative_config.py --out "$qual_out" --gpus 4
+for phase in smoke full; do
+  "$SCD_FLOW_PY" qualitative/run.py launch --config "$qual_out/stagewise-config.json" \
+    --out "$qual_out" --backbone sd35_medium --phase "$phase" --gpus "${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+done
+python qualitative/layout.py contacts --out "$qual_out" --backbone sd35_medium
+)
+```
+
+**历史逐图分数的额外配对比较。** 在带有 AOSS 挂载的 CPU 容器读取同一个原生 `evaluate_suite` plan 及两个方法的逐图评分，输出逐图 CSV、分差、按 prompt 聚类的 95% CI 和半权重计平局的胜率。每个面板独立运行；以下路径对应旧部署，若根目录曾更名，指定实际已完成的 `plan.json`。
+
+```bash
+python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/sdxl/paper-2000-5090-v1/main/partiprompts/plan.json" \
+  --method stagewise_k6 --baseline dpo --step 2000 --benchmark partiprompts \
+  --metrics pickscore hpsv2 image_reward clip aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/sdxl-parti"
+python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/sd15/main-h100-b64-v1/plan.json" \
+  --method stagewise_dspo_k6 --step 6000 --baseline dspo --baseline-step 10000 --benchmark partiprompts \
+  --metrics pickscore hpsv2 image_reward clip aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/sd15-dspo-parti"
+python scripts/appendix_paired_scores.py --plan "$EVALUATIONS_ROOT/zimage/formal-h800-v1/core/plan.json" \
+  --method stagewise_k4 --baseline dpo --step 2300 --benchmark partiprompts \
+  --metrics pickscore hpsv3 image_reward aesthetic --out "$MVPO_APPENDIX_ROOT/existing-rewards/zimage-parti"
+```
+
+若某次历史评测只保存了三种评分器，`--metrics` 只填写双方共有的逐图指标。旧表只有均值时，配对区间保留缺项。
+
+最终清单把三种子限定为生成种子。独立训练重复、随机阶段分组、Qwen/HPDv3++ 新训练线、人类标注和跨 pair 的固定预算梯度测量属于长版的扩展选项。理论文字、VRPO 定位和论文版式属于稿件编辑。下面保留之前各轮的部署命令。
+
 ## SDXL四行峰值补评：HPS与Parti/PickV2两组（2026-11-17）
 
 完整命令见[SDXL_PEAK_SUPPLEMENT.md](docs/SDXL_PEAK_SUPPLEMENT.md)。
