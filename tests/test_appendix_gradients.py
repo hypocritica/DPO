@@ -92,5 +92,74 @@ class AppendixGradientCollectorTests(unittest.TestCase):
         self.assertGreater(metrics["mvpo", 2]["signed_projection"], 0)
 
 
+class AppendixGradientDistributionTests(unittest.TestCase):
+    @staticmethod
+    def raw_vectors():
+        from self_correct_dpo.evaluation.appendix_gradients import _loss_derivative
+        slopes = np.array([[-2., 0., 1.], [4., 0., 2.], [-4., -2., 0.], [6., 2., -1.],
+                           [1., 2., 0.], [2., -1., 2.], [-3., 1., 1.], [4., 0., -1.],
+                           [1., 1., 0.], [1., -1., 1.], [2., 0., -1.], [0., 1., 1.]])
+        margins = np.array([-3., 3., -4., 4., 1., -0.5, -2., 2., 0.5, -0.5, 1., 0.])
+        ks = [1, 2, 4]
+        vectors, blocks = [], []
+        for start in (0, 4):
+            h, m = slopes[start:start + 4], margins[start:start + 4]
+            a = _loss_derivative(m)
+            means = [h.mean(0), (a[:, None] * h).mean(0)]
+            norms = {"lossavg": {}, "mvpo": {}}
+            for k in ks:
+                la = (a[:, None] * h).reshape(-1, k, 3).mean(1)
+                mv = _loss_derivative(m.reshape(-1, k).mean(1))[:, None] * h.reshape(-1, k, 3).mean(1)
+                norms["lossavg"][str(k)] = np.square(la).sum()
+                norms["mvpo"][str(k)] = np.square(mv).sum()
+                if k > 1:
+                    means.append(mv.mean(0))
+            vectors.extend(means)
+            blocks.append(dict(margin_mean=m.mean(), loss_derivative_mean=a.mean(), group_squared_norm_sums=norms))
+        vectors.extend([slopes[8:10].mean(0), slopes[10:12].mean(0)])
+        vectors = np.asarray(vectors)
+        return dict(ks=ks, source_views_per_block=4, audit_views_per_block=2, parameter_count=3,
+                    source_blocks=blocks, audit_block_margin_means=[margins[8:10].mean(), margins[10:12].mean()],
+                    block_mean_gram=(vectors @ vectors.T).tolist()), slopes, margins
+
+    def test_raw_mean_pairing_decoupling_and_audit_rows_match_explicit_vectors(self):
+        from self_correct_dpo.evaluation.appendix_gradients import _loss_derivative
+        from self_correct_dpo.evaluation.appendix_gradient_reporting import audit_reliability_rows, paired_change_rows
+        raw, h, m = self.raw_vectors()
+        summary = summarize_gradient_statistics([dict(pair_id="toy", condition="toy", statistics=raw)], bootstrap_repeats=12)
+        pair = summary["pairs"][0]
+        objectives = {(row["objective"], row["k"]): row["metrics"] for row in pair["objectives"]}
+        for k in raw["ks"]:
+            self.assertEqual(objectives["lossavg", k]["mean_gradient_norm"], objectives["lossavg", 1]["mean_gradient_norm"])
+        self.assertEqual(objectives["lossavg", 1], objectives["mvpo", 1])
+        weights = _loss_derivative(m[:8])
+        coupled = (weights[:, None] * h[:8]).mean(0)
+        decoupled = np.mean([weights[i] * h[j] for i in range(8) for j in range(8) if i != j], axis=0)
+        self.assertAlmostEqual(pair["coupling"]["covariance_norm"]["estimate"], np.linalg.norm(coupled - decoupled))
+        halves = [h[8:10].mean(0), h[10:12].mean(0)]
+        expected_cosine = halves[0] @ halves[1] / (np.linalg.norm(halves[0]) * np.linalg.norm(halves[1]))
+        self.assertAlmostEqual(pair["audit_split"]["direction_cosine"], expected_cosine)
+        rows = list(paired_change_rows(summary))
+        self.assertTrue(all(row["change"] == 0 for row in rows if row["k"] == 1))
+        audits = list(audit_reliability_rows(summary))
+        self.assertTrue(any(row["metric"] == "half_direction_cosine" for row in audits))
+        contrast = next(row for row in audits if row["k"] == 4 and row["metric"] == "distance")
+        for i, key in enumerate(("half1", "half2")):
+            split = {(r["objective"], r["k"]): r["metrics"] for r in pair["audit_split"]["objectives"]}
+            self.assertAlmostEqual(contrast[key], split["mvpo", 4]["distance"][i] - split["lossavg", 4]["distance"][i])
+
+    def test_sparse_gram_contraction_equals_dense_including_zero_vectors(self):
+        from self_correct_dpo.evaluation.appendix_gradient_reporting import _dot
+        rng = np.random.default_rng(23)
+        basis = rng.normal(size=(56, 7))
+        gram = basis @ basis.T
+        for active in (0, 8, 16, 56):
+            left = np.zeros((32, 56))
+            right = np.zeros_like(left)
+            left[:, :active] = rng.normal(size=(32, active))
+            right[:, -active:] = rng.normal(size=(32, active)) if active else 0
+            np.testing.assert_allclose(_dot(left, gram, right), np.sum(left.dot(gram) * right, axis=1), atol=1e-12, rtol=1e-12)
+
+
 if __name__ == "__main__":
     unittest.main()

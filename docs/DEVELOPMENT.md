@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-22 MVPO 梯度逐项监督入口
+
+新增gradient_experiment.py的plan/prepare/pilot/run/status/collect/report独立动作，SD1.5与Flow、pilot与formal分目录；正式128对、8×96 source、8×128 audit，按固定pair group再分GPU。正式worker要求对应pilot完整且两项检查通过，核验采集源码/checkpoint/数据身份。旧采集、后端、Gram格式、确定性SD1.5路径及默认入口未改；旧16对D先直接报告，不能由新prepare接管。报告新增同pair同K变化、audit分半诊断CSV和PNG/PDF，保留原始梯度、有限audit参照及两层区间；稀疏Gram收缩与原稠密公式等价。
+
+既有ate环境的8项轻量检查中7项通过、原PyTorch collector检查1项因缺torch跳过。覆盖原始向量/去耦合、配对差、audit分半、Gram收缩等价、纯标准库plan、固定分组分片及缺pilot拒绝正式worker；toy报告图经渲染检查。未安装依赖、访问SLAI、下载模型、提交GPU或实测5090显存/性能。逐步命令在command.md顶部，解释见MVPO_GRADIENT_WALKTHROUGH.md。
+
 ## 2026-11-17 SDXL峰值补评
 
 新增prepare_sdxl_peak.py与run_sdxl_peak.sh，固定DSPO两行3000、DMPO10000及Stagewise DMPO

@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from self_correct_dpo.common import digest, read_json
 from self_correct_dpo.evaluation.appendix_gradient_reporting import (
-    plot_gradient_statistics, summarize_gradient_statistics,
+    audit_reliability_rows, paired_change_rows, plot_gradient_statistics, plot_pair_diagnostics,
+    summarize_gradient_statistics,
 )
 from self_correct_dpo.runtime.checkpoints import atomic_json
 
@@ -159,7 +160,10 @@ def main():
     report.mkdir(exist_ok=True)
     _write_csv(report / "aggregate.csv", _table_rows(summary["conditions"], protocol["sampling"]))
     _write_csv(report / "pair-metrics.csv", _table_rows(summary["pairs"], protocol["sampling"]))
+    _write_csv(report / "paired-changes.csv", iter(paired_change_rows(summary)))
+    _write_csv(report / "audit-reliability.csv", iter(audit_reliability_rows(summary)))
     plot_gradient_statistics(summary, report)
+    plot_pair_diagnostics(summary, report)
     atomic_json(report / "summary.json", summary)
     print(report)
 

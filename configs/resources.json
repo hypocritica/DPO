@@ -5,6 +5,7 @@
   "RUNS_ROOT": "/mnt/aoss/xietianyu/self_correct/runs",
   "FLOW_RUNS_ROOT": "${WORKSPACE}/self_correct/flow-paper-v2/runs",
   "MVPO_APPENDIX_ROOT": "${EVALUATIONS_ROOT}/mvpo-appendix-v1",
+  "MVPO_GRADIENT_ROOT": "${EVALUATIONS_ROOT}/mvpo-gradient-walkthrough-v1",
   "MVPO_APPENDIX_SD15_DPO_RUN": "${RUNS_ROOT}/sd15-dpo-p384-cu130-v1",
   "MVPO_APPENDIX_SD35_DPO_RUN": "${FLOW_RUNS_ROOT}/sd35_medium-dpo-k1-pair_views128-45090-b4-3200-C-bfloat16-trainonly-paper-v2-flow-b4-stat-v1",
   "SLAI_ACCOUNT_ROOT": "/mnt/afs/L202500030/xietianyu",

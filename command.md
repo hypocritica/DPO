@@ -1,3 +1,103 @@
+# 本轮梯度实验：逐项监督（2026-11-22）
+
+**当前只执行第0步：汇总已跑完的旧16对D，回传报告后再决定下一步。** 新入口不提交SLAI任务，不自动部署或运行后续阶段。④原始梯度对应E.1；⑤去耦合对应E.2，由④的同一份Gram在CPU重算；⑥flow是跨模型复验。模块与结果读法见[逐项说明](docs/MVPO_GRADIENT_WALKTHROUGH.md)。下方旧2026-11-21命令保留作历史台账，不作为本轮新入口。
+
+## 手动同步本轮固定版本
+
+本地审查/提交后，由用户手动同步。先把本轮回复给出的完整commit SHA设为 `MVPO_GRADIENT_REV`；所有新容器使用同一固定checkout，不改原实验目录。机器私有资源只在新checkout的 `configs/resources.local.json` 合并，模型、数据、解释器、输出地址继续由资源表及环境变量解析。
+
+```bash
+: "${MVPO_GRADIENT_REV:?先设置本轮审查后给出的固定commit SHA}"
+git clone --branch codex/mvpo-gradient-walkthrough https://github.com/hypocritica/DPO.git /mnt/afs/L202500030/xietianyu/workspace/DPO-gradient-walkthrough-20261122
+git -C /mnt/afs/L202500030/xietianyu/workspace/DPO-gradient-walkthrough-20261122 checkout --detach "$MVPO_GRADIENT_REV"
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-gradient-walkthrough-20261122
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate eval
+export SCD_RESOURCES="$PWD/configs/resources.json"
+source paths.sh
+```
+
+## 第0步：先读取旧D正式报告（CPU）
+
+直接调用已有报告入口读取原冻结目录，核验16对及protocol/result/view bank；不经过新prepare、不修改旧采集协议。它会在原 `report/` 中更新CSV/JSON及PNG/PDF，不加载模型、不重跑GPU。若缺分片或校验失败，先回传报错；不要用新prepare接管。旧结果数值本地尚不可见。
+
+```bash
+"$SCD_SD15_PY" scripts/appendix_gradient_report.py --input "$MVPO_APPENDIX_ROOT/d-repeat-v2/sd15-gradient"
+```
+
+回传 `report/aggregate.csv`、`report/paired-changes.csv`、`report/audit-reliability.csv` 及 `sd15_t499-{gradients,coupling,paired-changes,audit-reliability}.png`。先看④原始均值梯度与audit可靠性，再看⑤去耦合变化；该步骤完成后与用户讨论是否需要新128对采集。MC区间与pair bootstrap区间分列；有限audit参照误差仍在，不把单位方向平均当成原始期望梯度。
+
+## 第1步：新SD1.5协议规划与独立pilot
+
+以下为经监督放行后的逐步命令，**每次只运行当前动作**。plan不需要NumPy/torch、模型或GPU，也不写文件。新根为资源表 `MVPO_GRADIENT_ROOT`（默认 `.../evaluations/mvpo-gradient-walkthrough-v1`），与旧D隔离。pilot默认4对、2×24 source、2×8 audit，仅验证数值、显存和耗时；不得据其做机制结论。先在分配的5090容器确认CUDA mask，`--gpus`使用该mask中的token。
+
+```bash
+python3 scripts/gradient_experiment.py plan sd15 --output "$MVPO_GRADIENT_ROOT" --phase pilot --gpus 0,1
+"$SCD_SD15_PY" scripts/gradient_experiment.py prepare sd15 --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py pilot sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1
+"$SCD_SD15_PY" scripts/gradient_experiment.py status sd15 --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py collect sd15 --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py report sd15 --output "$MVPO_GRADIENT_ROOT" --phase pilot
+```
+
+输出在 `sd15/pilot/`。核对init-check和repeat-view-check两项passed、全部记录完整、实际峰值显存/耗时，再讨论正式规模。SD1.5保留此前修复的严格确定性math SDPA。新入口不会自动从pilot进入formal。
+
+## 第2步：④新128对原始梯度；⑤同次采集的去耦合报告
+
+默认128对、8×96 source、8×128 audit、K=1/2/4/6/8，共229,376测量pair-view反向，另有shard0专项检查。plan和prepare在CPU依次运行。正式run会深验对应pilot及源码/checkpoint/数据身份，不通过不会启动worker。正式输出在 `sd15/formal/`。
+
+```bash
+python3 scripts/gradient_experiment.py plan sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 1/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py prepare sd15 --output "$MVPO_GRADIENT_ROOT"
+```
+
+以下四行分别在四个已分配容器执行；每个group按pair分卡。也可用2卡或8卡，令 `--gpus` 精确匹配分配mask，group总数始终固定4；无需同时有16卡。
+
+```bash
+"$SCD_SD15_PY" scripts/gradient_experiment.py run sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 1/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 2/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 3/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run sd15 --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 4/4
+```
+
+全部group结束后逐项汇总；collect只验证并保存hash清单，不启动GPU。先阅读④的 `gradients` / `paired-changes` / `audit-reliability`，再阅读⑤的 `coupling`；⑤无需另一轮GPU。
+
+```bash
+"$SCD_SD15_PY" scripts/gradient_experiment.py status sd15 --output "$MVPO_GRADIENT_ROOT"
+"$SCD_SD15_PY" scripts/gradient_experiment.py collect sd15 --output "$MVPO_GRADIENT_ROOT"
+"$SCD_SD15_PY" scripts/gradient_experiment.py report sd15 --output "$MVPO_GRADIENT_ROOT"
+```
+
+## 第3步：⑥flow独立pilot与复验
+
+仅在④/⑤报告复盘后进行。flow有两个独立条件（scheduler index 0–499、500–999），K=1/2/4。与SD1.5相同128对和bank规模时是458,752测量pair-view反向，约两倍view数量，实际速度/5090显存尚未验证。必须先执行其自己的4对pilot，输出在 `flow/pilot/`，不能用SD1.5 pilot放行flow。
+
+```bash
+python3 scripts/gradient_experiment.py plan flow --output "$MVPO_GRADIENT_ROOT" --phase pilot --gpus 0,1
+"$SCD_SD15_PY" scripts/gradient_experiment.py prepare flow --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py pilot flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1
+"$SCD_SD15_PY" scripts/gradient_experiment.py status flow --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py collect flow --output "$MVPO_GRADIENT_ROOT" --phase pilot
+"$SCD_SD15_PY" scripts/gradient_experiment.py report flow --output "$MVPO_GRADIENT_ROOT" --phase pilot
+```
+
+flow pilot复盘后，正式plan/prepare及四个group各自独立执行，输出在 `flow/formal/`。
+
+```bash
+python3 scripts/gradient_experiment.py plan flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 1/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py prepare flow --output "$MVPO_GRADIENT_ROOT"
+"$SCD_SD15_PY" scripts/gradient_experiment.py run flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 1/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 2/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 3/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py run flow --output "$MVPO_GRADIENT_ROOT" --gpus 0,1,2,3 --group 4/4
+"$SCD_SD15_PY" scripts/gradient_experiment.py status flow --output "$MVPO_GRADIENT_ROOT"
+"$SCD_SD15_PY" scripts/gradient_experiment.py collect flow --output "$MVPO_GRADIENT_ROOT"
+"$SCD_SD15_PY" scripts/gradient_experiment.py report flow --output "$MVPO_GRADIENT_ROOT"
+```
+
+资源设定、公开参数覆盖和结果解释见[逐项说明](docs/MVPO_GRADIENT_WALKTHROUGH.md)。模型worker解释器分别由 `MVPO_SD15_PROBE_PY` / `MVPO_FLOW_PROBE_PY` 决定；控制/报告解释器需NumPy/Matplotlib。仅plan/status不需这些包。各容器运行时不要pull或更改冻结配置；先停止旧worker再改变分组。没有进行依赖安装、模型下载或GPU实测。
+
+---
+
 # MVPO 附录实验（2026-11-21）
 
 使用 GitHub 分支 `codex/mvpo-appendix-experiments`。下面 14 个正式 GPU 作业可以独立领取 SLAI 容器，全部复用现有 LoRA。先准备一遍输入。生成线按历史协议匹配 GPU，梯度和前向诊断可以另用 2/4 张 5090 或 2 张 H100。P0 并行准备 G1、D pilot 与 CPU 统计，通过 pilot 后跑 D1–D4。P1 跑三生成种子和阶段前向，P2 跑 Flow 梯度复验与 checkpoint 曲线。

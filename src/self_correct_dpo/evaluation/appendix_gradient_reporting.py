@@ -8,7 +8,12 @@ from self_correct_dpo.evaluation.appendix_gradients import _bank_layout, _loss_d
 
 
 def _dot(left, gram, right):
-    return np.sum(left.dot(gram) * right, axis=1)
+    # Each vector only uses one or two roles (8--16 of the archived rows).
+    # Contract those columns directly: avoid full dense products and BLAS thread
+    # startup for every metric in each of 128 pairs and 2,000 resamples.
+    li = np.flatnonzero(np.any(left != 0, axis=0))
+    ri = np.flatnonzero(np.any(right != 0, axis=0))
+    return np.einsum("bi,ij,bj->b", left[:, li], gram[np.ix_(li, ri)], right[:, ri], optimize=False)
 
 
 def _sqrt(value):
@@ -299,7 +304,7 @@ def plot_gradient_statistics(summary, output_dir):
         axes.flat[0].axhline(0, color="0.5", linewidth=0.7)
         axes.flat[0].legend(frameon=False)
         figure.suptitle(title + "\nFinite audit reference; source correction can give negative estimates", fontsize=10)
-        figure.savefig(output_dir / f"{name}-gradients.png", dpi=180)
+        _save_figure(figure, output_dir / f"{name}-gradients")
         plt.close(figure)
 
         figure, (covariance, alignment) = plt.subplots(1, 2, figsize=(8, 3.7), layout="constrained")
@@ -320,5 +325,101 @@ def plot_gradient_statistics(summary, output_dir):
             axis.set_xticks(range(len(labels)), labels)
             axis.set(ylabel=ylabel, xlim=(-0.45, len(labels) - 0.55))
         figure.suptitle(title, fontsize=11)
-        figure.savefig(output_dir / f"{name}-coupling.png", dpi=180)
+        _save_figure(figure, output_dir / f"{name}-coupling")
+        plt.close(figure)
+
+
+def _save_figure(figure, stem):
+    for extension in ("png", "pdf"):
+        figure.savefig(f"{stem}.{extension}", dpi=180, bbox_inches="tight")
+
+
+def paired_change_rows(summary):
+    """One same-pair/same-K contrast per metric; never contrast unpaired means."""
+    for pair in summary["pairs"]:
+        for row in pair["paired_differences"]:
+            for metric, value in row["metrics"].items():
+                interval = value["monte_carlo_95"] or (None, None)
+                yield dict(condition=pair["condition"], pair_id=pair["pair_id"], k=row["k"],
+                           contrast="MVPO minus LossAvg at same K", metric=metric,
+                           change=value["estimate"], mc95_low=interval[0], mc95_high=interval[1])
+        for metric in ("descent_cosine_change",):
+            value = pair["coupling"][metric]
+            interval = value["monte_carlo_95"] or (None, None)
+            yield dict(condition=pair["condition"], pair_id=pair["pair_id"], k=None,
+                       contrast="Decoupled minus coupled", metric=metric,
+                       change=value["estimate"], mc95_low=interval[0], mc95_high=interval[1])
+
+
+def audit_reliability_rows(summary):
+    """Expose existing independent-half diagnostics and paired contrast sensitivity."""
+    for pair in summary["pairs"]:
+        split = pair["audit_split"]
+        shared = dict(condition=pair["condition"], pair_id=pair["pair_id"])
+        yield dict(**shared, kind="audit direction", objective=None, k=None, metric="half_direction_cosine",
+                   half1=split["direction_cosine"], half2=None)
+        for metric, values in split["audit"].items():
+            yield dict(**shared, kind="audit reference", objective=None, k=None, metric=metric,
+                       half1=values[0], half2=values[1])
+        rows = {(row["objective"], row["k"]): row["metrics"] for row in split["objectives"]}
+        for (objective, k), metrics in rows.items():
+            if objective != "mvpo":
+                continue
+            for metric in ("distance", "source_corrected_distance_squared", "descent_cosine", "signed_projection"):
+                a, b = metrics[metric], rows["lossavg", k][metric]
+                delta = [x - y if x is not None and y is not None else None for x, y in zip(a, b)]
+                yield dict(**shared, kind="paired contrast: MVPO minus LossAvg", objective=None, k=k,
+                           metric=metric, half1=delta[0], half2=delta[1])
+
+
+def plot_pair_diagnostics(summary, output_dir):
+    """Display heterogeneity and finite-audit sensitivity without population claims."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    output_dir = Path(output_dir)
+    change_rows = list(paired_change_rows(summary))
+    for condition in summary["conditions"]:
+        name = condition["condition"]
+        pairs = [pair for pair in summary["pairs"] if pair["condition"] == name]
+        ks = [row["k"] for row in condition["paired_differences"] if row["k"] > 1]
+        figure, axes = plt.subplots(2, 2, figsize=(10, 7), layout="constrained")
+        for axis, metric, label in zip(axes.flat,
+                ("source_corrected_distance_squared", "stochastic_variance", "descent_cosine", "signed_projection"),
+                ("Δ squared displacement\n(source-corrected)", "Δ gradient trace variance", "Δ descent cosine", "Δ signed projection")):
+            for position, k in enumerate(ks):
+                points = [row["change"] for row in change_rows if row["condition"] == name
+                          and row["k"] == k and row["metric"] == metric and row["change"] is not None]
+                if points:
+                    # Deterministic offsets only separate overlapping pairs.
+                    offsets = np.linspace(-0.16, 0.16, len(points))
+                    axis.scatter(position + offsets, points, s=15, alpha=0.55, color="#286b9d")
+                    axis.plot([position - 0.2, position + 0.2], [np.median(points)] * 2, color="#bb5032", linewidth=2)
+            axis.axhline(0, color="0.4", linewidth=0.8)
+            axis.set(xticks=range(len(ks)), xticklabels=ks, xlabel="Same K in both objectives", ylabel=label)
+            axis.grid(axis="y", alpha=0.2)
+        figure.suptitle(f"{name}: within-pair changes: MVPO − LossAvg ({len(pairs)} frozen pairs)\nDots: individual pairs; orange: median; K=1 is identically zero", fontsize=11)
+        _save_figure(figure, output_dir / f"{name}-paired-changes")
+        plt.close(figure)
+
+        figure, (direction, sensitivity) = plt.subplots(1, 2, figsize=(10, 4), layout="constrained")
+        cosines = [pair["audit_split"]["direction_cosine"] for pair in pairs]
+        direction.scatter(range(len(pairs)), [np.nan if x is None else x for x in cosines], s=20)
+        direction.axhline(0, color="0.4", linewidth=0.8)
+        direction.set(xlabel="Frozen pair order", ylabel="Cosine between independent audit halves", ylim=(-1.05, 1.05))
+        colors = plt.get_cmap("tab10")
+        audit_rows = list(audit_reliability_rows(summary))
+        for position, k in enumerate(ks):
+            rows = [row for row in audit_rows if row["condition"] == name and row["k"] == k
+                    and row["metric"] == "source_corrected_distance_squared"]
+            x = [row["half1"] for row in rows if row["half1"] is not None and row["half2"] is not None]
+            y = [row["half2"] for row in rows if row["half1"] is not None and row["half2"] is not None]
+            sensitivity.scatter(x, y, s=20, alpha=0.65, color=colors(position), label=f"K={k}")
+        sensitivity.axhline(0, color="0.4", linewidth=0.8)
+        sensitivity.axvline(0, color="0.4", linewidth=0.8)
+        sensitivity.set(xlabel="Audit half 1: paired displacement change", ylabel="Audit half 2: paired displacement change")
+        sensitivity.legend(frameon=False)
+        figure.suptitle(f"{name}: finite audit reliability\nSame source banks; independent audit halves; points are paired MVPO − LossAvg changes", fontsize=10)
+        _save_figure(figure, output_dir / f"{name}-audit-reliability")
         plt.close(figure)
