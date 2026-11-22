@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "research_phase": "exploration",
+  "panel_seed": 20261122,
+  "latent_seed": 1729,
+  "view_seed": 23,
+  "pair_count": 32,
+  "source_blocks": 4,
+  "source_views_per_block": 48,
+  "audit_blocks": 4,
+  "audit_views_per_block": 64,
+  "indices": [99, 299, 499, 699, 899],
+  "view_batch_sizes": {"sd15": 2, "sd35_medium": 2},
+  "tasks": [
+    {"task": 1, "sd15": 1000, "sd35_medium": 800},
+    {"task": 2, "sd15": 4000, "sd35_medium": 1600},
+    {"task": 3, "sd15": 10000, "sd35_medium": 3200}
+  ]
+}

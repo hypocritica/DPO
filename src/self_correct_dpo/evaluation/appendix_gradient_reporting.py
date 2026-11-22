@@ -265,14 +265,19 @@ def plot_gradient_statistics(summary, output_dir):
         "sd35_stage0": "SD3.5-M scheduler indices 0–499",
         "sd35_stage1": "SD3.5-M scheduler indices 500–999",
     }
+    for row in summary.get("condition_definitions", []):
+        model = "SD1.5" if row["condition"].startswith("sd15") else "SD3.5-M"
+        titles[row["condition"]] = f'{model} scheduler indices {row["index_start"]}–{row["index_stop"] - 1}'
+    fixed = {row["condition"] for row in summary.get("condition_definitions", [])
+             if row["index_stop"] == row["index_start"] + 1} | {"sd15_t499"}
     styles = {"lossavg": ("LossAvg", "#bb5032", "s"), "mvpo": ("MVPO", "#286b9d", "o")}
     for condition in summary["conditions"]:
         name = condition["condition"]
         interval_key = "pair_bootstrap_95" if condition["n_pairs"] > 1 else "monte_carlo_95"
         interval_label = "pair bootstrap" if condition["n_pairs"] > 1 else "source and audit block bootstrap"
-        randomness = "Gaussian noise draws" if name == "sd15_t499" else "Gaussian noise and scheduler-index draws"
+        randomness = "Gaussian noise draws" if name in fixed else "Gaussian noise and scheduler-index draws"
         title = (
-            f'{titles.get(name, name)}  ·  {condition["n_pairs"]} preference pairs\n'
+            f'{titles.get(name, name)}  ·  step {summary.get("checkpoint", {}).get("step", "legacy")}  ·  {condition["n_pairs"]} preference pairs\n'
             f'{condition["source_blocks"]}×{condition["source_views_per_block"]} source and '
             f'{condition["audit_blocks"]}×{condition["audit_views_per_block"]} audit views per pair'
             f'\n{randomness}  ·  95% {interval_label} intervals'

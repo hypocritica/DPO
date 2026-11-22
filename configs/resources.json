@@ -4,6 +4,7 @@
   "DATASETS_ROOT": "${WORKSPACE}/datasets",
   "RUNS_ROOT": "/mnt/aoss/xietianyu/self_correct/runs",
   "FLOW_RUNS_ROOT": "${WORKSPACE}/self_correct/flow-paper-v2/runs",
+  "MVPO_SCAN_ROOT": "${EVALUATIONS_ROOT}/mvpo-gradient-scan-v1-b2",
   "MVPO_APPENDIX_ROOT": "${EVALUATIONS_ROOT}/mvpo-appendix-v1",
   "MVPO_GRADIENT_ROOT": "${EVALUATIONS_ROOT}/mvpo-gradient-walkthrough-v1",
   "MVPO_APPENDIX_SD15_DPO_RUN": "${RUNS_ROOT}/sd15-dpo-p384-cu130-v1",

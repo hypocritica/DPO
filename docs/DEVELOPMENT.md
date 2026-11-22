@@ -1,5 +1,14 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-22 三任务 checkpoint/index 探索扫描
+
+新增 `gradient_scan.py` 与 `run_gradient_scan_slai.sh`，基于 `codex/mvpo-gradient-walkthrough` 分支扩展为三个独立 2×5090 提交任务。每任务顺序处理 SD1.5/Flow 各一个 checkpoint、各五个固定 scheduler index；配置冻结 32 对、4×48 source、4×64 audit，30 条件共 430,080 次 pair-view 观测。默认 view batch=2，可显式设为 4；合批前向但逐 view 求原始梯度，不以 batch 均值梯度替代。保留原 SD1.5 严格确定性路径、旧入口与输出。
+
+扫描通过已知 DPO checkpoint 锚定 training run，再冻结目标 step/完整 checkpoint/adapter 身份。跨 checkpoint 共用模型级 pair 面板、posterior latent seeds 和同 index 的噪声 bank；source/audit 分流。共享元数据用短时阻塞锁，任务执行锁拒绝重复启动。各 checkpoint 的独立工程 pilot 深验通过后进入正式采集；中断按 pair-condition 恢复，源码或 batch 漂移拒绝混写。支持新固定 index 的严格报告校验、同 K 配对差和完整热图，缺项及 audit split-half 诊断保留。第二轮确认条件尚待第一轮完成后冻结，三任务入口不会自动选择最佳条件或启动确认。
+
+18 项 CPU 轻量检查通过，含 batch 1/2/4 逐 view 及 Gram 一致、跨 checkpoint RNG、Flow shift-3 native time 映射、30 条件数量、并发元数据、错误身份、缺 batch 检查拒绝、旧 workflow 和数值统计回归。为验证 autograd，仅在 `/tmp` 隔离测试环境安装 CPU PyTorch 2.8；未改用户原 conda 环境。新条件的合成报告端到端完成，并检查热图渲染。Shell/Python 语法与 diff 检查通过；尚未运行真实 SD1.5/SD3.5-M 的 5090 pilot，未访问训练机器、提交 GPU、改旧 D3 代码或旧结果。部署、三个启动命令、batch 4/恢复/汇总入口统一写入 `command.md` 顶部。
+
+
 ## 2026-11-22 MVPO 梯度逐项监督入口
 
 新增gradient_experiment.py的plan/prepare/pilot/run/status/collect/report独立动作，SD1.5与Flow、pilot与formal分目录；正式128对、8×96 source、8×128 audit，按固定pair group再分GPU。正式worker要求对应pilot完整且两项检查通过，核验采集源码/checkpoint/数据身份。旧采集、后端、Gram格式、确定性SD1.5路径及默认入口未改；旧16对D先直接报告，不能由新prepare接管。报告新增同pair同K变化、audit分半诊断CSV和PNG/PDF，保留原始梯度、有限audit参照及两层区间；稀疏Gram收缩与原稠密公式等价。

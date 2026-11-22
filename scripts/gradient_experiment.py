@@ -67,6 +67,8 @@ def inspect(output):
         if not (output / "protocol.json").exists():
             if result["prepared"] != "missing":
                 conditions = ["sd15_t499"] if prepared["request"]["experiment"] == "sd15-gradient" else ["sd35_stage0", "sd35_stage1"]
+                if "scan" in prepared["request"]:
+                    conditions = [row["condition"] for row in prepared["request"]["scan"]["conditions"]]
                 result["missing"] = [f"{pair['pair_index']:04d}-{name}.json" for pair in prepared["pairs"] for name in conditions]
             return result
         protocol = checked_json(output / "protocol.json", "protocol_id")
@@ -93,7 +95,10 @@ def inspect(output):
         for path in (output / "pairs").glob("*.json"):
             if path.name not in expected:
                 result["failed"].append({"file": path.name, "error": "outside frozen protocol"})
-        for name in ("init-check", "repeat-view-check"):
+        check_names = ["init-check", "repeat-view-check"]
+        if protocol.get("scan", {}).get("view_batch_size", 1) > 1:
+            check_names.append("batch-check")
+        for name in check_names:
             path = output / f"{name}.json"
             if not path.exists():
                 result["checks"][name] = "missing"
@@ -101,7 +106,7 @@ def inspect(output):
             check = checked_json(path, "result_id")
             result["checks"][name] = "passed" if check.get("passed") is True and check["protocol_id"] == protocol["protocol_id"] else "failed"
         result["ready_to_collect"] = not result["missing"] and not result["failed"] and all(
-            result["checks"].get(key) == "passed" for key in ("init-check", "repeat-view-check"))
+            result["checks"].get(key) == "passed" for key in check_names)
     except (OSError, ValueError, KeyError, TypeError) as error:
         result["failed"].append({"error": str(error)})
     return result

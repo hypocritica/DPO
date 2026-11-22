@@ -1,6 +1,103 @@
-# 本轮梯度实验：逐项监督（2026-11-22）
+## 2026-11-22：梯度探索扫描，三个独立任务，每任务 2×5090
 
-**当前只执行第0步：汇总已跑完的旧16对D，回传报告后再决定下一步。** 新入口不提交SLAI任务，不自动部署或运行后续阶段。④原始梯度对应E.1；⑤去耦合对应E.2，由④的同一份Gram在CPU重算；⑥flow是跨模型复验。模块与结果读法见[逐项说明](docs/MVPO_GRADIENT_WALKTHROUGH.md)。下方旧2026-11-21命令保留作历史台账，不作为本轮新入口。
+本节是新扫描入口，不是旧 D1–D4 的重分片。分支 `codex/mvpo-checkpoint-scan`；代码目录、输出目录与正在运行的 `DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code` 隔离。
+
+| 提交任务 | 先运行 SD1.5 DPO | 再运行 SD3.5-M Flow-DPO | 固定 scheduler indices | 正式观测次数 |
+| --- | --- | --- | --- | --- |
+| 1 | step 1,000 | step 800 | 99、299、499、699、899 | 143,360 |
+| 2 | step 4,000 | step 1,600 | 同上 | 143,360 |
+| 3 | step 10,000 | step 3,200 | 同上 | 143,360 |
+
+共 30 条件，每条件 32 对，source=4×48、audit=4×64，总 430,080 次 pair-view 梯度观测，另加工程 pilot 和数值检查。它们不是新生成图片。三任务的计算量相等，实际 GPU 耗时以实测为准。
+
+### 先在登录节点拉取新分支，只做一次
+
+首次创建独立 checkout：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace
+git clone --single-branch --branch codex/mvpo-checkpoint-scan https://github.com/hypocritica/DPO.git DPO-mvpo-scan-v1
+cd DPO-mvpo-scan-v1
+git log -1 --oneline
+)
+```
+
+若 `DPO-mvpo-scan-v1` 已经是该分支的独立 checkout，用下面这段代替 clone；仅在没有任务使用该目录时更新。当前冻结扫描重跑应保留原 commit，源码变化须另用输出目录，不能中途 pull 后续跑旧产物。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1
+test "$(git branch --show-current)" = codex/mvpo-checkpoint-scan
+test -z "$(git status --porcelain)"
+git pull --ff-only origin codex/mvpo-checkpoint-scan
+git log -1 --oneline
+)
+```
+
+### 三个任务的提交启动命令
+
+在平台分别创建三个 **2×RTX 5090** 任务，各填一条启动命令。入口使用容器已分配的两张 GPU；不在同一容器连续启动三个进程争用两张卡。每个任务内部先 SD1.5 后 Flow，两张卡按 pair 分片。
+
+任务 1：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh 1
+```
+
+任务 2：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh 2
+```
+
+任务 3：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh 3
+```
+
+入口默认 driver 为 `/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10`，SD1.5 worker 使用资源表的 `MVPO_SD15_PROBE_PY`（dpo 环境），Flow worker 使用 `MVPO_FLOW_PROBE_PY`（mvpo-flow 环境）。沿用现有环境，不自动安装或更新远端依赖。需要覆盖时通过同名环境变量；自定义资源文件用 `MVPO_SCAN_RESOURCES`，不会误用 shell 遗留的旧 `SCD_RESOURCES`。
+
+### batch 2 默认；batch 4 显式开启
+
+新配置中两个模型的 **view batch 均为 2**，即同一 pair 同时合批两个噪声 view（winner/loser 合计四张 latent 输入）。原 D 梯度路径每次处理一个 view，故本次是 batch 增至两倍；不是增加 K 或样本量。合批前向后逐 view 求导，保留各 view 原始梯度，不能以整批均值梯度替代。每个 view 仍需独立 VJP，不能预设 batch 4 就有四倍速度。
+
+若决定两个模型都用 batch 4，三个任务必须统一使用下面形式，并改用新输出根；末尾任务号分别填 1、2、3：
+
+```bash
+MVPO_SD15_VIEW_BATCH=4 MVPO_FLOW_VIEW_BATCH=4 MVPO_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-gradient-scan-v1-b4 bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh 1
+```
+
+允许 SD1.5=4、Flow=2，但三个任务需一致，并命名不同输出根。默认先用 batch 2；确认显存充足再另开 batch 4 pilot，不能把旧输出根直接改 batch。
+
+每个 checkpoint 自动依次执行 prepare → 4 对工程 pilot → 数值/完整性核对 → 32 对正式扫描 → 校验 → 报告。pilot 也覆盖五个 index，source=2×24、audit=2×8。检查失败或 OOM 则停止，不自动降 batch、放宽容差或混入旧结果。需要只测 pilot，可在任务命令末尾加 `--pilot-only`；之后删去此参数重跑，会复用已通过的 pilot 并开始正式采集。
+
+合批数值检查保留单 view 和 batch 的 margin、梯度相对 L2、cosine，以及同 batch 重复性。batch-vs-single 的操作阈值预先固定为梯度 `L2差≤1e-7+0.01×单view范数`、margin `atol=0.001/rtol=0.01`；同 batch 重复沿用 `atol=1e-7/rtol=1e-5`。这是工程容差，不是保证论文中的微小效应不受数值误差影响；应结合实际差值检查，不在失败后自动放宽。真实模型 5090 显存和耗时尚待这些 pilot 实测。
+
+### 查看进度、恢复与完整汇总
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh plan
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh status
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-scan-v1/scripts/run_gradient_scan_slai.sh report
+```
+
+默认输出 `/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-gradient-scan-v1-b2`，其中：
+
+- `scan.json`：三任务共享的冻结采样、代码及资源身份；不同任务设置不一致时拒绝运行。
+- `task-N/selection.json`：冻结的 checkpoint/adapter ID，基于已知 DPO run 核验，缺权重即报错。
+- `panels/`：各模型共享偏好对及 latent seed；不同 checkpoint 必须完全一致。
+- `task-N/<family>/step-XXXXXXX/pilot|formal/`：协议、逐对统计、数值检查、logs 和单 checkpoint 报告。
+- `scan-report/`：完整 CSV、两个模型的热图、缺项状态。保留持平/反向/缺测，audit 分半一致性单独呈现；主 K 为 SD1.5=6、Flow=4，其他 K 全部在 CSV 中。
+
+相同设置、相同 commit 重跑原任务命令即可按 pair-condition 恢复；已有结果先校验再跳过。batch 4 的 status/report 需同样传 `MVPO_SCAN_ROOT`。第一轮完成后再冻结第二轮独立确认条件；本入口不会自动挑最佳点或启动第二轮。固定 index 是 scheduler 位置，Flow 的实际 timestep/sigma 映射随 protocol 保存。
+
+# 历史入口：单 checkpoint 梯度逐项监督（2026-11-22）
+
+**以下为本次扫描前的历史安排；新三任务扫描以本文顶部为准。历史第0步为汇总旧16对D。** 新入口不提交SLAI任务，不自动部署或运行后续阶段。④原始梯度对应E.1；⑤去耦合对应E.2，由④的同一份Gram在CPU重算；⑥flow是跨模型复验。模块与结果读法见[逐项说明](docs/MVPO_GRADIENT_WALKTHROUGH.md)。下方旧2026-11-21命令保留作历史台账，不作为本轮新入口。
 
 ## 手动同步本轮固定版本
 

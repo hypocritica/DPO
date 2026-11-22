@@ -25,7 +25,13 @@ def read_pair_records(root, protocol):
     ks = sampling["ks"]
     conditions = {row["condition"]: row for row in protocol["conditions"]}
     expected_ranges = {"sd15_t499": (499, 500), "sd35_stage0": (0, 500), "sd35_stage1": (500, 1000)}
-    if (set(conditions) not in ({"sd15_t499"}, {"sd35_stage0", "sd35_stage1"})
+    if "scan" in protocol:
+        from self_correct_dpo.evaluation.appendix_scan import validate_job
+        job = validate_job(protocol["scan"], protocol["model"]["config"]["family"])
+        if protocol["conditions"] != job["conditions"] or protocol["checkpoint"] != job["checkpoint"]:
+            raise ValueError("protocol differs from frozen scan checkpoint/conditions")
+        expected_ranges = {row["condition"]: (row["index_start"], row["index_stop"]) for row in job["conditions"]}
+    if (("scan" not in protocol and set(conditions) not in ({"sd15_t499"}, {"sd35_stage0", "sd35_stage1"}))
             or len(conditions) != len(protocol["conditions"])
             or any((row["index_start"], row["index_stop"]) != expected_ranges[name] for name, row in conditions.items())):
         raise ValueError("unexpected or incomplete gradient conditions in protocol")
@@ -105,7 +111,8 @@ def check_view_banks(record, sampling, lo, hi, name):
                 raise ValueError(f"{bank} block margin does not match its view bank in {name}")
 
 
-def _table_rows(summaries, sampling):
+def _table_rows(summaries, sampling, conditions=()):
+    fixed = {row["condition"] for row in conditions if row["index_stop"] == row["index_start"] + 1} | {"sd15_t499"}
     def rows(entry, group, metrics, k=None, objective=None):
         for name, metric in metrics.items():
             mc = metric["monte_carlo_95"] or (None, None)
@@ -116,7 +123,7 @@ def _table_rows(summaries, sampling):
                 "estimate": metric["estimate"], "mc95_low": mc[0], "mc95_high": mc[1],
                 "pair95_low": pair[0], "pair95_high": pair[1],
                 "n_pairs": entry.get("n_pairs", 1), "n_pairs_defined": metric.get("n_pairs_defined"),
-                "view_randomness": "Gaussian noise only" if entry["condition"] == "sd15_t499"
+                "view_randomness": "Gaussian noise only" if entry["condition"] in fixed
                 else "Stage-conditional scheduler index and Gaussian noise",
                 "view_rng_seed": sampling.get("view_seed"),
                 "source_blocks": sampling["source_blocks"],
@@ -155,11 +162,13 @@ def main():
     summary["protocol_id"] = protocol["protocol_id"]
     summary["lora_parameter_count"] = protocol["model"]["lora_parameter_count"]
     summary["sampling"] = protocol["sampling"]
-    summary["view_unit"] = "Independent Gaussian noise for a fixed pair, with uniform scheduler draws within flow stages"
+    summary["condition_definitions"] = protocol["conditions"]
+    summary["checkpoint"] = protocol["checkpoint"]
+    summary["view_unit"] = "Independent Gaussian noise; fixed index or uniform within the frozen interval"
     report = args.input / "report"
     report.mkdir(exist_ok=True)
-    _write_csv(report / "aggregate.csv", _table_rows(summary["conditions"], protocol["sampling"]))
-    _write_csv(report / "pair-metrics.csv", _table_rows(summary["pairs"], protocol["sampling"]))
+    _write_csv(report / "aggregate.csv", _table_rows(summary["conditions"], protocol["sampling"], protocol["conditions"]))
+    _write_csv(report / "pair-metrics.csv", _table_rows(summary["pairs"], protocol["sampling"], protocol["conditions"]))
     _write_csv(report / "paired-changes.csv", iter(paired_change_rows(summary)))
     _write_csv(report / "audit-reliability.csv", iter(audit_reliability_rows(summary)))
     plot_gradient_statistics(summary, report)

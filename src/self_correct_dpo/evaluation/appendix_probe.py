@@ -28,8 +28,10 @@ CHECKPOINTS = {
 }
 
 
-def load_checkpoint(family, path=None, resources=None):
+def load_checkpoint(family, path=None, resources=None, expected=None):
     resource, step, expected_id = CHECKPOINTS[family]
+    if expected is not None:
+        step, expected_id = expected["step"], expected["checkpoint_id"]
     checkpoint_name = f"step-{step:07d}"
     path = (Path(path).expanduser() if path else
             Path(load_resources(resources)[resource]) / "checkpoints" / checkpoint_name)
@@ -40,6 +42,8 @@ def load_checkpoint(family, path=None, resources=None):
     if identity["checkpoint_id"] != expected_id or model["family"] != family:
         raise ValueError(f"Wrong checkpoint identity: {identity['checkpoint_id']}, expected {expected_id}")
 
+    if expected is not None and identity["run_id"] != expected["run_id"]:
+        raise ValueError("Checkpoint run differs from frozen scan catalog")
     training = read_json(run / "training.json")
     keys = ("config", "pairs_id", "base_identity", "code", "validation_pairs_id",
             "monitor_inputs", "diagnostic_suite_sha256", "parent")
@@ -70,7 +74,7 @@ def manifest_stat(path):
     return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
-def choose_pairs(training, manifest, count, seed):
+def choose_pairs(training, manifest, count, seed, excluded_pair_ids=()):
     from self_correct_dpo.data.pairs import semantic_scene_key, validate_pair_rows
     from self_correct_dpo.training import check_rows, eligible_prompts
 
@@ -89,6 +93,7 @@ def choose_pairs(training, manifest, count, seed):
     before = manifest_stat(manifest)
     raw, normalized = hashlib.sha256(), hashlib.sha256(b"[")
     training_pairs = 0
+    excluded_pair_ids = set(excluded_pair_ids)
 
     def training_rows():
         nonlocal training_pairs
@@ -112,7 +117,8 @@ def choose_pairs(training, manifest, count, seed):
                         normalized.update(b", ")
                     normalized.update(json.dumps(row, sort_keys=True, ensure_ascii=False).encode())
                 training_pairs += 1
-                yield row
+                if row["pair_id"] not in excluded_pair_ids:
+                    yield row
 
     rows = heapq.nsmallest(count, training_rows(), key=lambda row: (digest([seed, row["pair_id"]]), row["pair_id"]))
     raw_sha = raw.hexdigest()
@@ -227,6 +233,43 @@ class PairProbe:
         gradients = torch.autograd.grad(margins[0], self.parameters)
         return float(margins[0].detach()), torch.cat([g.detach().reshape(-1).float() for g in gradients]), int(indices[0])
 
+    def gradients(self, condition, seeds):
+        """Batch the forward only; each yielded gradient belongs to one margin."""
+        import torch
+
+        margins, indices = self.margins(condition, seeds)
+        for i in range(len(seeds)):
+            grads = torch.autograd.grad(margins[i], self.parameters, retain_graph=i + 1 < len(seeds))
+            yield float(margins[i].detach()), torch.cat([g.detach().reshape(-1).float() for g in grads]), int(indices[i])
+
+
+def batch_check(probe, conditions, size, seed):
+    """Record batch-vs-single numerical drift and exact-batch repeatability."""
+    import torch
+
+    checks = []
+    for condition in conditions:
+        seeds = [seed_for("batch-check", seed, condition["condition"], i) for i in range(size)]
+        single = [(m, g.cpu(), index) for m, g, index in (probe.gradient(condition, s) for s in seeds)]
+        batched = [(m, g.cpu(), index) for m, g, index in probe.gradients(condition, seeds)]
+        repeated = probe.gradients(condition, seeds)
+        for i, ((m, g, index), (bm, bg, bi), (rm, rg, ri)) in enumerate(zip(single, batched, repeated)):
+            rg = rg.cpu()
+            delta, norm = float((bg - g).norm()), float(g.norm())
+            cosine = float(torch.nn.functional.cosine_similarity(bg[None], g[None])) if norm and float(bg.norm()) else None
+            repeat_ok = (bi == ri and math.isclose(bm, rm, rel_tol=1e-5, abs_tol=1e-7)
+                         and torch.allclose(bg, rg, rtol=1e-5, atol=1e-7))
+            # Frozen operational limits; BF16 batch kernels need not match bitwise.
+            passed = (index == bi and repeat_ok and math.isfinite(delta)
+                      and delta <= 1e-7 + 0.01 * norm
+                      and math.isclose(m, bm, rel_tol=0.01, abs_tol=0.001))
+            checks.append(dict(condition=condition["condition"], view=i, seed=seeds[i],
+                               single_margin=m, batch_margin=bm, relative_gradient_l2=delta / max(norm, 1e-30),
+                               cosine=cosine, batch_repeat_passed=repeat_ok, passed=passed))
+    return dict(view_batch_size=size, tolerances=dict(gradient_relative_l2=0.01, gradient_absolute_l2=1e-7,
+                margin_rtol=0.01, margin_atol=0.001, repeat_rtol=1e-5, repeat_atol=1e-7),
+                checks=checks, passed=all(row["passed"] for row in checks))
+
 
 def stage_measurement(probe, conditions, sampling, checkpoint_id, pair_id, schedule):
     import torch
@@ -256,10 +299,16 @@ def stage_measurement(probe, conditions, sampling, checkpoint_id, pair_id, sched
     return {"stages": result}
 
 
-def gradient_measurement(probe, condition, sampling, experiment, checkpoint_id, pair_id, scratch_dir):
+def gradient_measurement(probe, condition, sampling, experiment, checkpoint_id, pair_id, scratch_dir, scan=None):
     from self_correct_dpo.evaluation.appendix_gradients import collect_gradient_statistics
 
     def bank(role):
+        if scan:
+            from self_correct_dpo.evaluation.appendix_scan import scan_seed
+            return [[scan_seed(scan["rng_scope"], "view", sampling["view_seed"], pair_id,
+                               condition["condition"], role, block, index)
+                     for index in range(sampling[f"{role}_views_per_block"])]
+                    for block in range(sampling[f"{role}_blocks"])]
         return [
             [seed_for(experiment, checkpoint_id, sampling["view_seed"], pair_id, condition["condition"],
                       role, block, index) for index in range(sampling[f"{role}_views_per_block"])]
@@ -268,12 +317,27 @@ def gradient_measurement(probe, condition, sampling, experiment, checkpoint_id, 
 
     observed = {}
 
+    source, audit = bank("source"), bank("audit")
+    size = scan["view_batch_size"] if scan else 1
+
+    def observations():
+        # Never cross a bank/block boundary. The collector consumes in this order.
+        for block in source + audit:
+            for start in range(0, len(block), size):
+                chunk = block[start:start + size]
+                values = (probe.gradients(condition, chunk) if size > 1 else
+                          (probe.gradient(condition, seed) for seed in chunk))
+                for seed, (margin, gradient, index) in zip(chunk, values):
+                    yield seed, margin, gradient, index
+
+    stream = observations()
+
     def observe(seed):
-        margin, gradient, index = probe.gradient(condition, seed)
+        actual, margin, gradient, index = next(stream)
+        if actual != seed:
+            raise ValueError("collector consumed views outside the frozen batch order")
         observed[seed] = {"seed": seed, "scheduler_index": index, "margin": margin}
         return margin, gradient
-
-    source, audit = bank("source"), bank("audit")
     statistics = collect_gradient_statistics(
         observe, source_seeds=source, audit_seeds=audit, ks=sampling["ks"],
         source_views_per_block=sampling["source_views_per_block"],
@@ -402,6 +466,9 @@ def prepare_inputs(args, sampling, training, checkpoint, output):
         "experiment": args.experiment, "checkpoint": checkpoint, "manifest": str(manifest),
         "pair_count": args.pair_count, "sampling": sampling, "source_sha256": sha256(__file__),
     }
+    scan = getattr(args, "scan", None)
+    if scan:
+        request["scan"] = scan
     path = output / "prepared.json"
     with (output / ".prepare.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -413,12 +480,18 @@ def prepare_inputs(args, sampling, training, checkpoint, output):
                 raise ValueError(f"Frozen pair manifest differs from the current inputs: {path}")
             return saved
 
-        rows, prompts, dataset = choose_pairs(training, manifest, args.pair_count, sampling["pair_seed"])
+        rows, prompts, dataset = choose_pairs(training, manifest, args.pair_count, sampling["pair_seed"],
+                                              scan.get("excluded_pair_ids", ()) if scan else ())
+        def latent_seed(pair_id):
+            if scan:
+                from self_correct_dpo.evaluation.appendix_scan import scan_seed
+                return scan_seed(scan["rng_scope"], "posterior", scan["latent_seed"], pair_id)
+            return seed_for("posterior", checkpoint["checkpoint_id"], sampling["view_seed"], pair_id)
         pairs = [
             {"pair_index": index, "pair_id": row["pair_id"], "scene_id": row["scene_id"], "prompt": prompt,
              "winner": row["winner"], "winner_sha256": row["winner_sha256"],
              "loser": row["loser"], "loser_sha256": row["loser_sha256"],
-             "latent_seed": seed_for("posterior", checkpoint["checkpoint_id"], sampling["view_seed"], row["pair_id"])}
+             "latent_seed": latent_seed(row["pair_id"])}
             for index, (row, prompt) in enumerate(zip(rows, prompts))
         ]
         saved = {"schema_version": 1, "request": request, "dataset": dataset, "pairs": pairs, "rows": rows}
@@ -430,7 +503,9 @@ def prepare_inputs(args, sampling, training, checkpoint, output):
 def run(args, sampling):
     family = "sd15" if args.experiment == "sd15-gradient" else "sd35_medium"
     stage = args.experiment == "sd35-stage"
-    model, adapter, training, checkpoint = load_checkpoint(family, args.checkpoint, args.resources)
+    scan = getattr(args, "scan", None)
+    model, adapter, training, checkpoint = load_checkpoint(
+        family, args.checkpoint, args.resources, scan["checkpoint"] if scan else None)
     settings = training["config"]["training"]
     output = args.output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -451,7 +526,7 @@ def run(args, sampling):
         device = torch.device("cuda", torch.cuda.current_device())
     torch.cuda.set_device(device)
     init = None
-    conditions = conditions_for(family)
+    conditions = scan["conditions"] if scan else conditions_for(family)
     check_initial = args.check_initialization and args.shard_index == 0
     load_started = time.perf_counter()
     rng_context = torch.random.fork_rng(devices=[device.index]) if check_initial else nullcontext()
@@ -525,6 +600,14 @@ def run(args, sampling):
             "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"],
             "sdpa_backend": "math",
         }
+    if scan:
+        protocol["scan"] = scan
+        protocol["seed_derivation"].update(
+            function="SHA256 canonical JSON first 16 hex modulo 2^63; prefix mvpo-scan-v1",
+            posterior=["rng_scope", "posterior", "latent_seed", "pair_id"],
+            view=["rng_scope", "view", "view_seed", "pair_id", "condition", "bank", "block", "view_index"],
+        )
+        protocol["source"]["probe"]["evaluation/appendix_scan.py"] = sha256(root / "evaluation/appendix_scan.py")
     protocol["protocol_id"] = digest(protocol)
     (output / "pairs").mkdir(parents=True, exist_ok=True)
     publish_protocol(output, protocol)
@@ -554,6 +637,14 @@ def run(args, sampling):
         with output_lock(check_path):
             atomic_json(check_path, record)
         print(json.dumps({"event": "repeat_view", **record}), flush=True)
+        if scan and scan["view_batch_size"] > 1:
+            batch = batch_check(probe, conditions, scan["view_batch_size"], sampling["view_seed"])
+            batch.update(protocol_id=protocol["protocol_id"], execution=execution)
+            batch["result_id"] = digest(batch)
+            with output_lock(output / "batch-check.json"):
+                atomic_json(output / "batch-check.json", batch)
+            if not batch["passed"]:
+                raise RuntimeError(f"Batch numerical check failed: {output / 'batch-check.json'}")
         del probe
         if not record["passed"]:
             raise RuntimeError(f"Loaded checkpoint failed the train-mode repeat-view check: {check_path}")
@@ -586,7 +677,7 @@ def run(args, sampling):
                                                     pair["pair_id"], schedule)
                 else:
                     measurement = gradient_measurement(probe, condition, sampling, args.experiment,
-                                                       checkpoint["checkpoint_id"], pair["pair_id"], args.scratch_dir)
+                                                       checkpoint["checkpoint_id"], pair["pair_id"], args.scratch_dir, scan)
                 torch.cuda.synchronize(device)
                 work = {
                     **execution, "measurement_seconds": time.perf_counter() - started,
@@ -606,6 +697,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("experiment", choices=("sd15-gradient", "sd35-gradient", "sd35-stage"))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--scan-job", type=Path, help="Immutable scan job produced by gradient_scan.py")
     parser.add_argument("--checkpoint", type=Path, help="Override the retained step directory; full ID still verified")
     parser.add_argument("--resources", type=Path)
     parser.add_argument("--pairs", type=Path, help="Override the training manifest; training split identity still verified")
@@ -626,6 +718,16 @@ def main():
     parser.add_argument("--stage-batch-size", type=int, default=4)
     parser.add_argument("--scratch-dir", type=Path)
     args = parser.parse_args()
+    args.scan = None
+    if args.scan_job:
+        from self_correct_dpo.evaluation.appendix_scan import validate_job
+        family = "sd15" if args.experiment == "sd15-gradient" else "sd35_medium"
+        if args.experiment == "sd35-stage":
+            parser.error("scan jobs use the gradient experiments, including optional stage intervals")
+        args.scan = validate_job(read_json(args.scan_job), family)
+        if args.checkpoint and args.checkpoint.resolve() != Path(args.scan["checkpoint"]["path"]).resolve():
+            parser.error("--checkpoint differs from frozen scan job")
+        args.checkpoint = Path(args.scan["checkpoint"]["path"])
     sampling = probe_settings(args, parser)
     if args.experiment == "sd15-gradient" and not args.prepare_only:
         # Set before importing the GPU stack and creating the first CUDA context.
