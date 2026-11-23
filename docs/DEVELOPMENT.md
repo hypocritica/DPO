@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 用户指定跳过梯度数值核验
+
+在原codex/mvpo-multiseed-generation分支新增显式MVPO_SKIP_NUMERICAL_CHECKS=1/--skip-numerical-checks探索模式，覆盖任务1–5。模式冻结于配置和job身份，probe不做初始化/repeat/batch检查，runner跳过pilot直接32对采集；续跑、collect和报告不再要求相应核验文件。保留默认旧严格流程和完整性检查，不把skip写成passed。scan.json/protocol/逐checkpoint及跨checkpoint CSV/所有图标明skipped；NaN/Inf不转换成有效结果。
+
+新加--family可只采Flow；与--pilot-only互斥。探索仍使用原SD15确定性路径和原Flow后端，不合入独立flow-determinism改动。源码变化需新输出根，原失败目录不重写。生成/历史复用功能无修改。CPU检查覆盖任务1–5共用runner跳过pilot、两launcher环境开关、完整记录可汇总、缺项仍拒绝及未经核验标记导出；合成报告渲染验证不是研究数据，未运行SLAI GPU。完整拉取与启动在command.md顶部。
+
 ## 2026-11-23 同分支、跨GPU复用与三组实际提交
 
 用户要求继续维护codex/mvpo-multiseed-generation及原远端checkout；将历史SHA兼容修复合入，不再要求切换独立分支。明确授权H100旧分数与5090新增图混用。prepare新增显式generation-gpu，将history_noise_runtime与新noise_runtime分别冻结，source保留真实runtime；其他身份和版本校验保留。报告逐槽位推导生成GPU，输出hardware-provenance.csv、配对GPU是否一致和图表说明，不把混合硬件seed波动当纯随机种子效应。

@@ -56,7 +56,8 @@ def task_plan(config, task):
                                   view_batch_size=config["view_batch_sizes"][f]) for f in FAMILIES],
                 formal_pair_view_observations=2 * count,
                 per_checkpoint_pair_view_observations=count,
-                extra="engineering pilot, initialization, repeat and batch numerical checks")
+                extra=("numerical checks and pilot skipped" if config.get("skip_numerical_checks") else
+                       "engineering pilot, initialization, repeat and batch numerical checks"))
 
 
 def source_identity():
@@ -114,6 +115,8 @@ def freeze_task(output, config, task, registry, resource_path):
                                   panel_seed=config["panel_seed"]),
                    latent_seed=config["latent_seed"], excluded_pair_ids=[],
                    view_batch_size=config["view_batch_sizes"][family])
+        if config.get("skip_numerical_checks"):
+            job["skip_numerical_checks"] = True
         job["job_id"] = digest(job)
         jobs.append(validate_job(job, family))
     selection = dict(signature=signature, task=task, jobs=jobs)
@@ -124,7 +127,8 @@ def freeze_task(output, config, task, registry, resource_path):
 
 def assert_checks(output):
     protocol, records = deep_validate(output)
-    if protocol.get("scan", {}).get("view_batch_size", 1) > 1:
+    if (protocol.get("scan", {}).get("view_batch_size", 1) > 1
+            and not protocol.get("scan", {}).get("skip_numerical_checks")):
         batch = checked_json(output / "batch-check.json", "result_id")
         if batch["protocol_id"] != protocol["protocol_id"] or batch["passed"] is not True:
             raise ValueError("batch numerical check missing or failed")
@@ -151,7 +155,8 @@ def run_checkpoint(args, config, registry, job, env):
     parent.mkdir(parents=True, exist_ok=True)
     job_path = parent / "scan-job.json"
     frozen(job_path, job)
-    for phase in ("pilot", "formal"):
+    skip_checks = job.get("skip_numerical_checks", False)
+    for phase in (("formal",) if skip_checks else ("pilot", "formal")):
         output = parent / phase
         values = {key: config[key] for key in FIELDS}
         if phase == "pilot":
@@ -160,13 +165,16 @@ def run_checkpoint(args, config, registry, job, env):
         cmd = [interpreter, str(ROOT / "scripts/mvpo_appendix_probe.py"), experiment,
                "--output", str(output), "--scan-job", str(job_path), "--resources", str(args.resources),
                "--pair-seed", str(config["panel_seed"]), "--view-seed", str(config["view_seed"]),
-               "--check-initialization", "--scratch-dir", str(args.scratch_dir)]
+               "--scratch-dir", str(args.scratch_dir)]
+        if not skip_checks:
+            cmd.append("--check-initialization")
         for name, value in values.items():
             cmd += ["--" + name.replace("_", "-"), str(value)]
         subprocess.run(cmd + ["--prepare-only"], env=env, cwd=ROOT, check=True)
         prepared = checked_json(output / "prepared.json", "prepared_id")
         if phase == "formal":
             check_panel(args.output, family, prepared)
+        if phase == "formal" and not skip_checks:
             pilot_protocol, _ = assert_checks(parent / "pilot")
             if (pilot_protocol["scan"] != job or pilot_protocol["checkpoint"] != prepared["request"]["checkpoint"]
                     or pilot_protocol["dataset"] != prepared["dataset"]
@@ -199,7 +207,7 @@ def scan_status(output, config):
     states = []
     for task in config["tasks"]:
         for family in FAMILIES:
-            for phase in ("pilot", "formal"):
+            for phase in (("formal",) if config.get("skip_numerical_checks") else ("pilot", "formal")):
                 path = output / f"task-{task['task']}" / family / f"step-{task[family]:07d}" / phase
                 state = inspect(path)
                 states.append(dict(task=task["task"], family=family, step=task[family], phase=phase,
@@ -251,6 +259,8 @@ def report_scan(args, config):
                                          status="measured", k=diff["k"], metric=metric, estimate=result["estimate"],
                                          low=interval[0], high=interval[1],
                                          audit_half_cosine=float(np.mean(audits)) if audits else None))
+    for row in rows:
+        row["numerical_validation"] = "skipped" if config.get("skip_numerical_checks") else "required"
     with (report / "scan.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -281,7 +291,8 @@ def report_scan(args, config):
         axes.flat[-1].text(0, .8, "MVPO minus LossAvg at the same K\nAudit panel: mean split-half cosine\n"
                           "All conditions retained, including null/negative.\nPointwise intervals are in scan.csv.\n"
                           "Missing/undefined cells are not zero.\nAudit reliability is diagnostic, not a truth guarantee.", fontsize=10)
-        fig.suptitle(f"{family} exploration · K={k} · finite audit reference")
+        notice = "\nExploratory: numerical checks skipped" if config.get("skip_numerical_checks") else ""
+        fig.suptitle(f"{family} exploration · K={k} · finite audit reference" + notice)
         for suffix in ("png", "pdf"):
             fig.savefig(report / f"{family}-scan.{suffix}", dpi=160)
         plt.close(fig)
@@ -300,11 +311,18 @@ def main():
     parser.add_argument("--gpus")
     parser.add_argument("--scratch-dir", type=Path, default=Path(os.environ.get("TMPDIR", "/tmp")))
     parser.add_argument("--pilot-only", action="store_true")
+    parser.add_argument("--skip-numerical-checks", action="store_true",
+                        help="Exploration: skip initialization/repeat/batch checks and pilot")
+    parser.add_argument("--family", choices=tuple(FAMILIES), help="Run only this model; default runs both")
     parser.add_argument("--repeats", type=int, default=2000)
     args = parser.parse_args()
     args.output, args.resources = args.output.expanduser().resolve(), args.resources.expanduser().resolve()
     try:
         config = configuration(args.config, args.sd15_view_batch_size, args.flow_view_batch_size)
+        if args.skip_numerical_checks:
+            if args.pilot_only:
+                parser.error("--skip-numerical-checks cannot be combined with --pilot-only")
+            config["skip_numerical_checks"] = True
         if args.action == "plan":
             print(json.dumps([task_plan(config, i) for i in ([args.task] if args.task else (1, 2, 3))], indent=2))
             return
@@ -326,6 +344,8 @@ def main():
         with output_lock(args.output / f"task-{args.task}" / "execution"):
             selection = freeze_task(args.output, config, args.task, registry, args.resources)
             for job in selection["jobs"]:
+                if args.family and job["family"] != args.family:
+                    continue
                 run_checkpoint(args, config, registry, job, env)
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")

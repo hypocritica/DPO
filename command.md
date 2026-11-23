@@ -1,3 +1,68 @@
+# 梯度探索：跳过数值核验，直接采集和出图（2026-11-23）
+
+按用户要求继续使用 `codex/mvpo-multiseed-generation` 和 `DPO-mvpo-multiseed-v1`。不需要之前的flow-determinism分支。`MVPO_SKIP_NUMERICAL_CHECKS=1` 同时适用于任务1–5：不运行初始化、重复view、batch对比检查，也不运行工程pilot，直接采集原定32对，逐checkpoint自动出报告。原始配置、五个index、source/audit数量、K和两卡分片不变。协议、CSV和图均标注数值核验跳过。这些是未经数值稳定性验证的探索结果。
+
+先等使用该代码目录的任务结束，再更新一次；不要在运行中pull。已有冻结计划需要原代码恢复；新模式使用下面的新输出根，旧失败产物保留。底层资源/权重/文件身份和NaN/Inf检查继续用于避免读错数据或生成无效统计，重复性和跨batch误差不再阻塞本次采集。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git switch codex/mvpo-multiseed-generation
+git pull --ff-only origin codex/mvpo-multiseed-generation
+)
+```
+
+每个任务申请2×5090。每次提交只改变MVPO_NOISE_TASK，取1–5；两个模型先用batch2。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export MVPO_SD15_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/dpo/bin/python
+export MVPO_FLOW_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/mvpo-flow/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_SCAN_RESOURCES="$SCD_RESOURCES"
+
+export MVPO_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-gradient-explore-b2-v1
+export MVPO_OBJECTIVE_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-objective-explore-b2-v1
+export MVPO_SD15_VIEW_BATCH=2
+export MVPO_FLOW_VIEW_BATCH=2
+export MVPO_SKIP_NUMERICAL_CHECKS=1
+export MVPO_NOISE_TASK=1
+
+case "$MVPO_NOISE_TASK" in
+  1|2|3)
+    bash scripts/run_gradient_scan_slai.sh "$MVPO_NOISE_TASK"
+    ;;
+  4|5)
+    bash scripts/run_objective_scan_slai.sh "$MVPO_NOISE_TASK"
+    ;;
+  *)
+    echo "MVPO_NOISE_TASK 必须为 1、2、3、4 或 5"
+    exit 1
+    ;;
+esac
+)
+```
+
+如果只想先看Flow-DPO，把上述case整段替换为 `bash scripts/run_gradient_scan_slai.sh 1 --family sd35_medium`。它直接测800步和五个index；恢复时同命令，之后去掉family参数可补跑该任务SD1.5。不要添加--pilot-only，它与此模式互斥。
+
+每个checkpoint完成后报告在 `task-N/模型/[原生方法/]step-XXXXXXX/formal/report/`，包括summary.json、aggregate.csv、paired-changes.csv、audit-reliability.csv与PNG/PDF。全部或部分checkpoint完成后可在同一环境运行 `bash scripts/run_gradient_scan_slai.sh report` 或 `bash scripts/run_objective_scan_slai.sh report-4` / `report-5` 汇总热图，缺项显示N/A，核验跳过状态保留。批量生成/评分入口不受此环境开关影响。
+
+---
+
 ## 2026-11-23 最新：沿用当前分支，两个四卡5090任务和一个双卡H100任务
 
 继续维护 **codex/mvpo-multiseed-generation**，远端代码目录仍为 **DPO-mvpo-multiseed-v1**。已合入历史复用修复，不要求切换到 history-reuse-audit 或新建代码目录。以下替代之前的独立分支与同GPU复用安排；后面旧章节保留作历史记录。

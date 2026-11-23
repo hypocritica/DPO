@@ -98,6 +98,13 @@ def inspect(output):
         check_names = ["init-check", "repeat-view-check"]
         if protocol.get("scan", {}).get("view_batch_size", 1) > 1:
             check_names.append("batch-check")
+        if protocol.get("scan", {}).get("skip_numerical_checks") is True:
+            if (protocol.get("numerical_validation") != "skipped"
+                    or prepared["request"].get("scan") != protocol["scan"]
+                    or protocol["scan"].get("research_phase") != "exploration"):
+                raise ValueError("unchecked protocol must match explicitly frozen exploration inputs")
+            check_names = []
+            result["checks"]["numerical-validation"] = "skipped"
         for name in check_names:
             path = output / f"{name}.json"
             if not path.exists():

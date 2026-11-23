@@ -292,6 +292,8 @@ def plot_gradient_statistics(summary, output_dir):
             f'{condition["audit_blocks"]}×{condition["audit_views_per_block"]} audit views per pair'
             f'\n{randomness}  ·  95% {interval_label} intervals'
         )
+        if summary.get("numerical_validation") == "skipped":
+            title += "\nExploratory: numerical checks skipped"
 
         def draw_ci(axis, x, description, color):
             interval = description[interval_key]
@@ -414,7 +416,8 @@ def plot_pair_diagnostics(summary, output_dir):
             axis.axhline(0, color="0.4", linewidth=0.8)
             axis.set(xticks=range(len(ks)), xticklabels=ks, xlabel="Same K in both objectives", ylabel=label)
             axis.grid(axis="y", alpha=0.2)
-        figure.suptitle(f"{name}: within-pair changes: MVPO − LossAvg ({len(pairs)} frozen pairs)\nDots: individual pairs; orange: median; K=1 is identically zero", fontsize=11)
+        notice = "\nExploratory: numerical checks skipped" if summary.get("numerical_validation") == "skipped" else ""
+        figure.suptitle(f"{name}: within-pair changes: MVPO − LossAvg ({len(pairs)} frozen pairs)\nDots: individual pairs; orange: median; K=1 is identically zero" + notice, fontsize=11)
         _save_figure(figure, output_dir / f"{name}-paired-changes")
         plt.close(figure)
 
@@ -435,6 +438,6 @@ def plot_pair_diagnostics(summary, output_dir):
         sensitivity.axvline(0, color="0.4", linewidth=0.8)
         sensitivity.set(xlabel="Audit half 1: paired displacement change", ylabel="Audit half 2: paired displacement change")
         sensitivity.legend(frameon=False)
-        figure.suptitle(f"{name}: finite audit reliability\nSame source banks; independent audit halves; points are paired MVPO − LossAvg changes", fontsize=10)
+        figure.suptitle(f"{name}: finite audit reliability\nSame source banks; independent audit halves; points are paired MVPO − LossAvg changes" + notice, fontsize=10)
         _save_figure(figure, output_dir / f"{name}-audit-reliability")
         plt.close(figure)

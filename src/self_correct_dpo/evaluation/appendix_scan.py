@@ -37,6 +37,10 @@ def validate_job(job, family):
             or job.get("job_id") != digest({k: v for k, v in job.items() if k != "job_id"})):
         raise ValueError("invalid frozen scan job identity")
     validate_conditions(job["conditions"])
+    if type(job.get("skip_numerical_checks", False)) is not bool:
+        raise ValueError("skip_numerical_checks must be boolean")
+    if job.get("skip_numerical_checks") and job["research_phase"] != "exploration":
+        raise ValueError("unchecked measurements are exploration only")
     if job["view_batch_size"] not in (1, 2, 4):
         raise ValueError("scan view batch must be 1, 2 or 4")
     if job["research_phase"] == "confirmation" and not job.get("excluded_pair_ids"):

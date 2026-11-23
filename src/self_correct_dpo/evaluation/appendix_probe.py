@@ -544,7 +544,8 @@ def run(args, sampling):
     torch.cuda.set_device(device)
     init = None
     conditions = scan["conditions"] if scan else conditions_for(family)
-    check_initial = args.check_initialization and args.shard_index == 0
+    skip_checks = bool(scan and scan.get("skip_numerical_checks"))
+    check_initial = args.check_initialization and args.shard_index == 0 and not skip_checks
     load_started = time.perf_counter()
     rng_context = torch.random.fork_rng(devices=[device.index]) if check_initial else nullcontext()
     with rng_context:
@@ -622,6 +623,8 @@ def run(args, sampling):
         }
     if scan:
         protocol["scan"] = scan
+        if skip_checks:
+            protocol["numerical_validation"] = "skipped"
         protocol["seed_derivation"].update(
             function="SHA256 canonical JSON first 16 hex modulo 2^63; prefix mvpo-scan-v1",
             posterior=["rng_scope", "posterior", "latent_seed", "pair_id"],
@@ -643,6 +646,9 @@ def run(args, sampling):
 
     execution = {"gpu": torch.cuda.get_device_name(device),
                  "compute_capability": list(torch.cuda.get_device_capability(device))}
+    if skip_checks:
+        print(json.dumps({"event": "numerical_checks_skipped", "protocol_id": protocol["protocol_id"],
+                          "interpretation": "Exploratory measurements; numerical stability unvalidated"}), flush=True)
     if init is not None:
         check_path = output / "init-check.json"
         record = {**init, "protocol_id": protocol["protocol_id"], "execution": execution}

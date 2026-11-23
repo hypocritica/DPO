@@ -11,6 +11,7 @@ bootstrap=${SCD_SD15_PY:-/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/
 if [[ ! -x "$bootstrap" ]]; then echo "Missing driver interpreter: $bootstrap" >&2; exit 1; fi
 root=$(PYTHONPATH="$PWD/src" "$bootstrap" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["MVPO_SCAN_ROOT"])')
 args=(--output "$root" --resources "$SCD_RESOURCES")
+if [[ ${MVPO_SKIP_NUMERICAL_CHECKS:-0} == 1 ]]; then args+=(--skip-numerical-checks); fi
 if [[ -n ${MVPO_SD15_VIEW_BATCH:-} ]]; then args+=(--sd15-view-batch-size "$MVPO_SD15_VIEW_BATCH"); fi
 if [[ -n ${MVPO_FLOW_VIEW_BATCH:-} ]]; then args+=(--flow-view-batch-size "$MVPO_FLOW_VIEW_BATCH"); fi
 case "$job" in

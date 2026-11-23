@@ -64,7 +64,8 @@ def plan(config,task):
     return dict(task=task,checkpoints=jobs,conditions=conditions,pairs_per_condition=config['pair_count'],
                 view_batch_size=config['view_batch_sizes']['sd15'],allocated_gpus=2,
                 pair_view_observations=conditions*unit,raw_component_VJPs=conditions*unit*components,
-                note='plus pilot/numerical checks; VJP counts are not GPU-hours or generated image counts')
+                note=('pilot/numerical checks skipped; ' if config.get('skip_numerical_checks') else 'plus pilot/numerical checks; ')
+                     +'VJP counts are not GPU-hours or generated image counts')
 
 
 def freeze(args,config,registry):
@@ -89,6 +90,7 @@ def freeze(args,config,registry):
                  conditions=fixed_conditions('sd15',config['indices']),
                  rng_scope=dict(phase='exploration',family='sd15',pairs_id=training['pairs_id'],panel_seed=config['panel_seed']),
                  latent_seed=config['latent_seed'],excluded_pair_ids=[],view_batch_size=config['view_batch_sizes']['sd15'])
+        if config.get('skip_numerical_checks'):job['skip_numerical_checks']=True
         job['job_id']=digest(job);jobs.append(validate_job(job,'sd15'))
     selected=dict(signature=signature,task=args.task,jobs=jobs)
     selected['selection_id']=digest(selected);atomic_json(target,selected)
@@ -98,7 +100,7 @@ def freeze(args,config,registry):
 def status(output,config,task_id=None):
     result=[]
     for task,method,cp in entries(config,task_id):
-        for phase in ('pilot','formal'):
+        for phase in (('formal',) if config.get('skip_numerical_checks') else ('pilot','formal')):
             root=location(output,task['task'],method['method'],cp['step'],phase)
             state=inspect(root)
             result.append(dict(task=task['task'],method=method['method'],step=cp['step'],phase=phase,
@@ -147,6 +149,7 @@ def report(args,config):
                         audit_half_cosine=float(np.mean(audits)) if audits else None))
     dest=args.output/('report' if args.task is None else f'task-{args.task}/report')
     dest.mkdir(parents=True,exist_ok=True)
+    for row in all_rows:row['numerical_validation']='skipped' if config.get('skip_numerical_checks') else 'required'
     with (dest/'scan.csv').open('w',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=list(all_rows[0]));writer.writeheader();writer.writerows(all_rows)
     atomic_json(dest/'status.json',status(args.output,config,args.task))
@@ -173,6 +176,7 @@ def report(args,config):
                        xlabel='Scheduler index',ylabel='Training step',title=method['method'])
                 fig.colorbar(art,ax=ax,shrink=.8)
             label='mean audit loss-gradient split-half cosine' if metric=='audit_half_cosine' else 'native MVPO minus native LossAvg, K=6'
+            if config.get('skip_numerical_checks'):label+='; numerical checks skipped'
             fig.suptitle(f"{task['objective'].upper()}: {metric.replace('_',' ')}\n{label}; finite audit reference; N/A = missing/undefined",fontsize=11)
             for ext in ('png','pdf'):fig.savefig(dest/f"{task['objective']}-{metric}.{ext}",dpi=160)
             plt.close(fig)
@@ -190,10 +194,14 @@ def main():
     parser.add_argument('--gpus')
     parser.add_argument('--scratch-dir',type=Path,default=Path(os.environ.get('TMPDIR','/tmp')))
     parser.add_argument('--pilot-only',action='store_true')
+    parser.add_argument('--skip-numerical-checks',action='store_true',help='Exploration: skip numerical checks and pilot')
     parser.add_argument('--repeats',type=int,default=2000)
     args=parser.parse_args();args.output=args.output.expanduser().resolve();args.resources=args.resources.expanduser().resolve()
     try:
         config=configuration(args.config,args.sd15_view_batch_size)
+        if args.skip_numerical_checks:
+            if args.pilot_only:parser.error('--skip-numerical-checks cannot be combined with --pilot-only')
+            config['skip_numerical_checks']=True
         if args.action=='plan':
             print(json.dumps([plan(config,t) for t in ([args.task] if args.task else [4,5])],indent=2));return
         if args.action in ('status','report'):

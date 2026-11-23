@@ -160,7 +160,8 @@ def _table_rows(summaries, sampling, conditions=()):
             yield from rows(entry, group, entry[group])
 
 
-def _write_csv(path, rows):
+def _write_csv(path, rows, numerical_validation="not_skipped"):
+    rows = ({"numerical_validation": numerical_validation, **row} for row in rows)
     first = next(rows)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=first.keys())
@@ -181,6 +182,7 @@ def main():
     summary["protocol_id"] = protocol["protocol_id"]
     summary["lora_parameter_count"] = protocol["model"]["lora_parameter_count"]
     summary["sampling"] = protocol["sampling"]
+    summary["numerical_validation"] = "skipped" if protocol.get("scan", {}).get("skip_numerical_checks") else "not_skipped"
     if protocol.get("native_objective"):
         summary["native_objective"] = protocol["native_objective"]
         summary["checkpoint_method"] = protocol["scan"]["method"]
@@ -191,10 +193,11 @@ def main():
     summary["view_unit"] = "Independent Gaussian noise; fixed index or uniform within the frozen interval"
     report = args.input / "report"
     report.mkdir(exist_ok=True)
-    _write_csv(report / "aggregate.csv", _table_rows(summary["conditions"], protocol["sampling"], protocol["conditions"]))
-    _write_csv(report / "pair-metrics.csv", _table_rows(summary["pairs"], protocol["sampling"], protocol["conditions"]))
-    _write_csv(report / "paired-changes.csv", iter(paired_change_rows(summary)))
-    _write_csv(report / "audit-reliability.csv", iter(audit_reliability_rows(summary)))
+    validation = summary["numerical_validation"]
+    _write_csv(report / "aggregate.csv", _table_rows(summary["conditions"], protocol["sampling"], protocol["conditions"]), validation)
+    _write_csv(report / "pair-metrics.csv", _table_rows(summary["pairs"], protocol["sampling"], protocol["conditions"]), validation)
+    _write_csv(report / "paired-changes.csv", iter(paired_change_rows(summary)), validation)
+    _write_csv(report / "audit-reliability.csv", iter(audit_reliability_rows(summary)), validation)
     plot_gradient_statistics(summary, report)
     plot_pair_diagnostics(summary, report)
     atomic_json(report / "summary.json", summary)
