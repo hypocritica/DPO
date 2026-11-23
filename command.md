@@ -1,3 +1,166 @@
+## 2026-11-23 更新：完整括号命令与自动 win-ratio 图
+
+以下按用户习惯给出 `( ... )` 完整命令。使用本次专用 `DPO-mvpo-multiseed-v1`，不把旧 `DPO-eval-v2` 的 SDXL peak 入口混入新方案。保留真实换行，不要给每一行末尾都加反斜杠。先拉取，再历史盘点和 prepare，最后提交任务包。代码更新只在任务启动前进行；已按旧源码冻结的生成计划继续用原版本，不能直接 pull 后续写。新版 report 可只读汇总已有完整分数。
+
+### 1. 最开始的 clone / git pull（登录节点）
+
+```bash
+(
+set -eo pipefail
+git config --global --add safe.directory /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+if [ ! -d DPO-mvpo-multiseed-v1 ]; then
+  git clone --single-branch --branch codex/mvpo-multiseed-generation https://github.com/hypocritica/DPO.git DPO-mvpo-multiseed-v1
+fi
+cd DPO-mvpo-multiseed-v1
+test "$(git branch --show-current)" = codex/mvpo-multiseed-generation
+test -z "$(git status --porcelain)"
+git pull --ff-only origin codex/mvpo-multiseed-generation
+git log -1 --oneline
+)
+```
+
+### 2. 只读历史盘点（登录节点；当前首先运行这一段）
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+export MVPO_INVENTORY_OUT=/mnt/afs/L202500030/xietianyu/workspace/mvpo-generation-history-$(date +%Y%m%d-%H%M%S)
+
+bash scripts/run_multiseed_slai.sh inventory --check-images
+)
+```
+
+运行后回传输出路径的 `evaluation-metadata.tar.gz`；不上传图片或权重。额外历史路径用 `--history-root`，详情见下一节。
+
+### 3. CPU 准备（根据盘点确定实际协议后）
+
+SD3.5-M 示例；其他模型将最后一行替换为 `prepare-zimage` 或 `prepare-sdxl`：
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+bash scripts/run_multiseed_slai.sh prepare-sd35_medium
+)
+```
+
+SD1.5 须先把真实主表 `render/run.json` 路径设为 `SD15_MAIN_RENDER_JSON`，再执行：
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+: "${SD15_MAIN_RENDER_JSON:?先根据历史盘点设置实际主表 render/run.json 路径}"
+bash scripts/run_multiseed_slai.sh prepare-sd15 --protocol-source "$SD15_MAIN_RENDER_JSON"
+)
+```
+
+### 4. SLAI 正式启动（prepare 成功后，每包默认两卡）
+
+下例运行 B 包。只改 `MVPO_GENERATION_PACK` 即可分别运行 A1/A2/B/C/D1/D2/F1/F2/E1/E2/E3/E4；不是在同一个两卡容器并行启动全部包。GPU型号按prepare的noise_runtime分配。生图batch在prepare时冻结，旧 `SCD_SDXL_BATCH` 变量不控制本入口。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export MVPO_GENERATION_PACK=B
+export MVPO_GENERATION_AUTO_REPORT=1
+
+bash scripts/run_multiseed_slai.sh "$MVPO_GENERATION_PACK"
+)
+```
+
+入口执行生成与全部所需评分；成功后自动汇总当前模型并输出win-ratio图。某一对比较尚未齐全则标N/A，后续包完成自动刷新。各包并发完成时报告加锁，避免互相覆盖写入；失败不继续报告。可设 `MVPO_GENERATION_AUTO_REPORT=0` 延后统一CPU汇总。
+
+### 5. 单独重算胜率和图（CPU，不重新生成或评分）
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+bash scripts/run_multiseed_slai.sh report
+)
+```
+
+每模型 `report/win-ratios.csv` 包含每个seed及三seed联合的 wins、ties、losses、strict_win_rate、scorer_win_rate、95%区间及逐seed胜率。
+
+- `strict_win_rate = wins / N`，平局不算胜。
+- 图采用 `scorer_win_rate = (wins + 0.5 × ties) / N`；另一段为基线的对应半平局胜率，两段合计100%。平局按评分值精确相等定义，不加事后阈值。
+- 同prompt、同seed比较评分。三个seed先逐个判胜，再在prompt内平均胜负值；不是先平均分数再判一次胜负。95%区间按整prompt bootstrap10000次，不把1632×3当成4896个独立prompt。
+- 以 `win-ratios-hpsv3.png/.pdf` 为例：蓝色比较方法、橙色基线、50%虚线、黑色区间；不同主表step写在方法标签中。其他指标独立出图，不混合评分器分数。
+
+SD3.5-M / Z-Image 生成HPSv3图，SD1.5 / SDXL使用HPSv2；同时输出各自其他已测指标的图。所有图明确为**评分器判定的相对胜率**，不是人工偏好投票。当前新增三种子面板只有PartiPrompts，不自动扩到示例图的Pick-a-Pic/HPDv2或Base/SFT，也不借用其他面板均值伪造胜率。
+
 ## 2026-11-23：完整多种子生成、曲线精测与历史 evaluation 复用
 
 分支 `codex/mvpo-multiseed-generation`，独立 checkout `DPO-mvpo-multiseed-v1`。任务编号使用 A1/A2/B/C/D1/D2/F1/F2/E1–E4，与梯度扫描 1–5 分开。旧 evaluation 目录只读；不修改正在运行的梯度 checkout，也不追加 LossAvg 训练/生成。

@@ -1,5 +1,14 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 自动评分器胜率与括号式运行命令
+
+按用户命令风格在command.md顶部提供完整clone/pull、conda、safe.directory、环境变量、盘点、prepare、任务包和CPU汇总块。新生成入口识别SCD_EVAL_GPUS，默认两卡；旧SDXL峰值入口及其目录不改。每任务包成功后自动按family报告，失败停止；可显式关闭自动报告。并发报告用阻塞文件锁串行发布。
+
+既有半平局win_rate补齐胜/平/负数量、严格胜率、分母与逐seed胜率，新增win-ratios.csv和每评分器的PNG/PDF百分比横条图，包含50%线和prompt-bootstrap区间。半平局两段互补，主表不同训练step标注，未完成比较显示N/A。当前仅PartiPrompts三生成种子，SD1.5/SDXL为HPSv2、Flow/Z为HPSv3；不等同人工偏好率，不新增Base/SFT或其他面板。
+
+14项多种子CPU检查通过，新增胜平负/互补/全平局与真实Bash成功自动报告、失败停止、显式关闭分支检查。合成已有分数重新报告并检查胜率图；未执行GPU或访问实际评估分数。
+
+
 ## 2026-11-23 完整多种子生成与 evaluation 产物复用
 
 独立 `codex/mvpo-multiseed-generation` 分支新增 appendix-multiseed.json、盘点/计划/分包执行/报告入口。18 个主表配置、60 个曲线点，重合点按唯一 method/step/seed/prompt 任务复用，共 105 个生成 job、114240 张目标图。SD1.5 DSPO+MVPO 主表采用已核对的6000步；10000保留曲线。SDXL DPO两者2000、DMPO10000/9000、DSPO两者3000。无 LossAvg 或新增训练。

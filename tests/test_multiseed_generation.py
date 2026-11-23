@@ -200,6 +200,42 @@ class MultiseedTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'Frozen preparation differs'):prepare(args,cfg,registry)
 
 
+    def test_win_counts_ties_and_complement(self):
+        a=np.array([[3.,1.,2.],[0.,5.,4.]])
+        b=np.array([[1.,1.,3.],[1.,2.,4.]])
+        result=compare(a,b,400);reverse=compare(b,a,400)
+        self.assertEqual((result['wins'],result['ties'],result['losses'],result['comparison_count']),(2,2,2,6))
+        self.assertEqual(result['scorer_win_rate'],.5)
+        self.assertEqual(result['strict_win_rate'],1/3)
+        self.assertEqual(result['prompt_count'],2)
+        self.assertEqual(result['per_seed_win_rates'],[.5,.75,.25])
+        self.assertAlmostEqual(result['scorer_win_rate']+reverse['scorer_win_rate'],1.)
+        tied=compare(np.ones((4,3)),np.ones((4,3)),100)
+        self.assertEqual((tied['wins'],tied['ties'],tied['losses']),(0,12,0))
+        self.assertEqual((tied['win_low'],tied['win_high']),(.5,.5))
+
+    def test_launcher_runs_report_only_after_success(self):
+        # Substitute only the child interpreter: exercise the real Bash task dispatch.
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);log=root/'calls.jsonl';fake=root/'python'
+            fake.write_text('#!'+sys.executable+'\nimport os,sys,json\n'
+                'from pathlib import Path\n'
+                'if "-c" in sys.argv: print(os.environ["TEST_OUTPUT"]);sys.exit(0)\n'
+                'with open(os.environ["TEST_LOG"],"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n'
+                'if "run" in sys.argv:sys.exit(int(os.environ.get("TEST_RUN_EXIT","0")))\n')
+            fake.chmod(0o755)
+            import os
+            env=dict(os.environ,SCD_SD15_PY=str(fake),TEST_LOG=str(log),TEST_OUTPUT=str(root/'output'))
+            launcher=ROOT/'scripts/run_multiseed_slai.sh'
+            subprocess.run(['bash',str(launcher),'B'],env=env,check=True)
+            calls=read_jsonl(log);self.assertEqual([r[1] for r in calls],['run','report'])
+            self.assertIn('sd35_medium',calls[-1]);log.unlink()
+            fail=subprocess.run(['bash',str(launcher),'A1'],env={**env,'TEST_RUN_EXIT':'7'})
+            self.assertEqual(fail.returncode,7);self.assertEqual(len(read_jsonl(log)),1);log.unlink()
+            subprocess.run(['bash',str(launcher),'D1'],env={**env,'MVPO_GENERATION_AUTO_REPORT':'0'},check=True)
+            self.assertEqual(len(read_jsonl(log)),1)
+
+
     def test_partition_and_shared_endpoints(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);slots=[dict(key=[f'p{i}','canonical',0]) for i in range(11)];payload_jsonl(root/'slots.jsonl',slots)

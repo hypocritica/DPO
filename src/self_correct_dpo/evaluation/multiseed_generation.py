@@ -320,7 +320,7 @@ def run_pack(args):
     with output_lock(out/('pack-'+args.pack)):
         todo=[(j,i) for j in jobs for i in range(j['shards']) if not completed(out,plan,j,i)]
         if not todo:return {'pack':args.pack,'status':'complete'}
-        devices=gpu_tokens(args.gpus,env,plan['interpreters']['render'])
+        devices=gpu_tokens(args.gpus or env.get('SCD_EVAL_GPUS'),env,plan['interpreters']['render'])
         if len(devices) not in (2,4,8):raise ValueError('Use 2, 4 or 8 allocated GPUs')
         # Preflight noise only when new pixels are needed; score-only reuse can use another GPU model.
         new=any(s['state']=='generate' for j,i in todo for s in selected_slots(out,j,i))
