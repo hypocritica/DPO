@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "family": "sd35_medium",
+  "checkpoint_step": 1600,
+  "pair_count": 128,
+  "pair_seed": 20261121,
+  "view_seed": 17,
+  "stage_views": 192,
+  "selection_views": 96,
+  "stage_batch_size": 2,
+  "stage_progress_every": 32,
+  "tasks": 2,
+  "gpus_per_task": 2,
+  "bootstrap_repeats": 10000,
+  "bootstrap_seed": 20261121,
+  "k4_draws": 10000,
+  "k4_seed": 17
+}

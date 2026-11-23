@@ -38,7 +38,7 @@ def finite_k4(banks, stage, draws, rng):
     return result
 
 
-def pair_rows(root, protocol, k4_draws=10000, k4_seed=17):
+def pair_rows(root, protocol, k4_draws=10000, k4_seed=17, selection_views=0):
     """Only compare both stages of the exact preselected pairs on the frozen run."""
     if protocol["experiment"] != "sd35-stage" or protocol["protocol_id"] != digest(
             {k: v for k, v in protocol.items() if k != "protocol_id"}):
@@ -48,6 +48,8 @@ def pair_rows(root, protocol, k4_draws=10000, k4_seed=17):
     if expected != actual:
         raise ValueError(f"Stage panel incomplete or mixed: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}")
     n_views = protocol["sampling"]["stage_views"]
+    if selection_views and not 2 <= selection_views <= n_views - 2:
+        raise ValueError("split-bank report requires at least two views in each bank")
     rows, stages = [], []
     for selection in protocol["pairs"]:
         i, pair_id = selection["pair_index"], selection["pair_id"]
@@ -65,7 +67,7 @@ def pair_rows(root, protocol, k4_draws=10000, k4_seed=17):
             lo, hi = 500 * j, 500 * (j + 1)
             if (bank["stage_index"], bank["index_start"], bank["index_stop"], bank["probability"]) != (j, lo, hi, 0.5):
                 raise ValueError(f"Unexpected scheduler partition for {pair_id}")
-            views = bank["views"]
+            views = sorted(bank["views"], key=lambda v: v["view_index"])
             if len(views) != n_views or n_views < 2 or {v["view_index"] for v in views} != set(range(n_views)):
                 raise ValueError(f"Incomplete stage {j} for {pair_id}")
             vals = []
@@ -82,11 +84,26 @@ def pair_rows(root, protocol, k4_draws=10000, k4_seed=17):
         rows.append(dict(pair_index=i, pair_id=pair_id, stage0_margin=means[0], stage1_margin=means[1],
                          stage0_margin_mc_se=errors[0], stage1_margin_mc_se=errors[1], global_margin=mu,
                          opposite_sign=int(opposite), global_positive_with_negative=int(mu > 0 and min(means) < 0)))
-        for j, m in enumerate(means):
+        if selection_views:
+            selected_means = [float(np.mean(m[:selection_views])) for m in margins]
+            weight_banks = [m[selection_views:] for m in margins]
+            weight_means = [float(np.mean(m)) for m in weight_banks]
+            for j in range(2):
+                rows[-1][f"stage{j}_selection_margin"] = selected_means[j]
+                rows[-1][f"stage{j}_evaluation_margin"] = weight_means[j]
+                rows[-1][f"stage{j}_bank_sign_agrees"] = int((selected_means[j] < 0) == (weight_means[j] < 0))
+        else:
+            selected_means, weight_banks, weight_means = means, margins, means
+        weight_global_mean = float(np.mean(weight_means))
+        for j, m in enumerate(weight_means):
+            se = float(np.std(weight_banks[j], ddof=1) / math.sqrt(len(weight_banks[j])))
             stages.append(dict(pair_index=i, pair_id=pair_id, stage=j, views=n_views, stage_margin=m,
-                               global_margin=mu, negative_stage=int(m < 0), stage_gate=gate(m),
-                               global_gate=gate(mu), gate_difference=gate(m) - gate(mu),
-                               **finite_k4(margins, j, k4_draws, np.random.default_rng([k4_seed, i, j]))))
+                               global_margin=weight_global_mean, negative_stage=int(selected_means[j] < 0), stage_gate=gate(m),
+                               global_gate=gate(weight_global_mean), gate_difference=gate(m) - gate(weight_global_mean),
+                               selection_margin=selected_means[j], selection_views=selection_views,
+                               evaluation_views=len(weight_banks[j]), evaluation_margin_mc_se=se,
+                               pooled_margin=means[j], bank_sign_agrees=int((selected_means[j] < 0) == (m < 0)),
+                               **finite_k4(weight_banks, j, k4_draws, np.random.default_rng([k4_seed, i, j]))))
     if not rows or len({r["pair_id"] for r in rows}) != len(rows) or len({r["pair_index"] for r in rows}) != len(rows):
         raise ValueError("Expected a nonempty frozen panel of distinct preference pairs")
     return rows, stages
@@ -118,6 +135,7 @@ def summarize(rows, stages, repeats, seed):
                     k4_sum[draws[valid]].sum(axis=1) / n_weak[valid]),
                 all_stages_k4_mean_delta=estimate(float(k4.mean()), k4.mean(axis=1)[draws].mean(axis=1)),
                 n_pairs=n, n_negative_stages=int(counts.sum()), n_pairs_with_negative_stage=int((counts > 0).sum()),
+                n_stage_bank_sign_disagreements=sum(1 - r["bank_sign_agrees"] for r in stages),
                 n_opposite_sign=int(opposite.sum()), n_global_positive_with_negative=int(masked.sum()),
                 bootstrap=dict(unit="preference pair, both stages kept together", repeats=repeats, seed=seed),
                 opposite_fraction=estimate(float(opposite.mean()), opposite[draws].mean(axis=1)),
@@ -165,6 +183,70 @@ def plot(report, rows, stages, summary):
     plt.close(fig)
 
 
+def plot_split_banks(report, rows, stages, summary):
+    """Pooled-margin prevalence and independently evaluated negative-stage gates."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7.2, 6.3), layout="constrained")
+    x = np.array([r["stage0_margin"] for r in rows])
+    y = np.array([r["stage1_margin"] for r in rows])
+    ax.errorbar(x, y, xerr=[1.96*r["stage0_margin_mc_se"] for r in rows],
+                yerr=[1.96*r["stage1_margin_mc_se"] for r in rows], fmt="none", ecolor="0.75", alpha=.4, lw=.6,
+                label="Approx. 95% view-MC intervals")
+    for key, color, label in ((0, "#7c8994", "Other pairs"), (1, "#306c98", "Opposite signs"),
+                              (2, "#c45728", "Opposite signs; global mean > 0")):
+        chosen = [r for r in rows if r["opposite_sign"] + r["global_positive_with_negative"] == key]
+        ax.scatter([r["stage0_margin"] for r in chosen], [r["stage1_margin"] for r in chosen],
+                   s=25, color=color, alpha=.85, label=f"{label} (n={len(chosen)})")
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    lo, hi = min(xlim[0], -ylim[1]), max(xlim[1], -ylim[0])
+    ax.plot([lo, hi], [-lo, -hi], "--", color="0.45", lw=1, label="Global mean = 0")
+    ax.set_xlim(xlim); ax.set_ylim(ylim)
+    ax.axvline(0, color="black", lw=.7); ax.axhline(0, color="black", lw=.7)
+    ax.set(xlabel="High-noise stage mean margin (indices 0–499)",
+           ylabel="Low-noise stage mean margin (indices 500–999)")
+    ax.legend(fontsize=8, loc="best")
+    opposite = summary["opposite_fraction"]["estimate"]
+    masked = summary["global_positive_with_negative_fraction"]["estimate"]
+    fig.suptitle(f"SD3.5-M Flow-DPO · step 1,600 · {len(rows)} preference pairs\n"
+                 f"{summary['views_per_stage']} views per stage (A+B); fixed posterior latents\n"
+                 f"Opposite signs: {opposite:.1%}; global-positive with a negative stage: {masked:.1%}", fontsize=10)
+    for ext in ("png", "pdf"):
+        fig.savefig(report / f"stage-margins.{ext}", dpi=180)
+    plt.close(fig)
+
+    weak = [r for r in stages if r["negative_stage"]]
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.8), layout="constrained")
+    paired, hist, finite = axes
+    for row in weak:
+        paired.plot([0, 1], [row["global_gate"], row["stage_gate"]], color="#306c98", alpha=.2, lw=.7)
+    if weak:
+        paired.scatter([0, 1], [np.mean([r["global_gate"] for r in weak]), np.mean([r["stage_gate"] for r in weak])],
+                       color="#c45728", s=42, zorder=3, label="Across-stage mean")
+        paired.legend(fontsize=8)
+    else:
+        paired.text(.5, .5, "No negative stages in bank A", ha="center", transform=paired.transAxes)
+    paired.set(xticks=[0, 1], xticklabels=["Global", "Stage-wise"], ylim=(0, 1), ylabel="Mean-margin gate (bank B)",
+               title=f"{len(weak)} stages selected by bank A")
+    delta = [r["gate_difference"] for r in weak]
+    if delta:
+        hist.hist(delta, bins="auto", color="#306c98", alpha=.85)
+    hist.axvline(0, color="black", lw=.8)
+    hist.set(xlabel="Stage gate − global gate (bank B)", ylabel="Number of stages", title="Mean-margin weight change")
+    finite.scatter(delta, [r["k4_delta_mean"] for r in weak], s=22, color="#306c98", alpha=.7)
+    finite.axhline(0, color="0.5", lw=.7); finite.axvline(0, color="0.5", lw=.7)
+    finite.set(xlabel="Mean-margin gate difference (bank B)", ylabel="Expected K=4 gate difference (bank B)",
+               title="Same tagged view; different companions")
+    fig.suptitle(f"Negative stages selected on {summary['selection_views']} independent A views; "
+                 f"weights estimated on {summary['evaluation_views']} B views\n"
+                 "K=4 uses saved B banks; negative and positive changes retained. Gates are not gradient magnitudes.", fontsize=10)
+    for ext in ("png", "pdf"):
+        fig.savefig(report / f"stage-weights.{ext}", dpi=180)
+    plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -172,11 +254,15 @@ def main():
     parser.add_argument("--seed", type=int, default=20261121, help="whole-pair bootstrap RNG seed")
     parser.add_argument("--k4-draws", type=int, default=10000)
     parser.add_argument("--k4-seed", type=int, default=17)
+    parser.add_argument("--selection-views", type=int, default=0,
+                        help="Use this prefix only to select negative stages; suffix estimates weights")
     args = parser.parse_args()
     if args.k4_draws < 2 or args.k4_seed < 0:
         parser.error("require at least two K4 draws and a nonnegative K4 seed")
     protocol = read_json(args.input / "protocol.json")
-    rows, stages = pair_rows(args.input, protocol, args.k4_draws, args.k4_seed)
+    if args.selection_views < 0:
+        parser.error("selection views must be nonnegative")
+    rows, stages = pair_rows(args.input, protocol, args.k4_draws, args.k4_seed, args.selection_views)
     summary = summarize(rows, stages, args.repeats, args.seed)
     summary.update(k4_draws_per_pair_stage=args.k4_draws, k4_seed=args.k4_seed,
                    k4_design="Empirical banks sampled with replacement. Same tagged first view. Stage-wise companions from its stage; global companions independently select either stage with probability 0.5. Negative status from bank mean. Quantiles of paired deltas use common random numbers. Pair intervals condition on saved banks.",
@@ -185,6 +271,16 @@ def main():
                    sampling_unit="independent noise and scheduler-index draw conditional on a fixed latent pair",
                    fraction_denominator="all preselected preference pairs",
                    gate_definition="sigmoid(-mean margin); global averages both stages with equal probability")
+    summary.update(selection_views=args.selection_views,
+                   evaluation_views=protocol["sampling"]["stage_views"] - args.selection_views,
+                   scatter_design="All saved A+B views; point estimates and approximate view-MC intervals, not certain sign labels",
+                   negative_selection="prefix bank A" if args.selection_views else "same full bank",
+                   uncertainty="Pair bootstrap conditions on saved noise banks; per-margin MC SE and A/B sign disagreement are reported separately",
+                   numerical_validation="Forward only; repeat/batch numerical checks not performed")
+    if args.selection_views:
+        summary["k4_design"] = ("Empirical B banks resampled with replacement; same tagged view and independent companion draws. "
+                                "Stage-wise companions use the tagged stage; global companions choose either stage with probability .5. "
+                                "Negative stages selected using disjoint A views. Bootstrap intervals condition on the saved A/B banks.")
     report = args.input / "report"
     report.mkdir(exist_ok=True)
     for name, table in (("pair-margins", rows), ("stage-weights", stages)):
@@ -192,7 +288,10 @@ def main():
             writer = csv.DictWriter(f, fieldnames=table[0].keys())
             writer.writeheader()
             writer.writerows(table)
-    plot(report, rows, stages, summary)
+    if args.selection_views:
+        plot_split_banks(report, rows, stages, summary)
+    else:
+        plot(report, rows, stages, summary)
     (report / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
     print(report)
 

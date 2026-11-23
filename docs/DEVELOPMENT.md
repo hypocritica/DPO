@@ -1,5 +1,13 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-24 两个双5090前向阶段机制任务
+
+原分支新增stage_mechanism.py、run_stage_mechanism_slai.sh和集中配置。固定SD35 Flow-DPO1600、128对、每阶段192views。任务1分片0/2、任务2分片1/3，stride4；每任务64对、24,576 pair-view，共49,152，无反向/生图。沿用stage collector与posterior seed，新增每32views日志和任务30秒进度。短锁共享准备、任务互斥、完整pair续跑；最后一份完成自动加锁报告，未完整不报告，完成标记绑定报告源码/配置及产品SHA。
+
+新增独立A/B bank报告选项：前96仅选负阶段，后96计算gate及tagged-view K4，保留负效应。散点描述A+B均值和MC SE；导出bank符号一致性，pair bootstrap区间明确条件于固定banks。生成两张PNG/PDF和CSV/JSON；旧report默认不拆bank，原梯度语义不改。未确认旧stage原始数据存在，未自动导入；计满额采集，未来可按身份另做旧bank迁移。
+
+35项CPU检查通过（5项新双任务/续跑/并发报告/独立筛选/无梯度测试，2项旧K4测试，28项梯度回归）。128对合成报告已渲染检查，不是实验结果；没有提交真实GPU任务或测量显存速度。命令在command.md首节；同分支独立worktree保证正在运行的梯度和生成任务不受代码变更影响。
+
 ## 2026-11-23 双H100生成、LossAvg匹配对照与浅层绘图包
 
 同分支保留梯度修复cd80347，在当前生成代码扩展group-h100-a/b各2卡。batch=16/8/8/4且全部无offload。新增SD35 LossAvg K2/K4、Global/Stage K2主表与400步间隔曲线；22主表、92曲线点去重148160图，离线历史分数复用33152、新增115008。LossAvg校验formal_arm B、相同K目标/data/base及训练设置；checkpoint仅从指定run/step解析并冻结，不用latest。实际权重仍待服务器核验。

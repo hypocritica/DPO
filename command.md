@@ -1,3 +1,68 @@
+# 跨阶段抵消与权重：两个独立2×5090任务（2026-11-24）
+
+继续使用codex/mvpo-multiseed-generation。现有任务正在跑，因此只fetch并创建同分支的新worktree，不在旧目录pull。无需新训练或生图；SD3.5-M Flow-DPO 1600步，128对固定样本，两阶段各192个独立时间步+噪声view，总49,152 pair-view前向。S1/S2各64对、24,576 pair-view，每个任务2张5090；内部两个worker分别32对。共享同一posterior latent面板，index 500分界，概率均为.5。
+
+第一次在服务器执行一次：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git fetch origin codex/mvpo-multiseed-generation
+git worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-stage-v1 FETCH_HEAD
+)
+```
+
+SLAI分别提交两份2×5090任务，使用下面同一启动块：第一份MVPO_STAGE_TASK=1，第二份改为2。两个任务必须用相同代码目录、资源路径、输出根和batch；不用在同一个两卡容器同时运行两份。资源继续读取旧目录的配置及其resources.local.json。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-stage-v1
+
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export MVPO_FLOW_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/mvpo-flow/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+export MVPO_SCAN_RESOURCES="$SCD_RESOURCES"
+export MVPO_STAGE_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-stage-mechanism-v1
+export MVPO_STAGE_BATCH=2
+export MVPO_STAGE_TASK=1
+
+bash scripts/run_stage_mechanism_slai.sh "$MVPO_STAGE_TASK"
+)
+```
+
+前向任务没有初始化/梯度重复性/batch一致性pilot，不需要MVPO_SKIP_NUMERICAL_CHECKS。保留文件/面板完整性以免错混数据。35项CPU检查覆盖分片、续跑、双任务同时触发汇总、原有梯度与有限K4逻辑；真实5090运行、显存与耗时待实测。旧96-view结果尚未确认可用，本次按全量采集；只复用已有实现和新目录里已完成的pair，未自动导入旧测量。
+
+数据与报告：
+
+- `sd35-stage/pairs/0000.json` 至 `0127.json`：每个包含两个阶段的192条原始margin、seed、scheduler index、native time。
+- 每阶段前96条为A（判定负margin阶段），后96条为B（计算权重与有限K4）；两组共享同一pair latent。散点使用A+B，报告明确描述性符号比例和view-MC误差；权重负阶段由A选出，B出现反向/零变化也完整保留。
+- `sd35-stage/report/stage-margins.png/.pdf`：两个mean-margin散点、零轴、全局均值零线、异号及全局正/局部负比例。
+- `sd35-stage/report/stage-weights.png/.pdf`：Global→Stage-wise配对权重、权重差分布、有限K4权重差。
+- 同目录`pair-margins.csv`、`stage-weights.csv`、`summary.json`；pair bootstrap保留两个阶段的关联，区间条件于已保存noise banks，另报MC标准误和A/B符号不一致数，不能把gate差当梯度范数或因果生成收益。
+
+运行中主日志每30秒打印本任务已完成pair数；worker每32个阶段view打印进度，worker日志在`sd35-stage/logs/`。准备数据时也打印当前阶段。任一任务先完成即退出，最后完成的一份自动加锁汇总；不需要第三个GPU任务。中断后原命令恢复已完成pair；报告失败可单独CPU重跑report，不重测GPU数据。
+
+查看进度/手动汇总：复制启动块并将最后一行替换为以下之一，去掉MVPO_STAGE_TASK也可；status/report读取冻结配置。
+
+```bash
+bash scripts/run_stage_mechanism_slai.sh status
+bash scripts/run_stage_mechanism_slai.sh report
+```
+
+新任务不会读取或修改正在运行的gradient-explore/objective-explore目录。运行开始后不要改这份stage代码或batch；若显存不足需要减batch，应使用新的stage输出根并对两个任务统一设置。模型权重不重复下载，两个任务各使用分配到的两张卡。
+
+---
+
 # 2026-11-23 当前生成与绘图任务：两个独立 2×H100
 
 沿用 `codex/mvpo-multiseed-generation` 与 `DPO-mvpo-multiseed-v1`。同分支梯度扫描修复也保留；下文旧三组5090/H100方案仅作历史记录。新生成结果根为 `mvpo-appendix-h100-v2`，不混写旧冻结计划。

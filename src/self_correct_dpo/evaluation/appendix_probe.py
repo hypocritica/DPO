@@ -310,6 +310,9 @@ def stage_measurement(probe, conditions, sampling, checkpoint_id, pair_id, sched
     count, batch = sampling["stage_views"], sampling["stage_batch_size"]
     with torch.inference_mode():
         for condition in conditions:
+            started = time.monotonic()
+            progress_every = sampling.get("stage_progress_every", 0)
+            next_progress = progress_every
             seeds = [
                 seed_for("sd35-stage", checkpoint_id, sampling["view_seed"], pair_id,
                          condition["condition"], "stage", 0, index)
@@ -327,6 +330,11 @@ def stage_measurement(probe, conditions, sampling, checkpoint_id, pair_id, sched
                         "timestep": schedule["native_timesteps"][index],
                         "sigma": schedule["native_sigmas"][index], "margin": margin,
                     })
+                if progress_every and (len(views) >= next_progress or len(views) == count):
+                    print(json.dumps({"event": "stage_progress", "pair_id": pair_id,
+                                      "stage": condition["stage_index"], "views_done": len(views),
+                                      "views_total": count, "elapsed_seconds": time.monotonic() - started}), flush=True)
+                    next_progress = len(views) + progress_every
             result.append({**condition, "views": views})
     return {"stages": result}
 
@@ -460,7 +468,12 @@ def probe_settings(args, parser):
             parser.error("--check-initialization applies to gradient experiments")
         if args.stage_views < 2 or args.stage_batch_size < 1:
             parser.error("require at least two stage views and a positive stage-batch-size")
-        return {**sampling, "stage_views": args.stage_views, "stage_batch_size": args.stage_batch_size}
+        sampling.update(stage_views=args.stage_views, stage_batch_size=args.stage_batch_size)
+        if args.stage_progress_every:
+            if args.stage_progress_every < 0:
+                parser.error("stage progress interval must be nonnegative")
+            sampling["stage_progress_every"] = args.stage_progress_every
+        return sampling
     ks = [1, 2, 4] if flow else [1, 2, 4, 6, 8]
     source_blocks = missing(args.source_blocks, 4 if flow else 8)
     source_views = missing(args.source_views_per_block, 24 if flow else 96)
@@ -771,6 +784,7 @@ def main():
     parser.add_argument("--audit-views-per-block", type=int)
     parser.add_argument("--stage-views", type=int, default=96)
     parser.add_argument("--stage-batch-size", type=int, default=4)
+    parser.add_argument("--stage-progress-every", type=int, default=0, help="Log forward progress every N stage views")
     parser.add_argument("--scratch-dir", type=Path)
     args = parser.parse_args()
     args.scan = None
