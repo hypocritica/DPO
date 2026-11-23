@@ -20,10 +20,11 @@ from self_correct_dpo.evaluation.generation_inventory import discover, export_in
 from self_correct_dpo.evaluation.multiseed_history import protocol, read_source, choose_slots, import_pixels
 from self_correct_dpo.evaluation.render import effective_sampling
 from self_correct_dpo.evaluation.scorers import scorer_identity
+from self_correct_dpo.evaluation.appendix_progress import run_stage,run_workers
 from self_correct_dpo.evaluation.suite import freeze_json, render_header, safe_target
 
 PACKS={'A1':'sd15','A2':'sd15','F1':'sd15','E1':'sd15','E2':'sd15','E3':'sd15',
-       'B':'sd35_medium','E4':'sd35_medium','C':'zimage','D1':'sdxl','D2':'sdxl','F2':'sdxl'}
+       'B':'sd35_medium','L':'sd35_medium','E5':'sd35_medium','E4':'sd35_medium','C':'zimage','D1':'sdxl','D2':'sdxl','F2':'sdxl'}
 ROOT=CONFIG_DIR.parent
 
 
@@ -48,7 +49,7 @@ def configuration(path):
         steps=set([exp['main_step'],*exp['curve_steps']])
         if set(map(int,exp['checkpoints']))!=steps or any(s<=0 for s in steps):raise ValueError('Checkpoint grid differs')
         if exp['curve_steps'] and PACKS[exp['curve_pack']]!=exp['family']:raise ValueError('Curve pack differs')
-    if len(names)!=18 or config['shards'] not in (2,4,8):raise ValueError('Expected 18 configurations and 2/4/8 shards')
+    if len(names) not in (18,22) or config['shards'] not in (2,4,8):raise ValueError('Expected 18 or 22 configurations and 2/4/8 shards')
     for spec in config['families'].values():
         if spec.get('shards',config['shards']) not in (2,4,8):raise ValueError('Invalid family shard count')
         if len(spec['seeds'])!=3 or len(set(spec['seeds']))!=3 or any(type(s)!=int or s<0 for s in spec['seeds']):raise ValueError('Require three distinct seeds')
@@ -75,7 +76,7 @@ def static_plan(config):
         for job in jobs_for(config,family,spec['seeds']):
             result.append({**job,'family':family,'images':config['full_count'] if job['panel']=='full' else config['curve_count']})
     totals={pack:sum(j['images'] for j in result if j['pack']==pack) for pack in PACKS}
-    return dict(main_configurations=18,main_images=18*1632*3,unique_images=sum(totals.values()),packs=totals,jobs=result)
+    return dict(main_configurations=len(config['experiments']),main_images=len(config['experiments'])*1632*3,unique_images=sum(totals.values()),packs=totals,jobs=result)
 
 
 def versions(python,metric):
@@ -97,6 +98,7 @@ def prepare(args,config,registry):
                      fresh=args.fresh,generation_gpu=getattr(args,'generation_gpu',None),history_roots=[str(p) for p in args.history_root],prompts=str(args.prompts) if args.prompts else None)
         if plan['config']!=config or plan['options']!=options:raise ValueError('Frozen preparation differs; use a new output root')
         return dict(plan_id=plan['plan_id'],status='already prepared',counts=plan['counts'])
+    print(f'{family}: preparing protocol, token truncation policy and package versions',flush=True)
     cfg=load_config(CONFIG_DIR/config['protocol_config'],benchmarks=['partiprompts'],resources=args.resources)
     spec=config['families'][family];sample=copy.deepcopy(cfg['protocols'][family]);seeds=list(spec['seeds'])
     reference=None
@@ -127,9 +129,19 @@ def prepare(args,config,registry):
     model=base=None;adapters={};missing=[];training={}
     for exp in config['experiments']:
         if exp['family']!=family:continue
+        print(f"{family}: checking {exp['method']}, {len(exp['checkpoints'])} retained checkpoints",flush=True)
         run=Path(registry[exp['run_resource']])/exp['run']
         try:
             info=read_json(run/'training.json');validate_method(info['config'],exp['method'],str(run))
+            if exp.get('matched_reference'):
+                ref_exp=next(e for e in config['experiments'] if e['family']==family and e['method']==exp['matched_reference'])
+                ref=read_json(Path(registry[ref_exp['run_resource']])/ref_exp['run']/'training.json')
+                keys=('objective','noise_views','beta','comparison_budget','resolution','dtype','sampling','prompt_mode',
+                      'timestep_sampling','reference_mode','learning_rate','lr_schedule','warmup_steps','weight_decay','max_grad_norm','lora_rank','lora_alpha')
+                if (any(info.get(k)!=ref.get(k) for k in ('pairs_id','base_identity','effective_batch_size_pair_views'))
+                        or info['config'].get('seed')!=ref['config'].get('seed')
+                        or any(info['config']['training'].get(k)!=ref['config']['training'].get(k) for k in keys)):
+                    raise ValueError('LossAvg matched-control training settings differ')
             current=model_spec(info['config']['model'])
             if model is None:model=current;base=model_artifact_identity(model)
             if current!=model or info['base_identity']!=base:raise ValueError('Model/base identity differs across methods')
@@ -147,6 +159,7 @@ def prepare(args,config,registry):
             raise ValueError('Protocol source must be a main-table checkpoint on this full PartiPrompts panel (or its recorded shard)')
     sample=effective_sampling({'model':model,'sampling':sample})
     roots=args.history_root or [Path(registry['EVALUATIONS_ROOT']),Path(registry['RUNS_ROOT']),Path(registry['FLOW_RUNS_ROOT'])]
+    print(f'{family}: scanning historical metadata for reuse (read-only)',flush=True)
     files,issues=discover(roots,exclude=args.output)
     available={};audit=list(issues)
     wanted={prompt_key(p):(p['prompt'],p['tag']) for p in full}
@@ -293,7 +306,7 @@ def worker(out,plan,panels,job,index):
                     command=[plan['interpreters']['render'],'-m','self_correct_dpo.evaluation.render','--config',str(group/'config.json'),
                         '--prompts',str(group/'prompts.jsonl'),'--out',str(render),'--arm','aligned','--execution','standalone','--run-label','mvpo-multiseed']
                     if render.exists():command.append('--resume')
-                    subprocess.run(command,check=True)
+                    run_stage(command,log=group/'generation.log',journal=render/'manifest.jsonl',total=len(keys),label='generate')
                 run,_,_=checked_render(render,config,plan['base_identity'],adapter,[prompts])
                 runtime=plan['noise_runtime'] or read_json(out/'noise-runtime.json')['runtime']
                 if noise_runtime(run)!=runtime or run['versions']!=plan['render_versions']:raise ValueError('Generated noise/package runtime differs')
@@ -303,9 +316,10 @@ def worker(out,plan,panels,job,index):
                 score_out=group/'scores'/metric
                 if not (score_out/'complete.json').exists():
                     python=plan['interpreters']['hpsv3' if metric=='hpsv3' else 'legacy']
-                    subprocess.run([python,'-m','self_correct_dpo.evaluation.metrics','--metric',metric,'--run',str(render),
+                    run_stage([python,'-m','self_correct_dpo.evaluation.metrics','--metric',metric,'--run',str(render),
                         '--out',str(score_out),'--scorers-config',str(out/'scorers.resolved.json'),
-                        '--execution','standalone','--run-label','mvpo-multiseed-score'],check=True)
+                        '--execution','standalone','--run-label','mvpo-multiseed-score'],
+                        log=group/(metric+'.log'),journal=score_out/'scores.jsonl',total=len(keys),label='score '+metric)
                 rows,identity,_=checked_scores(group,metric,run,receipt,images,plan['scorers'][metric])
                 if identity['identity']['versions']!=plan['score_versions'][metric]:raise ValueError('Scoring package versions changed')
                 for row in rows:
@@ -336,13 +350,14 @@ def run_pack(args):
             if package_versions(plan['interpreters']['render'],list(plan['render_versions']))!=plan['render_versions']:
                 raise ValueError('Rendering environment changed after prepare')
             preflight_noise_runtime(plan['interpreters']['render'],devices,out,plan['noise_runtime'])
+        print(f"{args.pack}: {len(todo)} remaining shards; frozen reuse={sum(j.get('blocked') is None for j in jobs)} available jobs",flush=True)
         for start in range(0,len(todo),len(devices)):
             commands=[]
             for gpu,(job,index) in zip(devices,todo[start:start+len(devices)]):
                 command=[sys.executable,str(ROOT/'scripts/appendix_multiseed.py'),'worker','--output',str(args.output),
                          '--family',plan['family'],'--job',job['name'],'--index',str(index)]
                 commands.append((gpu,job['name']+'-'+str(index),command))
-            run_probes(commands,out/('pack-'+args.pack),env)
+            run_workers(commands,out/('pack-'+args.pack),env,{job['name']+'-'+str(index):result_path(out,job,index)/'progress.json' for job,index in todo[start:start+len(devices)]})
     return {'pack':args.pack,'status':'complete'}
 
 

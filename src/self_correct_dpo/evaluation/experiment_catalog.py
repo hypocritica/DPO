@@ -20,7 +20,7 @@ METHODS = {
     'dmpo': 'DMPO', 'dspo': 'DSPO', 'kto': 'KTO', 'mapo': 'MAPO',
     'global_k6': 'Global K6', 'stagewise_k6': 'Stagewise K6',
     'stagewise_dmpo_k6': 'Stagewise DMPO K6', 'stagewise_dspo_k6': 'Stagewise DSPO K6',
-    'gaussian_b_k2': 'Gaussian B K2',
+    'gaussian_b_k2': 'Gaussian B K2', 'lossavg_k2': 'LossAvg K2', 'lossavg_k4': 'LossAvg K4',
     'stagewise_constant_k2': 'Stagewise Constant K2',
     'stagewise_phase_k2': 'Stagewise Phase K2', 'stagewise_reverse_k2': 'Stagewise Reverse K2',
 }
@@ -83,7 +83,7 @@ def validate_method(config, method, experiment):
         stage = method.startswith('stagewise_')
         objective = next((o for o in ('dmpo', 'dspo') if f'_{o}_' in method), 'dpo')
         stage_objective = next((o for o in ('constant', 'phase', 'reverse') if f'_{o}_' in method), 'dpo')
-        arm = 'B' if method == 'gaussian_b_k2' else 'C'
+        arm = 'B' if method in ('gaussian_b_k2','lossavg_k2','lossavg_k4') else 'C'
         valid = (actual['method'] == (f'stagewise-{arm}-gaussian' if stage else f'multiview-{arm}-gaussian')
                  and actual['objective'] == objective and actual['noise_views'] == int(method[-1])
                  and actual['formal_arm'] == arm

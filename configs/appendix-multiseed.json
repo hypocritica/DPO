@@ -13,7 +13,7 @@
         23,
         42
       ],
-      "generation_batch_size": 4,
+      "generation_batch_size": 16,
       "cpu_offload": false,
       "metrics": [
         "pickscore",
@@ -22,7 +22,7 @@
         "clip",
         "aesthetic"
       ],
-      "shards": 4
+      "shards": 2
     },
     "sdxl": {
       "seeds": [
@@ -30,7 +30,7 @@
         23,
         42
       ],
-      "generation_batch_size": 4,
+      "generation_batch_size": 8,
       "cpu_offload": false,
       "metrics": [
         "pickscore",
@@ -39,7 +39,7 @@
         "clip",
         "aesthetic"
       ],
-      "shards": 4
+      "shards": 2
     },
     "sd35_medium": {
       "seeds": [
@@ -47,7 +47,7 @@
         23,
         42
       ],
-      "generation_batch_size": 2,
+      "generation_batch_size": 8,
       "cpu_offload": false,
       "metrics": [
         "pickscore",
@@ -55,7 +55,7 @@
         "image_reward",
         "aesthetic"
       ],
-      "shards": 4
+      "shards": 2
     },
     "zimage": {
       "seeds": [
@@ -446,11 +446,134 @@
       "checkpoints": {
         "2300": "07d0b49ce22cec7516b126ca8ce73f6933065b8be3bbdec7e0548cce576fa1ef"
       }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "global_k2",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k2-pair_views128-45090-b2-3200-C-bfloat16-trainonly-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "99df4eda7cd29be52033ca15de53e0680316319f3c2b8149626ccbb1f81212aa",
+      "main_step": 1600,
+      "pack": "L",
+      "curve_pack": "E5",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": null,
+        "800": null,
+        "1200": null,
+        "1600": "b32445b0806787474e141f49242289ebf7d64b3af9d629dbad17c25fad535c9b",
+        "2000": null,
+        "2400": null,
+        "2800": null,
+        "3200": null
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "stagewise_k2",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k2-pair_views128-45090-b2-3200-C-bfloat16-trainonly-stage500-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "ecb709795f47f4b42f97706ca467e5ee34a2f004dc2155733d672c13ba156bd7",
+      "main_step": 1600,
+      "pack": "L",
+      "curve_pack": "E5",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": null,
+        "800": null,
+        "1200": null,
+        "1600": "bad6473e2be60283c1bf20e6dd0aaeaa05df90acb2a501e0d6a51f4773cac219",
+        "2000": null,
+        "2400": null,
+        "2800": null,
+        "3200": null
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "lossavg_k2",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k2-pair_views128-45090-b2-3200-B-bfloat16-trainonly-paper-v2-flow-microviews4-lossavg-v1",
+      "run_id": "d68f620e03a52ba51b4ef23f6a5d553c1e983542df38a4646ad957e43ad3ffab",
+      "main_step": 1600,
+      "pack": "L",
+      "curve_pack": "E5",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": null,
+        "800": null,
+        "1200": null,
+        "1600": null,
+        "2000": null,
+        "2400": null,
+        "2800": null,
+        "3200": null
+      },
+      "matched_reference": "global_k2"
+    },
+    {
+      "family": "sd35_medium",
+      "method": "lossavg_k4",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-B-bfloat16-trainonly-paper-v2-flow-microviews4-lossavg-v1",
+      "run_id": "387c6cae8cfdba56da1becafa83c28f5a251ccf9f1f2a5e0e024e08b0d593fbc",
+      "main_step": 1600,
+      "pack": "L",
+      "curve_pack": "E5",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": null,
+        "800": null,
+        "1200": null,
+        "1600": null,
+        "2000": null,
+        "2400": null,
+        "2800": null,
+        "3200": null
+      },
+      "matched_reference": "global_k4"
     }
   ],
   "notes": [
-    "SD1.5 native evaluation code uses Euler50 seed0; resolve paper PNDM50 seed17 discrepancy from original render/run.json before preparation. --protocol-source freezes actual run settings and its first seed.",
-    "DSPO SD1.5 main10000 versus MVPO6000; DMPO SDXL main10000 versus MVPO9000, not equal-budget comparisons.",
-    "No LossAvg, Base, training, optional K curves or additional same-budget main configurations."
+    "SD1.5 actual benchmark is Euler50 seed0; freeze original render/run.json.",
+    "22 main configurations including LossAvg K2/K4 and matched K2 controls; missing retained snapshots stay blocked.",
+    "Two 2xH100 tasks; batches16/8/8/4; all cpu_offload=false.",
+    "Mixed historical GPUs retained with explicit provenance; no new training."
   ]
 }

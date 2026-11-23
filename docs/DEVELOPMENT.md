@@ -1,5 +1,15 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 双H100生成、LossAvg匹配对照与浅层绘图包
+
+同分支保留梯度修复cd80347，在当前生成代码扩展group-h100-a/b各2卡。batch=16/8/8/4且全部无offload。新增SD35 LossAvg K2/K4、Global/Stage K2主表与400步间隔曲线；22主表、92曲线点去重148160图，离线历史分数复用33152、新增115008。LossAvg校验formal_arm B、相同K目标/data/base及训练设置；checkpoint仅从指定run/step解析并冻结，不用latest。实际权重仍待服务器核验。
+
+固定100艺术词、30原复杂词、12条Parti展示词。SD15九列、SDXL八列（用户确认无KTO）、SD35五列、Z三列；训练进程固定同prompt/seed，图库3740槽位，预计额外新增2756。历史PNG仅按SHA与原生协议/包版本/模型身份匹配复用；缺像素重新生成，缺权重显示空缺。所有候选导出，不按分数自动挑优。SDXL保留旧5090来源，本轮生成H100。
+
+新增appendix_progress将原生生成/评分日志落盘，journal驱动完成/剩余/实测阶段ETA，子任务失败或信号终止整组worker。不改render.py字节，保留既有精确renderer SHA兼容约束。原生truncate策略记录超长prompt，UI不刷屏；真正错误仍可见。figures/index.html与同层CSV/JSONL/PNG/PDF并列，原图一层images；带GPU/step/seed/截断标记。导出按family与共享index加锁。
+
+轻量CPU检查覆盖数量/去重、LossAvg语义、原生token截断、逐图复用/缺图生成/恢复/导出、组级派发/错误传播、已有多种子与方法目录检查。合成拼图和七曲线布局已检查，非实验结果；没有提交GPU。本轮完整命令置于command.md首节，桌面清单同步；输出新根mvpo-appendix-h100-v2。
+
 ## 2026-11-23 Native adapter训练batch记录兼容
 
 用户回传DSPO step1000两份不可变元数据仅batch_size/gradient_accumulation_steps不同：2×96与16×12。native checkpoint允许这两个正整数字段重分配且乘积相同，其余训练字段和模型仍要求一致；DPO/Flow旧路径不放宽。checkpoint identity记录原始adapter_training_adjustments，不改训练文件。错误包含backend.json绝对路径和具体字段，便于区分DMPO后续checkpoint的未知差异。相同有效batch不代表浮点训练等价，本次仅允许对已保存权重做固定checkpoint测量。

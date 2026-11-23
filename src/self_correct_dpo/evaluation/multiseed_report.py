@@ -125,6 +125,8 @@ def _family_report(out):
         destination.append(row)
     comparisons=([('stagewise_k6','dpo'),('stagewise_dmpo_k6','dmpo'),('stagewise_dspo_k6','dspo')]
         if family in ('sd15','sdxl') else [('stagewise_k4','dpo')]+([('stagewise_k4','linear_dpo'),('stagewise_k4','global_k4'),('global_k4','dpo')] if family=='sd35_medium' else []))
+    if family=='sd35_medium':
+        comparisons += [(a,b) for a,b in [('global_k2','dpo'),('stagewise_k2','dpo'),('stagewise_k2','global_k2'),('global_k2','lossavg_k2'),('stagewise_k2','lossavg_k2'),('global_k4','lossavg_k4'),('stagewise_k4','lossavg_k4'),('lossavg_k2','dpo'),('lossavg_k4','dpo')] if a in by_method and b in by_method]
     for exp in exps:
         for metric in plan['config']['families'][family]['metrics']:
             for ss in [[s] for s in seeds]+[seeds]:add_mean(exp['method'],exp['main_step'],ss,'full',metric,'main')
@@ -147,6 +149,7 @@ def _family_report(out):
     note='Mixed generation GPUs; hardware effects not separated' if plan.get('cross_gpu_reuse') else ''
     plot_wins(dest,family,win_rows,','.join(map(str,seeds)),note)
     plot(dest,family,means,paired,comparisons,len(panels['curve']),note)
+    if family=='sd35_medium' and 'lossavg_k2' in by_method:plot_lossavg(dest,means,len(panels['curve']),note)
     return dict(family=family,report=str(dest),complete_jobs=sum(s['status']=='complete' for s in status),total_jobs=len(status))
 
 
@@ -185,7 +188,7 @@ def plot(dest,family,means,paired,comparisons,curve_count,hardware_note=""):
 
 LABELS={'dpo':'DPO','stagewise_k6':'DPO + MVPO K6','dmpo':'DMPO','stagewise_dmpo_k6':'DMPO + MVPO K6',
         'dspo':'DSPO','stagewise_dspo_k6':'DSPO + MVPO K6','linear_dpo':'LinearDPO',
-        'global_k4':'Global MVPO K4','stagewise_k4':'Stage-wise MVPO K4'}
+        'lossavg_k2':'LossAvg K2','lossavg_k4':'LossAvg K4','global_k2':'Global MVPO K2','stagewise_k2':'Stage-wise MVPO K2','global_k4':'Global MVPO K4','stagewise_k4':'Stage-wise MVPO K4'}
 METRIC_LABELS={'pickscore':'PickScore','hpsv2':'HPSv2','hpsv3':'HPSv3','image_reward':'ImageReward','clip':'CLIP','aesthetic':'Aesthetic'}
 
 
@@ -231,3 +234,22 @@ def plot_wins(dest,family,rows,all_seeds,hardware_note=""):
 def report(output,family=None):
     families=[family] if family else ['sd15','sdxl','sd35_medium','zimage']
     return [family_report(output/f) if (output/f/'plan.json').exists() else dict(family=f,status='unprepared') for f in families]
+
+
+def plot_lossavg(dest,means,curve_count,hardware_note=''):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    names=['dpo','lossavg_k2','global_k2','stagewise_k2','lossavg_k4','global_k4','stagewise_k4']
+    metrics=['pickscore','hpsv3','image_reward'];fig,axes=plt.subplots(1,3,figsize=(16,5),layout='constrained')
+    for ax,metric in zip(axes,metrics):
+        for name in names:
+            rows=[r for r in means if r['scope']=='curve' and r['method']==name and r['metric']==metric]
+            if not rows:continue
+            x=[r['step'] for r in rows];mean=[np.nan if r['mean'] is None else r['mean'] for r in rows]
+            line,=ax.plot(x,mean,marker='o',markersize=3,linestyle='--' if name.startswith('lossavg') else '-',label=LABELS[name])
+            ax.fill_between(x,[np.nan if r['low'] is None else r['low'] for r in rows],[np.nan if r['high'] is None else r['high'] for r in rows],color=line.get_color(),alpha=.09)
+        ax.set(xlabel='Optimizer update',title=METRIC_LABELS[metric]);ax.grid(alpha=.2);ax.legend(fontsize=8)
+    fig.suptitle(f'SD3.5-M: DPO, LossAvg and MVPO controls\n{curve_count} fixed prompts; one generation seed; pointwise 95% prompt-bootstrap intervals'+('\n'+hardware_note if hardware_note else ''))
+    for ext in ('png','pdf'):fig.savefig(dest/f'lossavg-controls.{ext}',dpi=160)
+    plt.close(fig)

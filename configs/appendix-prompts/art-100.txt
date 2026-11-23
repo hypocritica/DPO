@@ -1,0 +1,299 @@
+art-001
+A white cottage beside a lavender field at sunrise. Watercolor, soft pigment washes, luminous colors.
+
+art-002
+A red panda resting under a flowering cherry tree. Watercolor, soft pigment washes, luminous colors.
+
+art-003
+A turquoise lake reflecting snowy mountains. Watercolor, soft pigment washes, luminous colors.
+
+art-004
+A small sailboat beside a peach colored harbor. Watercolor, soft pigment washes, luminous colors.
+
+art-005
+A glass vase of yellow daffodils on a blue table. Watercolor, soft pigment washes, luminous colors.
+
+art-006
+A kingfisher above a quiet stream. Watercolor, soft pigment washes, luminous colors.
+
+art-007
+A winding path through an autumn birch grove. Watercolor, soft pigment washes, luminous colors.
+
+art-008
+A blue bicycle outside a flower shop. Watercolor, soft pigment washes, luminous colors.
+
+art-009
+A sleeping orange cat beside a sunny window. Watercolor, soft pigment washes, luminous colors.
+
+art-010
+A white lighthouse above a calm coral sea. Watercolor, soft pigment washes, luminous colors.
+
+art-011
+A basket of ripe peaches beside a blue ceramic bowl. Oil painting, rich color, visible brushwork.
+
+art-012
+Sunflowers in a terracotta pot against a teal wall. Oil painting, rich color, visible brushwork.
+
+art-013
+A golden meadow beneath violet evening clouds. Oil painting, rich color, visible brushwork.
+
+art-014
+A peacock standing in a quiet palace garden. Oil painting, rich color, visible brushwork.
+
+art-015
+A little stone bridge over a jade green river. Oil painting, rich color, visible brushwork.
+
+art-016
+A copper kettle and fresh oranges on linen. Oil painting, rich color, visible brushwork.
+
+art-017
+A fishing village with colorful rooftops at dawn. Oil painting, rich color, visible brushwork.
+
+art-018
+A white horse standing among crimson poppies. Oil painting, rich color, visible brushwork.
+
+art-019
+An old library with warm sunlight and green chairs. Oil painting, rich color, visible brushwork.
+
+art-020
+A mountain orchard with pink blossoms. Oil painting, rich color, visible brushwork.
+
+art-021
+A translucent amber perfume bottle on pale marble. Studio photography, soft light, crisp detail.
+
+art-022
+A porcelain teacup beside a pink camellia. Studio photography, soft light, crisp detail.
+
+art-023
+A folded silk scarf in blue and gold. Studio photography, soft light, crisp detail.
+
+art-024
+A lemon tart topped with fresh blueberries. Studio photography, soft light, crisp detail.
+
+art-025
+A small cactus in a matte turquoise pot. Studio photography, soft light, crisp detail.
+
+art-026
+A glass paperweight containing colorful bubbles. Studio photography, soft light, crisp detail.
+
+art-027
+A pair of red shoes beside a cream suitcase. Studio photography, soft light, crisp detail.
+
+art-028
+A bowl of strawberries on a mint green table. Studio photography, soft light, crisp detail.
+
+art-029
+A polished brass camera beside a leather notebook. Studio photography, soft light, crisp detail.
+
+art-030
+A pink seashell on smooth wet sand. Studio photography, soft light, crisp detail.
+
+art-031
+A quiet tram on a rainy street with amber reflections. Cinematic photography, glowing light, balanced colors.
+
+art-032
+A cozy greenhouse glowing in blue evening light. Cinematic photography, glowing light, balanced colors.
+
+art-033
+A mountain cabin beside a silver lake at dawn. Cinematic photography, glowing light, balanced colors.
+
+art-034
+A red umbrella resting beside a lavender doorway. Cinematic photography, glowing light, balanced colors.
+
+art-035
+A bookstore window glowing on a snowy evening. Cinematic photography, glowing light, balanced colors.
+
+art-036
+A yellow train crossing green countryside. Cinematic photography, glowing light, balanced colors.
+
+art-037
+A sailboat drifting beneath soft pink clouds. Cinematic photography, glowing light, balanced colors.
+
+art-038
+An empty rooftop garden overlooking a sparkling city. Cinematic photography, glowing light, balanced colors.
+
+art-039
+A sunlit cafe terrace with blue chairs. Cinematic photography, glowing light, balanced colors.
+
+art-040
+A lantern lit wooden bridge over still water. Cinematic photography, glowing light, balanced colors.
+
+art-041
+A fox in a green scarf carrying a basket of apples. Storybook illustration, warm colors, delicate detail.
+
+art-042
+A rabbit reading beside a round cottage window. Storybook illustration, warm colors, delicate detail.
+
+art-043
+A hedgehog watering blue flowers in tiny pots. Storybook illustration, warm colors, delicate detail.
+
+art-044
+A red panda serving tea to a white rabbit. Storybook illustration, warm colors, delicate detail.
+
+art-045
+A little owl arranging books in a tree library. Storybook illustration, warm colors, delicate detail.
+
+art-046
+A bear baking golden bread in a cozy kitchen. Storybook illustration, warm colors, delicate detail.
+
+art-047
+A squirrel painting a bright blue garden gate. Storybook illustration, warm colors, delicate detail.
+
+art-048
+A raccoon sailing a leaf boat on a pond. Storybook illustration, warm colors, delicate detail.
+
+art-049
+A tortoise carrying a tiny flower garden. Storybook illustration, warm colors, delicate detail.
+
+art-050
+A penguin wearing a yellow raincoat beneath a red umbrella. Storybook illustration, warm colors, delicate detail.
+
+art-051
+A coral reef with blue fish and golden seaweed. Paper cut art, layered shapes, vivid colors.
+
+art-052
+A tropical bird among red and turquoise leaves. Paper cut art, layered shapes, vivid colors.
+
+art-053
+A rolling desert with a small blue oasis. Paper cut art, layered shapes, vivid colors.
+
+art-054
+A moonlit mountain village with yellow windows. Paper cut art, layered shapes, vivid colors.
+
+art-055
+A hot air balloon above striped green hills. Paper cut art, layered shapes, vivid colors.
+
+art-056
+A blooming magnolia branch against a deep blue sky. Paper cut art, layered shapes, vivid colors.
+
+art-057
+A sailing ship on curling turquoise waves. Paper cut art, layered shapes, vivid colors.
+
+art-058
+A bright butterfly above orange wildflowers. Paper cut art, layered shapes, vivid colors.
+
+art-059
+A forest path leading to a pink waterfall. Paper cut art, layered shapes, vivid colors.
+
+art-060
+A circular garden with colorful geometric flower beds. Paper cut art, layered shapes, vivid colors.
+
+art-061
+A tiny bakery with a striped awning and flower boxes. Isometric miniature, clay textures, pastel palette.
+
+art-062
+A rooftop greenhouse with wooden benches. Isometric miniature, clay textures, pastel palette.
+
+art-063
+A small train station surrounded by cherry blossoms. Isometric miniature, clay textures, pastel palette.
+
+art-064
+A blue cottage on a floating garden island. Isometric miniature, clay textures, pastel palette.
+
+art-065
+A cheerful art studio with easels and potted plants. Isometric miniature, clay textures, pastel palette.
+
+art-066
+A seaside cafe with coral chairs and teal tables. Isometric miniature, clay textures, pastel palette.
+
+art-067
+A quiet bookshop with a spiral staircase. Isometric miniature, clay textures, pastel palette.
+
+art-068
+A miniature observatory on a grassy hill. Isometric miniature, clay textures, pastel palette.
+
+art-069
+A garden fountain surrounded by lavender bushes. Isometric miniature, clay textures, pastel palette.
+
+art-070
+A tiny pottery workshop with colorful bowls. Isometric miniature, clay textures, pastel palette.
+
+art-071
+A white swan gliding across a deep blue pond. Gouache illustration, bold shapes, saturated color.
+
+art-072
+A red umbrella beside yellow rain boots. Gouache illustration, bold shapes, saturated color.
+
+art-073
+A bowl of green pears against a coral background. Gouache illustration, bold shapes, saturated color.
+
+art-074
+A striped beach hut beside a turquoise sea. Gouache illustration, bold shapes, saturated color.
+
+art-075
+A black and white cat among pink flowers. Gouache illustration, bold shapes, saturated color.
+
+art-076
+A bright yellow tram passing purple buildings. Gouache illustration, bold shapes, saturated color.
+
+art-077
+A vase of orange tulips on a cobalt shelf. Gouache illustration, bold shapes, saturated color.
+
+art-078
+A cluster of pastel houses above a quiet harbor. Gouache illustration, bold shapes, saturated color.
+
+art-079
+A blue bird sitting on a flowering lemon branch. Gouache illustration, bold shapes, saturated color.
+
+art-080
+A picnic blanket with fruit beneath an apple tree. Gouache illustration, bold shapes, saturated color.
+
+art-081
+A dew covered blue butterfly on a pink blossom. Macro photography, luminous bokeh, natural colors.
+
+art-082
+A tiny ladybug on a curled green leaf. Macro photography, luminous bokeh, natural colors.
+
+art-083
+A crystal raindrop reflecting a yellow flower. Macro photography, luminous bokeh, natural colors.
+
+art-084
+A curled fern leaf in gentle morning light. Macro photography, luminous bokeh, natural colors.
+
+art-085
+A honeybee hovering beside purple lavender. Macro photography, luminous bokeh, natural colors.
+
+art-086
+A white feather floating on turquoise water. Macro photography, luminous bokeh, natural colors.
+
+art-087
+A translucent autumn leaf illuminated from behind. Macro photography, luminous bokeh, natural colors.
+
+art-088
+A small snail on a moss covered stone. Macro photography, luminous bokeh, natural colors.
+
+art-089
+A dandelion seed with a sparkling drop of water. Macro photography, luminous bokeh, natural colors.
+
+art-090
+A cluster of pink crystals on white sand. Macro photography, luminous bokeh, natural colors.
+
+art-091
+A graceful white heron framed by blue irises. Art nouveau poster, flowing lines, jewel tones.
+
+art-092
+A golden moon above stylized green mountains. Art nouveau poster, flowing lines, jewel tones.
+
+art-093
+A red fox surrounded by curling autumn leaves. Art nouveau poster, flowing lines, jewel tones.
+
+art-094
+A vase of lilies framed by turquoise arches. Art nouveau poster, flowing lines, jewel tones.
+
+art-095
+A peacock beneath a canopy of plum blossoms. Art nouveau poster, flowing lines, jewel tones.
+
+art-096
+A sailing boat framed by swirling emerald waves. Art nouveau poster, flowing lines, jewel tones.
+
+art-097
+A butterfly surrounded by amber and violet flowers. Art nouveau poster, flowing lines, jewel tones.
+
+art-098
+A quiet garden gate decorated with climbing roses. Art nouveau poster, flowing lines, jewel tones.
+
+art-099
+A pair of white doves above a flowering orange tree. Art nouveau poster, flowing lines, jewel tones.
+
+art-100
+A bright sun rising over a geometric blue ocean. Art nouveau poster, flowing lines, jewel tones.

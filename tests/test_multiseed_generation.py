@@ -75,12 +75,12 @@ class MultiseedTests(unittest.TestCase):
 
     def test_full_scope_and_deduplication(self):
         cfg=configuration(ROOT/'configs/appendix-multiseed.json');plan=static_plan(cfg)
-        self.assertEqual((plan['main_configurations'],plan['main_images'],plan['unique_images'],len(plan['jobs'])),(18,88128,114240,105))
+        self.assertEqual((plan['main_configurations'],plan['main_images'],plan['unique_images'],len(plan['jobs'])),(22,107712,148160,145))
         self.assertEqual(plan['packs']['E4'],10752)
         jobs=jobs_for(cfg,'sd15',[0,23,42]);self.assertEqual(len({j['name'] for j in jobs}),len(jobs))
         main=[j for j in jobs if j['method']=='stagewise_dspo_k6' and j['panel']=='full'];self.assertEqual({j['step'] for j in main},{6000})
         self.assertTrue(any(j['step']==10000 and j['panel']=='curve' and j['method']=='stagewise_dspo_k6' for j in jobs))
-        self.assertFalse(any('lossavg' in j['method'] for j in plan['jobs']))
+        self.assertEqual({j['method'] for j in plan['jobs'] if 'lossavg' in j['method']},{'lossavg_k2','lossavg_k4'})
 
     def test_sampling_mismatch_and_packing(self):
         a={'model':{'family':'sd15','path':'/fixture','revision':'test'},'sampling':{'seeds':[0],'scheduler':'Euler','generation_batch_size':2}}
@@ -141,7 +141,7 @@ class MultiseedTests(unittest.TestCase):
                 render=Path(command[command.index('--run')+1]);target=Path(command[command.index('--out')+1])
                 self.assertEqual(read_json(render/'run.json')['expected_images'],2)
                 metrics_module.score_panel(render,target,'pickscore',{},scorer_factory=lambda *a:lambda imgs,texts:[.5]*len(imgs),asset_id=SCORER)
-            with patch('self_correct_dpo.evaluation.multiseed_generation.subprocess.run',side_effect=execute) as invoked:
+            with patch('self_correct_dpo.evaluation.multiseed_generation.run_stage',side_effect=execute) as invoked:
                 worker(out,plan,{'full':run['suite']},job,0);self.assertEqual(invoked.call_count,1)
                 worker(out,plan,{'full':run['suite']},job,0);self.assertEqual(invoked.call_count,1)
             self.assertTrue(completed(out,plan,job,0));self.assertEqual(len(read_jsonl(result_path(out,job,0)/'scores.jsonl')),3)
@@ -165,7 +165,7 @@ class MultiseedTests(unittest.TestCase):
                 else:
                     render=Path(command[command.index('--run')+1])
                     metrics_module.score_panel(render,target,'pickscore',{},scorer_factory=lambda *a:lambda imgs,texts:[.5]*len(imgs),asset_id=SCORER)
-            with patch('self_correct_dpo.evaluation.multiseed_generation.resolve_adapter',return_value=adapter),patch('self_correct_dpo.evaluation.multiseed_generation.subprocess.run',side_effect=execute) as invoked:
+            with patch('self_correct_dpo.evaluation.multiseed_generation.resolve_adapter',return_value=adapter),patch('self_correct_dpo.evaluation.multiseed_generation.run_stage',side_effect=execute) as invoked:
                 worker(out,plan,{'full':run['suite']},job,0);self.assertEqual(invoked.call_count,2)
                 worker(out,plan,{'full':run['suite']},job,0);self.assertEqual(invoked.call_count,2)
             self.assertTrue(completed(out,plan,job,0))
@@ -264,6 +264,11 @@ class MultiseedTests(unittest.TestCase):
             self.assertEqual(failed.returncode,7);self.assertEqual(len(read_jsonl(log)),1)
             bad=subprocess.run(['bash',str(launcher),'group-5090-a'],env={**env,'SCD_EVAL_GPUS':'0,1'},capture_output=True)
             self.assertEqual(bad.returncode,2)
+            log.unlink()
+            subprocess.run(['bash',str(launcher),'group-h100-b'],env={**env,'SCD_EVAL_GPUS':'0,1'},check=True)
+            calls=read_jsonl(log)
+            self.assertEqual([r[r.index('--pack')+1] for r in calls if '--pack' in r],['B','L','C','E4','E5'])
+            self.assertEqual([r[r.index('--family')+1] for r in calls if r[0].endswith('appendix_figures.py')],['sd35_medium','zimage'])
 
     def test_win_counts_ties_and_complement(self):
         a=np.array([[3.,1.,2.],[0.,5.,4.]])

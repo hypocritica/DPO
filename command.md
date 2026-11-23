@@ -1,3 +1,173 @@
+# 2026-11-23 当前生成与绘图任务：两个独立 2×H100
+
+沿用 `codex/mvpo-multiseed-generation` 与 `DPO-mvpo-multiseed-v1`。同分支梯度扫描修复也保留；下文旧三组5090/H100方案仅作历史记录。新生成结果根为 `mvpo-appendix-h100-v2`，不混写旧冻结计划。
+
+| SLAI提交任务 | 分配 | 顺序执行 | 预计新增图 |
+| --- | --- | --- | ---: |
+| group-h100-a | 2×H100 | SD1.5＋SDXL 主表/曲线、方法比较图库、训练进程拼图 | 55,812 |
+| group-h100-b | 2×H100 | SD3.5-M＋Z-Image 主表/曲线、LossAvg K2/K4、复杂词和训练进程拼图 | 61,952 |
+
+每组包内两卡分片、包之间串行。SD1.5/SDXL/SD3.5-M/Z-Image 每卡生成batch分别 **16/8/8/4**，均关闭CPU offload；这是按用户已有运行经验设置，本地没有H100实测。总计预计新增 **117,764** 张：定量115,008＋展示新增2,756。数量根据历史metadata离线核算，真实PNG/权重保留情况由服务器检查。
+
+定量：22个主表配置，每个1632条×3生成种子；92个曲线点，每个固定512条×1种子。主表和曲线交集去重，定量唯一目标148,160，复用旧分数33,152。SD1.5 seeds=0/23/42，其余=17/23/42。SDXL旧图来自5090，本轮H100，按用户授权复用并记录硬件差异。
+
+新增LossAvg：K2/K4与同K Global MVPO优先做匹配对照，另保留DPO、Stage-wise K2/K4；主表1600步，曲线400/800/1200/1600/2000/2400/2800/3200。训练metadata已找到，目标训练设置已对照；实际保留的checkpoint在prepare核验，不自动换成latest。K2/K4是多视图数，DPO基线仍为K1。
+
+图库：SD1.5九列（含KTO），SDXL八列（明确不含KTO）；100条新增艺术词×各模型1种子，另复用12条Parti。SD3.5-M五列Base/SFT/DPO/LinearDPO/MVPO，Z三列Base/DPO/MVPO，各30条复杂词×4种子，共960张复杂图库。相同prompt/seed横向对齐，所有候选均导出。训练进程：SD1.5/SDXL DPO与DPO+MVPO的0/2000/4000/6000/8000/10000；SD3.5-M七方法的0及400间隔至3200。0表示Base。每个进程使用12条固定Parti，优先复用定量曲线原图。
+
+长词使用原生tokenizer截断并记录原文、token数与截断情况，终端不刷token警告；详细日志保留。日志显示当前包/阶段、完成/剩余数量和按实际吞吐估计的**当前阶段ETA**，加载期间显示估算中，不提前虚报整组小时数。真正的环境/权重/显存错误仍停止并打印日志位置。
+
+## 1. 原目录拉取
+
+任务启动前运行。若同一checkout仍在跑冻结源码的任务，等它结束再更新；远程未提交修改先正常提交并同步。以下检查不覆盖你的工作。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+test "$(git branch --show-current)" = codex/mvpo-multiseed-generation
+test -z "$(git status --porcelain)"
+git pull --ff-only origin codex/mvpo-multiseed-generation
+git log -1 --oneline
+)
+```
+
+## 2. 登录节点准备四模型及图库
+
+无需重新生成inventory。实际读取服务器原生evaluation元数据和保留权重；四模型新生成GPU均为H100。检查输出blocked_checkpoints和图库blocked列表。已冻结的缺权重计划不能直接用另一checkpoint接管；应先补齐同一权重，再在新结果根重新prepare。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+history_eval_root=/mnt/aoss/xietianyu/self_correct/evaluations
+for family in sd15 sdxl sd35_medium zimage; do
+  generation_gpu='NVIDIA H100 80GB HBM3'
+  case "$family" in
+    sd15)
+      protocol_source="$history_eval_root/sd15/main-h100-b64-v1/sd15-dpo/step-0010000/partiprompts/render/run.json"
+      prompt_source="$history_eval_root/sd15/main-h100-b64-v1/prompts/partiprompts.jsonl" ;;
+    sdxl)
+      protocol_source="$history_eval_root/sdxl/paper-2000-5090-v1/main/partiprompts/sdxl-dpo/step-0002000/partiprompts/render/run.json"
+      prompt_source="$history_eval_root/sdxl/paper-2000-5090-v1/main/partiprompts/prompts/partiprompts.jsonl" ;;
+    sd35_medium)
+      protocol_source="$history_eval_root/sd35_medium/compact-h100-v3/core/sd35-dpo/step-0001600/partiprompts/render/run.json"
+      prompt_source="$history_eval_root/sd35_medium/compact-h100-v3/core/prompts/partiprompts.jsonl" ;;
+    zimage)
+      generation_gpu='NVIDIA H100 80GB HBM3'
+      protocol_source="$history_eval_root/zimage/parti-2300-two-methods-seed17-2h100-b4-v1/partiprompts/zimage-dpo/step-0002300/partiprompts/render/run.json"
+      prompt_source="$history_eval_root/zimage/parti-2300-two-methods-seed17-2h100-b4-v1/partiprompts/prompts/partiprompts.jsonl" ;;
+  esac
+  bash scripts/run_multiseed_slai.sh "prepare-$family" \
+    --protocol-source "$protocol_source" --prompts "$prompt_source" --generation-gpu "$generation_gpu"
+done
+bash scripts/run_multiseed_slai.sh figures-prepare
+)
+```
+
+## 3. SLAI独立提交A：2×H100，SD1.5＋SDXL
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export MVPO_GENERATION_AUTO_REPORT=1
+bash scripts/run_multiseed_slai.sh group-h100-a
+)
+```
+
+## 4. SLAI独立提交B：2×H100，SD3.5-M＋Z-Image
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export MVPO_GENERATION_AUTO_REPORT=1
+bash scripts/run_multiseed_slai.sh group-h100-b
+)
+```
+
+同一命令可恢复已冻结任务，已完成分片跳过。A依次A1/A2/F1/D1/D2/F2/E1/E2/E3，B依次B/L/C/E4/E5；L是新增四个SD3.5-M主表配置，E5是其曲线。每包评分后自动生成均值、曲线、自动评分器win-ratio与配对区间；七方法LossAvg对照曲线自动输出。
+
+## 5. 结果放在一个浅目录
+
+每组末尾自动导出；总入口：
+
+`/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2/figures/index.html`
+
+同一目录放CSV/JSONL原始绘图数据、均值/胜率/曲线PNG与PDF、方法对比与训练进程拼图、prompt和缺项清单。展示原图只多一层 `figures/images/`，携带SHA/checkpoint/来源GPU/截断记录。下载整个figures目录即可打开；定量全量PNG和详细运行日志保留在工作目录，不全复制进图库。图库不额外跑评分器，其统计仍以Parti全量主表与512条曲线为准。
+
+已有部分结果时也可只读刷新拼图和数据汇总：
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export MVPO_GENERATION_AUTO_REPORT=1
+bash scripts/run_multiseed_slai.sh figures-export
+)
+```
+
+只读导出会将未完成位置显示为Missing，不编造结果。定性图库用于示例展示，完整固定面板统计用于结论；跨GPU的SDXL变化保留来源标注。CPU合成图仅验证绘图布局，不是实验数据。
+
+---
+
 # 任务4/5：兼容训练batch拆分记录（2026-11-23）
 
 用户实际DSPO 1000步：training.json的batch_size=2/gradient_accumulation_steps=96，adapter/backend.json为16/12；两者乘积同为192，其余字段相同。native probe接受仅这两项变化且有效batch不变，原始差异写入checkpoint身份adapter_training_adjustments。所有模型、目标、beta等差异仍报具体文件/字段。不修改训练产物；不声称两种batch布局数值完全等价。DMPO 1000步用户回传无差异，若后续checkpoint报错，新报错会指明路径与差异。
