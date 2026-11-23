@@ -1,3 +1,46 @@
+# Flow 梯度重复性：独立 pilot 修复
+
+修复分支 `codex/mvpo-flow-determinism`。现有生成/inventory/梯度进程可保留原checkout；只fetch并创建新worktree，不在运行中的目录pull或改源码。第一次执行以下拉取块（新路径必须不存在）；后续测试仅重跑启动块。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git fetch origin codex/mvpo-flow-determinism
+git worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-flow-check-v1 FETCH_HEAD
+)
+```
+
+申请2张5090。先在batch1确认同view重复梯度一致；800步、五个index、4个pair，工程pilot结束即停，不进入32对正式扫描。准备阶段仍核验两模型checkpoint元数据，GPU只运行Flow。严格math attention可能比原attention占用更多显存；必须以真实pilot为准。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-flow-check-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export MVPO_SD15_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/dpo/bin/python
+export MVPO_FLOW_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/mvpo-flow/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_SCAN_RESOURCES="$SCD_RESOURCES"
+export MVPO_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-flow-deterministic-b1-v1
+export MVPO_SD15_VIEW_BATCH=1
+export MVPO_FLOW_VIEW_BATCH=1
+bash scripts/run_gradient_scan_slai.sh 1 --family sd35_medium --pilot-only
+)
+```
+
+只有上述pilot全部通过后再试合批：启动块中的MVPO_FLOW_VIEW_BATCH改2，MVPO_SCAN_ROOT改为`/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-flow-deterministic-b2-v1`，其他保持一致。若repeat失败查看repeat-view-check.json；若batch失败查看batch-check.json，日志现在会直接打印两者。产物位于task-1/sd35_medium/step-0000800/pilot。batch1不做跨batch比较，不能把batch1重复性通过解释为batch2通过。任何失败均不删记录、不放宽阈值。
+
+---
+
 ## 2026-11-23 最新：沿用当前分支，两个四卡5090任务和一个双卡H100任务
 
 继续维护 **codex/mvpo-multiseed-generation**，远端代码目录仍为 **DPO-mvpo-multiseed-v1**。已合入历史复用修复，不要求切换到 history-reuse-audit 或新建代码目录。以下替代之前的独立分支与同GPU复用安排；后面旧章节保留作历史记录。

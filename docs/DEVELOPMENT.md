@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 Flow 梯度重复性修复
+
+5090 Flow pilot 中同 seed 单 view margin 一致，但梯度重复相对误差0.51%–0.89%；此前严格确定性和 math SDPA 仅覆盖 SD1.5。将该路径扩至 sd35-gradient，并在协议记录实际数值设置；sd35-stage不变。重复检查失败立即停止，不再被后续batch错误遮盖；batch结果打印到日志，FP64归约梯度比较和余弦，保留原误差门槛，分项记录失败原因。
+
+扫描入口新增 --family sd35_medium（默认仍两模型），结合 --pilot-only 仅运行Flow工程pilot。源码与旧输出隔离，新checkout/newroot；先batch1确认重复性，再另根batch2检验合批；不宣称math attention已解决BF16跨batch漂移。严格模式若遇不支持的算子直接失败，不以warn_only回退。CPU回归检查覆盖两模型严格模式、单模型过滤与默认两模型、方向相同仍拒绝margin/范数漂移；未运行真实GPU、未验证math SDPA显存或吞吐。命令见command.md首节。
+
 ## 2026-11-23 同分支、跨GPU复用与三组实际提交
 
 用户要求继续维护codex/mvpo-multiseed-generation及原远端checkout；将历史SHA兼容修复合入，不再要求切换独立分支。明确授权H100旧分数与5090新增图混用。prepare新增显式generation-gpu，将history_noise_runtime与新noise_runtime分别冻结，source保留真实runtime；其他身份和版本校验保留。报告逐槽位推导生成GPU，输出hardware-provenance.csv、配对GPU是否一致和图表说明，不把混合硬件seed波动当纯随机种子效应。

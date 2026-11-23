@@ -265,18 +265,21 @@ def batch_check(probe, conditions, size, seed):
         batched = [(m, g.cpu(), index) for m, g, index in probe.gradients(condition, seeds)]
         repeated = probe.gradients(condition, seeds)
         for i, ((m, g, index), (bm, bg, bi), (rm, rg, ri)) in enumerate(zip(single, batched, repeated)):
-            rg = rg.cpu()
+            # Long LoRA vectors need FP64 reductions: FP32 cosine can exceed 1.
+            g, bg, rg = g.double(), bg.double(), rg.cpu().double()
             delta, norm = float((bg - g).norm()), float(g.norm())
-            cosine = float(torch.nn.functional.cosine_similarity(bg[None], g[None])) if norm and float(bg.norm()) else None
+            cosine = float(torch.nn.functional.cosine_similarity(bg[None], g[None]).clamp(-1, 1)) if norm and float(bg.norm()) else None
             repeat_ok = (bi == ri and math.isclose(bm, rm, rel_tol=1e-5, abs_tol=1e-7)
                          and torch.allclose(bg, rg, rtol=1e-5, atol=1e-7))
             # Frozen operational limits; BF16 batch kernels need not match bitwise.
-            passed = (index == bi and repeat_ok and math.isfinite(delta)
-                      and delta <= 1e-7 + 0.01 * norm
-                      and math.isclose(m, bm, rel_tol=0.01, abs_tol=0.001))
+            criteria = dict(same_index=index == bi, batch_repeat=repeat_ok,
+                            finite=all(math.isfinite(v) for v in (m, bm, rm, delta, norm)),
+                            gradient_l2_close=delta <= 1e-7 + 0.01 * norm,
+                            margin_close=math.isclose(m, bm, rel_tol=0.01, abs_tol=0.001))
+            passed = all(criteria.values())
             checks.append(dict(condition=condition["condition"], view=i, seed=seeds[i],
                                single_margin=m, batch_margin=bm, relative_gradient_l2=delta / max(norm, 1e-30),
-                               cosine=cosine, batch_repeat_passed=repeat_ok, passed=passed))
+                               cosine=cosine, batch_repeat_passed=repeat_ok, criteria=criteria, passed=passed))
     return dict(view_batch_size=size, tolerances=dict(gradient_relative_l2=0.01, gradient_absolute_l2=1e-7,
                 margin_rtol=0.01, margin_atol=0.001, repeat_rtol=1e-5, repeat_atol=1e-7),
                 checks=checks, passed=all(row["passed"] for row in checks))
@@ -612,7 +615,7 @@ def run(args, sampling):
             "draw_order": "torch CUDA generator: shared Gaussian noise in latent dtype, then uniform integer index within condition",
         },
     }
-    if family == "sd15":
+    if not stage:
         protocol["numerics"] = {
             "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
             "cudnn_deterministic": torch.backends.cudnn.deterministic,
@@ -663,17 +666,18 @@ def run(args, sampling):
         with output_lock(check_path):
             atomic_json(check_path, record)
         print(json.dumps({"event": "repeat_view", **record}), flush=True)
+        if not record["passed"]:
+            raise RuntimeError(f"Loaded checkpoint failed the train-mode repeat-view check: {check_path}")
         if scan and scan["view_batch_size"] > 1:
             batch = batch_check(probe, conditions, scan["view_batch_size"], sampling["view_seed"])
             batch.update(protocol_id=protocol["protocol_id"], execution=execution)
             batch["result_id"] = digest(batch)
             with output_lock(output / "batch-check.json"):
                 atomic_json(output / "batch-check.json", batch)
+            print(json.dumps({"event": "batch_check", **batch}), flush=True)
             if not batch["passed"]:
                 raise RuntimeError(f"Batch numerical check failed: {output / 'batch-check.json'}")
         del probe
-        if not record["passed"]:
-            raise RuntimeError(f"Loaded checkpoint failed the train-mode repeat-view check: {check_path}")
     for index in range(args.shard_index, len(rows), args.shard_count):
         pair = pairs[index]
         shared = {"protocol_id": protocol["protocol_id"], "pair_index": index, "pair_id": pair["pair_id"]}
@@ -757,7 +761,7 @@ def main():
             parser.error("--checkpoint differs from frozen scan job")
         args.checkpoint = Path(args.scan["checkpoint"]["path"])
     sampling = probe_settings(args, parser)
-    if args.experiment == "sd15-gradient" and not args.prepare_only:
+    if args.experiment in ("sd15-gradient", "sd35-gradient") and not args.prepare_only:
         # Set before importing the GPU stack and creating the first CUDA context.
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         import torch

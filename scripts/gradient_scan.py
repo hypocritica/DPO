@@ -300,6 +300,7 @@ def main():
     parser.add_argument("--gpus")
     parser.add_argument("--scratch-dir", type=Path, default=Path(os.environ.get("TMPDIR", "/tmp")))
     parser.add_argument("--pilot-only", action="store_true")
+    parser.add_argument("--family", choices=tuple(FAMILIES), help="Run only this model; default runs both")
     parser.add_argument("--repeats", type=int, default=2000)
     args = parser.parse_args()
     args.output, args.resources = args.output.expanduser().resolve(), args.resources.expanduser().resolve()
@@ -326,6 +327,8 @@ def main():
         with output_lock(args.output / f"task-{args.task}" / "execution"):
             selection = freeze_task(args.output, config, args.task, registry, args.resources)
             for job in selection["jobs"]:
+                if args.family and job["family"] != args.family:
+                    continue
                 run_checkpoint(args, config, registry, job, env)
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")

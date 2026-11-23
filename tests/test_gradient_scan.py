@@ -17,6 +17,22 @@ from self_correct_dpo.evaluation.appendix_scan import fixed_conditions, scan_see
 
 
 class ScanPlanTests(unittest.TestCase):
+    def test_family_filter_runs_only_requested_model_and_preserves_default(self):
+        import gradient_scan
+        jobs = [{"family": "sd15"}, {"family": "sd35_medium"}]
+        with tempfile.TemporaryDirectory() as temp:
+            for family, expected in ((None, jobs), ("sd35_medium", jobs[1:])):
+                argv = ["scan", "run", "--task", "1", "--output", temp, "--pilot-only"]
+                if family:
+                    argv += ["--family", family]
+                with patch.object(sys, "argv", argv), \
+                     patch.object(gradient_scan, "load_resources", return_value={}), \
+                     patch.object(gradient_scan, "freeze_task", return_value={"jobs": jobs}), \
+                     patch.object(gradient_scan, "run_checkpoint") as run:
+                    gradient_scan.main()
+                self.assertEqual([c.args[3] for c in run.call_args_list], expected)
+                self.assertTrue(all(c.args[0].pilot_only for c in run.call_args_list))
+
     def test_three_tasks_cover_thirty_conditions_once(self):
         config = configuration(ROOT / "configs/appendix-gradient-scan.json")
         plans = [task_plan(config, i) for i in (1, 2, 3)]
@@ -96,6 +112,57 @@ class ScanPlanTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("torch"), "CPU PyTorch required")
 class ScanGradientTests(unittest.TestCase):
+    def test_gradient_entrypoints_enable_deterministic_math_attention(self):
+        import os
+        import torch
+        from self_correct_dpo.evaluation.appendix_probe import main
+
+        state = (torch.are_deterministic_algorithms_enabled(),
+                 torch.is_deterministic_algorithms_warn_only_enabled(),
+                 torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic)
+        attention = (torch.backends.cuda.flash_sdp_enabled(),
+                     torch.backends.cuda.mem_efficient_sdp_enabled(),
+                     torch.backends.cuda.math_sdp_enabled())
+        def inspect_run(args, sampling):
+            self.assertTrue(torch.are_deterministic_algorithms_enabled())
+            self.assertFalse(torch.is_deterministic_algorithms_warn_only_enabled())
+            self.assertFalse(torch.backends.cudnn.benchmark)
+            self.assertTrue(torch.backends.cudnn.deterministic)
+            self.assertEqual(os.environ["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+            self.assertFalse(torch.backends.cuda.flash_sdp_enabled())
+            self.assertFalse(torch.backends.cuda.mem_efficient_sdp_enabled())
+            self.assertTrue(torch.backends.cuda.math_sdp_enabled())
+        try:
+            with patch.dict(os.environ):
+                for experiment in ("sd15-gradient", "sd35-gradient"):
+                    with patch.object(sys, "argv", ["probe", experiment, "--output", "/unused"]), \
+                         patch("self_correct_dpo.evaluation.appendix_probe.run", side_effect=inspect_run) as run:
+                        main()
+                        run.assert_called_once()
+                    self.assertEqual(attention, (torch.backends.cuda.flash_sdp_enabled(),
+                                     torch.backends.cuda.mem_efficient_sdp_enabled(),
+                                     torch.backends.cuda.math_sdp_enabled()))
+        finally:
+            torch.use_deterministic_algorithms(state[0], warn_only=state[1])
+            torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic = state[2:]
+
+    def test_batch_checks_reject_real_drift_despite_high_cosine(self):
+        import torch
+        class Drift:
+            def gradient(self, condition, seed):
+                return 0.0859, torch.ones(100003), 99
+            def gradients(self, condition, seeds):
+                for seed in seeds:
+                    yield 0.2646, torch.ones(100003) * 1.02, 99
+        result = batch_check(Drift(), fixed_conditions("sd15", [99]), 2, 23)
+        self.assertFalse(result["passed"])
+        for row in result["checks"]:
+            self.assertTrue(row["batch_repeat_passed"])
+            self.assertFalse(row["criteria"]["gradient_l2_close"])
+            self.assertFalse(row["criteria"]["margin_close"])
+            self.assertTrue(-1 <= row["cosine"] <= 1)
+            self.assertAlmostEqual(row["relative_gradient_l2"], 0.02, places=6)
+
     def test_batch_preserves_each_view_and_all_archived_statistics(self):
         import torch
         import numpy as np
