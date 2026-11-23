@@ -525,7 +525,7 @@ def preflight_noise_runtime(python, devices, out, expected):
         raise ValueError('The render workers must use one GPU model and CUDA noise runtime')
     runtime = {k: observed[0][k] for k in ('gpu', 'torch', 'diffusers')}
     if expected and runtime != expected:
-        raise ValueError(f'Historical noise pairing requires {expected}; allocated runtime is {runtime}. '
+        raise ValueError(f'Frozen generation runtime requires {expected}; allocated runtime is {runtime}. '
                          'Use the matching allocation or prepare a new output with --fresh.')
     path = out / 'noise-runtime.json'
     # Independently launched sections can register the same runtime concurrently.

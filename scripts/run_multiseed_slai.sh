@@ -2,7 +2,7 @@
 set -eo pipefail
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$launcher_dir/.."
-job=${1:?Pass inventory, plan, prepare-FAMILY, A1/A2/B/C/D1/D2/F1/F2/E1/E2/E3/E4, status or report}
+job=${1:?Pass group-5090-a/group-5090-b/group-h100, inventory, plan, prepare-FAMILY, A1/A2/B/C/D1/D2/F1/F2/E1/E2/E3/E4, status or report}
 shift
 export SCD_RESOURCES=${MVPO_GENERATION_RESOURCES:-$PWD/configs/resources.json}
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
@@ -10,6 +10,21 @@ export PYTHONUNBUFFERED=1
 bootstrap=${SCD_SD15_PY:-/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10}
 root=$("$bootstrap" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["MVPO_MULTISEED_ROOT"])')
 case "$job" in
+  group-5090-a|group-5090-b|group-h100)
+    case "$job" in
+      group-5090-a) packs=(A1 A2 F1 D1 D2 F2 E1 E2 E3); expected_gpus=4 ;;
+      group-5090-b) packs=(B E4); expected_gpus=4 ;;
+      group-h100) packs=(C); expected_gpus=2 ;;
+    esac
+    export SCD_EVAL_GPUS=${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-}}
+    IFS=',' read -r -a allocated <<< "$SCD_EVAL_GPUS"
+    if [[ ${#allocated[@]} != "$expected_gpus" ]]; then
+      echo "$job requires $expected_gpus explicitly allocated GPUs in SCD_EVAL_GPUS/CUDA_VISIBLE_DEVICES" >&2; exit 2
+    fi
+    for pack in "${packs[@]}"; do
+      bash "$launcher_dir/run_multiseed_slai.sh" "$pack" "$@"
+    done
+    exit 0 ;;
   inventory) exec "$bootstrap" scripts/appendix_multiseed.py inventory --output "${MVPO_INVENTORY_OUT:-$root-history-$(date +%Y%m%d-%H%M%S)}" "$@" ;;
   plan|status|report) exec "$bootstrap" scripts/appendix_multiseed.py "$job" --output "$root" "$@" ;;
   prepare-sd15|prepare-sdxl|prepare-sd35_medium|prepare-zimage)

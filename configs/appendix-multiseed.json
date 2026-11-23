@@ -13,7 +13,7 @@
         23,
         42
       ],
-      "generation_batch_size": 2,
+      "generation_batch_size": 4,
       "cpu_offload": false,
       "metrics": [
         "pickscore",
@@ -21,7 +21,8 @@
         "image_reward",
         "clip",
         "aesthetic"
-      ]
+      ],
+      "shards": 4
     },
     "sdxl": {
       "seeds": [
@@ -29,7 +30,7 @@
         23,
         42
       ],
-      "generation_batch_size": 2,
+      "generation_batch_size": 4,
       "cpu_offload": false,
       "metrics": [
         "pickscore",
@@ -37,7 +38,8 @@
         "image_reward",
         "clip",
         "aesthetic"
-      ]
+      ],
+      "shards": 4
     },
     "sd35_medium": {
       "seeds": [
@@ -52,7 +54,8 @@
         "hpsv3",
         "image_reward",
         "aesthetic"
-      ]
+      ],
+      "shards": 4
     },
     "zimage": {
       "seeds": [
@@ -60,14 +63,15 @@
         23,
         42
       ],
-      "generation_batch_size": 2,
-      "cpu_offload": true,
+      "generation_batch_size": 4,
+      "cpu_offload": false,
       "metrics": [
         "pickscore",
         "hpsv3",
         "image_reward",
         "aesthetic"
-      ]
+      ],
+      "shards": 2
     }
   },
   "experiments": [

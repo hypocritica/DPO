@@ -4,7 +4,7 @@ import fcntl
 from pathlib import Path
 import numpy as np
 
-from self_correct_dpo.common import read_jsonl
+from self_correct_dpo.common import read_json,read_jsonl
 from self_correct_dpo.evaluation.appendix_generation import prompt_key,payload_jsonl
 from self_correct_dpo.evaluation.multiseed_generation import load_plan,completed,result_path
 from self_correct_dpo.runtime.checkpoints import atomic_json
@@ -40,6 +40,33 @@ def csv_write(path,rows):
         writer=csv.DictWriter(f,fieldnames=fields or ['status']);writer.writeheader();writer.writerows(rows)
 
 
+def hardware_index(out,plan):
+    """Describe the GPU used to generate each planned pixel, not the scorer GPU."""
+    runtime=plan.get('noise_runtime')
+    if runtime is None and (out/'noise-runtime.json').exists():runtime=read_json(out/'noise-runtime.json')['runtime']
+    new_gpu=(runtime or {}).get('gpu','unfrozen')
+    history=plan.get('history_noise_runtime') or runtime or {}
+    index={};rows=[]
+    for job in plan['jobs']:
+        counts={}
+        for slot in read_jsonl(out/job['slots']):
+            sid=slot.get('source')
+            gpu=(plan['sources'][sid].get('runtime') or history).get('gpu','unknown') if sid else new_gpu
+            if slot['state']=='blocked':gpu='blocked'
+            index[(job['method'],job['step'],*slot['key'])]=gpu
+            key=(slot['state'],gpu);counts[key]=counts.get(key,0)+1
+        rows.extend(dict(job=job['name'],method=job['method'],step=job['step'],seed=job['seed'],state=state,
+                         generation_gpu=gpu,slots=n) for (state,gpu),n in counts.items())
+    return index,rows
+
+
+def hardware_fields(a,b=None):
+    models=sorted(set(a+(b or [])))
+    result={'generation_gpu_models':' | '.join(models),'mixed_generation_hardware':len(models)>1}
+    if b is not None:result['paired_same_generation_gpu']=len(a)==len(b) and all(x==y for x,y in zip(a,b))
+    return result
+
+
 def family_report(out):
     # Multiple completed packs may request a report concurrently. Serialize publication.
     with (out/'.report.lock').open('a') as handle:
@@ -49,6 +76,8 @@ def family_report(out):
 
 def _family_report(out):
     plan,panels=load_plan(out,check_code=False);family=plan['family'];dest=out/'report';dest.mkdir(exist_ok=True)
+    hardware,hardware_rows=hardware_index(out,plan)
+    csv_write(dest/'hardware-provenance.csv',hardware_rows)
     data={};portable=[];status=[]
     for job in plan['jobs']:
         ready=not job.get('blocked') and all(completed(out,plan,job,i) for i in range(job['shards']))
@@ -64,15 +93,21 @@ def _family_report(out):
         panels=panels,scorers=plan['scorers'],score_versions=plan['score_versions'],experiments=plan['config']['experiments'],
         bootstrap=dict(unit='whole prompt, retaining all seeds/methods/checkpoints',replicates=plan['config']['bootstrap_repeats'],
         seed=20261123,coverage='pointwise; fixed trained checkpoints; not independent training repetitions'),
-        noise_runtime=plan['noise_runtime'],checkpoint_adapters={j['name']:j['adapter'] for j in plan['jobs']}))
+        noise_runtime=plan['noise_runtime'],history_noise_runtime=plan.get('history_noise_runtime'),
+        cross_gpu_reuse=plan.get('cross_gpu_reuse',False),
+        hardware_note='Cross-GPU historical reuse: seed variation and some checkpoint differences include hardware effects.' if plan.get('cross_gpu_reuse') else None,
+        checkpoint_adapters={j['name']:j['adapter'] for j in plan['jobs']}))
     repeats=plan['config']['bootstrap_repeats'];seeds=plan['seeds'];exps=[e for e in plan['config']['experiments'] if e['family']==family]
     by_method={e['method']:e for e in exps};means=[];paired=[];adjacent=[]
     def matrix(method,step,chosen_seeds,panel,metric):
         try:
             return np.array([[data[(method,step,*prompt_key(p),seed)][metric] for seed in chosen_seeds] for p in panels[panel]])
         except KeyError:return None
+    def gpu_values(method,step,chosen_seeds,panel):
+        return [hardware.get((method,step,*prompt_key(p),seed),'unknown') for p in panels[panel] for seed in chosen_seeds]
     def add_mean(method,step,chosen_seeds,panel,metric,scope):
         row=dict(scope=scope,method=method,step=step,seeds=','.join(map(str,chosen_seeds)),metric=metric,prompts=len(panels[panel]))
+        row.update(hardware_fields(gpu_values(method,step,chosen_seeds,panel)))
         a=matrix(method,step,chosen_seeds,panel,metric)
         if a is None:row.update(status='missing',mean=None,low=None,high=None)
         else:
@@ -83,6 +118,7 @@ def _family_report(out):
     def add_pair(method,baseline,step,base_step,chosen_seeds,panel,metric,scope,destination):
         row=dict(scope=scope,method=method,baseline=baseline,step=step,baseline_step=base_step,
                  seeds=','.join(map(str,chosen_seeds)),metric=metric,prompts=len(panels[panel]))
+        row.update(hardware_fields(gpu_values(method,step,chosen_seeds,panel),gpu_values(baseline,base_step,chosen_seeds,panel)))
         a=matrix(method,step,chosen_seeds,panel,metric);b=matrix(baseline,base_step,chosen_seeds,panel,metric)
         if a is None or b is None:row.update(status='missing',mean_delta=None,low=None,high=None)
         else:row.update(status='complete',**compare(a,b,repeats))
@@ -108,12 +144,13 @@ def _family_report(out):
     win_rows=[dict(benchmark='partiprompts',family=family,tie_rule='half credit; exact score equality',**r)
               for r in paired if r['scope']=='main']
     csv_write(dest/'win-ratios.csv',win_rows)
-    plot_wins(dest,family,win_rows,','.join(map(str,seeds)))
-    plot(dest,family,means,paired,comparisons,len(panels['curve']))
+    note='Mixed generation GPUs; hardware effects not separated' if plan.get('cross_gpu_reuse') else ''
+    plot_wins(dest,family,win_rows,','.join(map(str,seeds)),note)
+    plot(dest,family,means,paired,comparisons,len(panels['curve']),note)
     return dict(family=family,report=str(dest),complete_jobs=sum(s['status']=='complete' for s in status),total_jobs=len(status))
 
 
-def plot(dest,family,means,paired,comparisons,curve_count):
+def plot(dest,family,means,paired,comparisons,curve_count,hardware_note=""):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -140,7 +177,7 @@ def plot(dest,family,means,paired,comparisons,curve_count):
             axes[0,col].set_title(metric);axes[0,col].legend(fontsize=8)
             axes[1,col].set(xlabel='Optimizer update',ylabel='Paired score difference')
             axes[1,col].set_xticks(x,[f'{v/1000:g}k' for v in x])
-        fig.suptitle(f'{family}: {method} vs {baseline}\n{curve_count} prompts; pointwise 95% prompt-bootstrap intervals; gaps = missing')
+        fig.suptitle(f'{family}: {method} vs {baseline}\n{curve_count} prompts; pointwise 95% prompt-bootstrap intervals; gaps = missing'+('\n'+hardware_note if hardware_note else ''))
         for ext in ('png','pdf'):fig.savefig(dest/f'{method}-vs-{baseline}.{ext}',dpi=160)
         plt.close(fig)
 
@@ -152,7 +189,7 @@ LABELS={'dpo':'DPO','stagewise_k6':'DPO + MVPO K6','dmpo':'DMPO','stagewise_dmpo
 METRIC_LABELS={'pickscore':'PickScore','hpsv2':'HPSv2','hpsv3':'HPSv3','image_reward':'ImageReward','clip':'CLIP','aesthetic':'Aesthetic'}
 
 
-def plot_wins(dest,family,rows,all_seeds):
+def plot_wins(dest,family,rows,all_seeds,hardware_note=""):
     """One percentage chart per scorer, matching the full three-seed paired design."""
     import matplotlib
     matplotlib.use('Agg')
@@ -187,7 +224,7 @@ def plot_wins(dest,family,rows,all_seeds):
         ax.legend(handles=[Patch(color='#3065f5',label='Compared method'),Patch(color='#f4a51c',label='Baseline')],
                   loc='upper center',bbox_to_anchor=(.5,-.20),ncol=2,frameon=False)
         fig.suptitle(f"{family} • PartiPrompts • {METRIC_LABELS.get(metric,metric)}\n"
-                     f"{items[0]['prompts']:,} prompts × {len(all_seeds.split(','))} generation seeds; 95% prompt-bootstrap intervals",fontsize=12)
+                     f"{items[0]['prompts']:,} prompts × {len(all_seeds.split(','))} generation seeds; 95% prompt-bootstrap intervals"+("\n"+hardware_note if hardware_note else ""),fontsize=12)
         for ext in ('png','pdf'):fig.savefig(dest/f'win-ratios-{metric}.{ext}',dpi=180)
         plt.close(fig)
 

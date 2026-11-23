@@ -219,7 +219,51 @@ class MultiseedTests(unittest.TestCase):
                 self.assertEqual(prepare(args,cfg,registry)['status'],'already prepared')
                 args.batch_size=4
                 with self.assertRaisesRegex(ValueError,'Frozen preparation differs'):prepare(args,cfg,registry)
+                args.batch_size=None;args.generation_gpu='NVIDIA GeForce RTX 5090';args.output=root/'cross-gpu'
+                summary=prepare(args,cfg,registry)
+                self.assertEqual(summary['counts']['reuse_scores'],3)
+                self.assertTrue(summary['cross_gpu_reuse'])
+                plan,panels=load_plan(args.output/'sd15')
+                self.assertEqual(plan['noise_runtime']['gpu'],'NVIDIA GeForce RTX 5090')
+                self.assertEqual(plan['history_noise_runtime']['gpu'],'fixture')
+                self.assertTrue(all(v['runtime']['gpu']=='fixture' for v in plan['sources'].values()))
+                job=next(j for j in plan['jobs'] if j['seed']==0 and j['panel']=='full')
+                worker(args.output/'sd15',plan,panels,job,0)
+                self.assertTrue(completed(args.output/'sd15',plan,job,0))
+                args.generation_gpu='NVIDIA H100 80GB HBM3'
+                with self.assertRaisesRegex(ValueError,'Frozen preparation differs'):prepare(args,cfg,registry)
 
+
+    def test_hardware_pairing_flags_and_four_gpu_group(self):
+        from self_correct_dpo.evaluation.multiseed_report import hardware_fields
+        same=hardware_fields(['H100','5090'],['H100','5090'])
+        self.assertTrue(same['mixed_generation_hardware']);self.assertTrue(same['paired_same_generation_gpu'])
+        self.assertFalse(hardware_fields(['H100'],['5090'])['paired_same_generation_gpu'])
+        with tempfile.TemporaryDirectory() as temp:
+            from self_correct_dpo.evaluation.appendix_generation import preflight_noise_runtime
+            observed=dict(gpu='NVIDIA GeForce RTX 5090',torch='fixture',diffusers='fixture',cuda='fixture',sms=1)
+            expected={k:observed[k] for k in ('gpu','torch','diffusers')}
+            with patch('self_correct_dpo.evaluation.appendix_generation.subprocess.check_output',return_value=json.dumps(observed)):
+                preflight_noise_runtime(sys.executable,['0','1','2','3'],Path(temp),expected)
+                with self.assertRaises(ValueError):
+                    preflight_noise_runtime(sys.executable,['0','1'],Path(temp),{**expected,'gpu':'NVIDIA H100 80GB HBM3'})
+        with tempfile.TemporaryDirectory() as temp:
+            import os
+            root=Path(temp);log=root/'calls';fake=root/'python'
+            fake.write_text('#!'+sys.executable+'\nimport os,sys,json\n'
+                'if "-c" in sys.argv: print(os.environ["TEST_OUTPUT"]);sys.exit(0)\n'
+                'with open(os.environ["TEST_LOG"],"a") as f:f.write(json.dumps(sys.argv[1:])+"\\n")\n'
+                'if "run" in sys.argv:sys.exit(int(os.environ.get("TEST_RUN_EXIT","0")))\n')
+            fake.chmod(0o755)
+            env=dict(os.environ,SCD_SD15_PY=str(fake),TEST_LOG=str(log),TEST_OUTPUT=str(root/'output'),SCD_EVAL_GPUS='0,1,2,3')
+            launcher=ROOT/'scripts/run_multiseed_slai.sh'
+            subprocess.run(['bash',str(launcher),'group-5090-b'],env=env,check=True)
+            calls=read_jsonl(log);self.assertEqual([r[r.index('--pack')+1] for r in calls if 'run' in r],['B','E4'])
+            log.unlink()
+            failed=subprocess.run(['bash',str(launcher),'group-5090-b'],env={**env,'TEST_RUN_EXIT':'7'})
+            self.assertEqual(failed.returncode,7);self.assertEqual(len(read_jsonl(log)),1)
+            bad=subprocess.run(['bash',str(launcher),'group-5090-a'],env={**env,'SCD_EVAL_GPUS':'0,1'},capture_output=True)
+            self.assertEqual(bad.returncode,2)
 
     def test_win_counts_ties_and_complement(self):
         a=np.array([[3.,1.,2.],[0.,5.,4.]])

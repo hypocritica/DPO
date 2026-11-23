@@ -50,6 +50,7 @@ def configuration(path):
         if exp['curve_steps'] and PACKS[exp['curve_pack']]!=exp['family']:raise ValueError('Curve pack differs')
     if len(names)!=18 or config['shards'] not in (2,4,8):raise ValueError('Expected 18 configurations and 2/4/8 shards')
     for spec in config['families'].values():
+        if spec.get('shards',config['shards']) not in (2,4,8):raise ValueError('Invalid family shard count')
         if len(spec['seeds'])!=3 or len(set(spec['seeds']))!=3 or any(type(s)!=int or s<0 for s in spec['seeds']):raise ValueError('Require three distinct seeds')
     return config
 
@@ -93,7 +94,7 @@ def prepare(args,config,registry):
     if (out/'plan.json').exists():
         plan,_=load_plan(out)
         options=dict(protocol_source=str(args.protocol_source) if args.protocol_source else None,batch=args.batch_size,
-                     fresh=args.fresh,history_roots=[str(p) for p in args.history_root],prompts=str(args.prompts) if args.prompts else None)
+                     fresh=args.fresh,generation_gpu=getattr(args,'generation_gpu',None),history_roots=[str(p) for p in args.history_root],prompts=str(args.prompts) if args.prompts else None)
         if plan['config']!=config or plan['options']!=options:raise ValueError('Frozen preparation differs; use a new output root')
         return dict(plan_id=plan['plan_id'],status='already prepared',counts=plan['counts'])
     cfg=load_config(CONFIG_DIR/config['protocol_config'],benchmarks=['partiprompts'],resources=args.resources)
@@ -174,11 +175,16 @@ def prepare(args,config,registry):
         # Select purely by available slots, never by reward values.
         runtime=max(runtimes.values(),key=lambda rt:sum(relevant(s) for s in available.values() if s['runtime']==rt),default=None)
     available={sid:s for sid,s in available.items() if s['runtime']==runtime}
+    history_runtime=runtime
+    generation_gpu=getattr(args,'generation_gpu',None)
+    if generation_gpu:
+        runtime={'gpu':generation_gpu,**{k:render_versions[k] for k in ('torch','diffusers')}}
+    cross_gpu=bool(history_runtime and runtime and history_runtime['gpu']!=runtime['gpu'] and available)
     out.mkdir(parents=True,exist_ok=True)
     jobs=jobs_for(config,family,seeds);counts={'reuse_scores':0,'reuse_images':0,'generate':0,'blocked':0};used=set()
     for job in jobs:
         adapter=adapters.get((job['method'],job['step']));job['adapter']=adapter
-        job['shards']=config['shards'];job['slots']=f"slots/{job['name']}.jsonl"
+        job['shards']=spec.get('shards',config['shards']);job['slots']=f"slots/{job['name']}.jsonl"
         if not adapter:
             job['blocked']=next((m['reason'] for m in missing if m['method']==job['method'] and m['step']==job['step']),'checkpoint unavailable')
             slots=[dict(key=[*prompt_key(p),job['seed']],state='blocked',source=None,metrics=[]) for p in panels[job['panel']]]
@@ -194,11 +200,13 @@ def prepare(args,config,registry):
     plan=dict(version=1,family=family,config=config,model=model,base_identity=base,sampling=sample,seeds=seeds,
         protocol_source={'path':str(args.protocol_source),'sha256':sha256(args.protocol_source)} if reference else {'path':str(CONFIG_DIR/config['protocol_config'])},
         options=dict(protocol_source=str(args.protocol_source) if args.protocol_source else None,batch=args.batch_size,fresh=args.fresh,
-                     history_roots=[str(p) for p in args.history_root],prompts=str(args.prompts) if args.prompts else None),
+                     history_roots=[str(p) for p in args.history_root],prompts=str(args.prompts) if args.prompts else None,
+                     generation_gpu=getattr(args,'generation_gpu',None)),
         panels={k:sha256(out/f'{k}.jsonl') for k in panels},jobs=jobs,counts=counts,missing=missing,training=training,
-        sources={sid:dict(render=available[sid]['render'],files=available[sid]['files']) for sid in sorted(used)},
+        sources={sid:dict(render=available[sid]['render'],files=available[sid]['files'],runtime=available[sid]['runtime']) for sid in sorted(used)},
         code=sources(),interpreters=interpreters,render_versions=render_versions,scorers=scorers,score_versions=score_versions,
-        scorer_config_sha256=sha256(out/'scorers.resolved.json'),noise_runtime=runtime,history_audit=audit)
+        scorer_config_sha256=sha256(out/'scorers.resolved.json'),noise_runtime=runtime,history_noise_runtime=history_runtime,
+        cross_gpu_reuse=cross_gpu,history_audit=audit)
     plan['plan_id']=digest(plan);freeze_json(out/'plan.json',plan)
     with (out/'reuse-summary.csv').open('w',newline='') as handle:
         fields=['pack','method','step','seed','prompts','reuse_scores','reuse_images','generate','blocked']
@@ -207,7 +215,7 @@ def prepare(args,config,registry):
             slots=read_jsonl(out/job['slots'])
             writer.writerow({**{k:job[k] for k in fields[:4]},'prompts':len(slots),
                 **{k:sum(slot['state']==k for slot in slots) for k in fields[5:]}})
-    return dict(plan_id=plan['plan_id'],family=family,counts=counts,blocked_checkpoints=missing,noise_runtime=runtime,seeds=seeds)
+    return dict(plan_id=plan['plan_id'],family=family,counts=counts,blocked_checkpoints=missing,noise_runtime=runtime,history_noise_runtime=history_runtime,cross_gpu_reuse=cross_gpu,seeds=seeds)
 
 
 def load_plan(out,check_code=True):
@@ -360,6 +368,8 @@ def main(argv=None):
     parser.add_argument('--pack',choices=list(PACKS));parser.add_argument('--job');parser.add_argument('--index',type=int)
     parser.add_argument('--history-root',type=Path,action='append',default=[])
     parser.add_argument('--protocol-source',type=Path);parser.add_argument('--prompts',type=Path)
+    parser.add_argument('--generation-gpu',choices=['NVIDIA GeForce RTX 5090','NVIDIA H100 80GB HBM3'],
+                        help='Explicit new-render GPU; preserves historical source GPU and reports cross-device reuse')
     parser.add_argument('--batch-size',type=int);parser.add_argument('--fresh',action='store_true');parser.add_argument('--gpus')
     parser.add_argument('--check-images',action='store_true');parser.add_argument('--max-file-mb',type=int,default=128)
     args=parser.parse_args(argv);args.output=args.output.expanduser().resolve()
