@@ -4,7 +4,7 @@
 
 用户要求继续维护codex/mvpo-multiseed-generation及原远端checkout；将历史SHA兼容修复合入，不再要求切换独立分支。明确授权H100旧分数与5090新增图混用。prepare新增显式generation-gpu，将history_noise_runtime与新noise_runtime分别冻结，source保留真实runtime；其他身份和版本校验保留。报告逐槽位推导生成GPU，输出hardware-provenance.csv、配对GPU是否一致和图表说明，不把混合硬件seed波动当纯随机种子效应。
 
-三个分组入口：5090-a四卡顺序SD1.5+SDXL九包，5090-b四卡顺序SD3.5-M两包，h100双卡Z一包。family分片4/4/4/2；batch4/4/2/4，Z关闭offload，SD35保留offload。历史manifest证明SDXL/5090与Z/H100的batch4已有完整生成；SD15/5090 batch4和SD35/5090 batch2尚待GPU实测。全量盘点吞吐汇总在桌面报告中，未将不同步数/精度/面板的吞吐比称为batch加速。
+三个分组入口：5090-a四卡顺序SD1.5+SDXL九包，5090-b四卡顺序SD3.5-M两包，h100双卡Z一包。family分片4/4/4/2；batch4/4/2/4，Z与SD35均关闭offload（SD35由用户随后明确确认），SD35仍为每卡batch2、4×5090。历史manifest证明SDXL/5090与Z/H100的batch4已有完整生成；SD15/5090 batch4和SD35/5090 batch2尚待GPU实测。全量盘点吞吐汇总在桌面报告中，未将不同步数/精度/面板的吞吐比称为batch加速。
 
 16项CPU检查通过：跨GPUprepare仍复用旧分数，旧源runtime不被改写，新runtime及prepare选项冻结，错GPU拒绝；分组四卡数量检查、串行派发和失败停止、报告配对硬件标志。合成报告图经过检查；没有提交远端GPU。command.md顶部为同分支pull、prepare四模型及三个独立括号启动命令，输出统一为mvpo-multiseed-mixedgpu-v1。旧冻结计划保持原样。
 

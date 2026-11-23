@@ -18,7 +18,7 @@
 | --- | ---: | --- | --- |
 | SD1.5 / 5090 | 4（待实测） | false | 5090仅找到batch1/DDIM30监测；H100 batch64/Euler50成功，但不能照搬5090 |
 | SDXL / 5090 | 4 | false | batch4/Euler50/Parti完整结果，单卡中位约0.229张/秒 |
-| SD3.5-M / 5090 | 2（待实测） | true | 5090已验证batch1/offload，HPS面板约0.098张/秒；未找到5090 batch2完整结果 |
+| SD3.5-M / 5090 | 2（待实测） | false | 5090已验证batch1/offload，HPS面板约0.098张/秒；未找到5090 batch2完整结果 |
 | Z-Image / H100 | 4 | false | batch4/Flow50/Parti完整结果，单卡中位约0.052张/秒 |
 
 以上单卡吞吐以manifest的逐图生成秒数汇总再取render中位数，不包含模型加载、评分和端到端作业耗时。Z历史batch1与batch4还涉及精度变化，SDXL batch1与batch4涉及30/50推理步数，不能据此声称纯batch倍速。SD3.5-M/H100 batch16只有两份各16张的未完成记录，batch32四份无图，不能认定稳定，也不能在没有日志时断言OOM。源码默认已按上表设置；改变batch必须在首次prepare冻结，不能在已准备的计划上直接改配置续写。
@@ -410,7 +410,7 @@ bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_m
 
 提供协议来源时，从其首个生成种子 s0 得到 `{s0,23,42}`，去重不足三种子按 17、101 补足，曲线使用 s0。同 backbone 全部方法统一。代码默认 SD1.5 为 0/23/42，其他模型为 17/23/42，实际以冻结 plan 为准。若现有 prompt 文件与原 benchmark 面板身份不同，用 `--prompts /原完整partiprompts.jsonl`，禁止按分数筛面板。
 
-默认 generation batch=2 / 每个作业两张卡；这是生图 batch，独立于梯度任务的 view batch。可在首次 prepare 加 `--batch-size 4`；协议冻结后不自动降 batch。Flow/Z-Image 默认 CPU offload=true。路径和解释器由资源表/环境变量控制，额外资源表用 `MVPO_GENERATION_RESOURCES`。所有 scoring 环境也须能在 prepare 时做 CPU 包版本检查。
+默认 generation batch=2 / 每个作业两张卡；这是生图 batch，独立于梯度任务的 view batch。可在首次 prepare 加 `--batch-size 4`；协议冻结后不自动降 batch。当前四模型均关闭 CPU offload；SD3.5-M 按用户确认采用 batch2、4×5090，最新分组和其他batch默认值见本文顶部。路径和解释器由资源表/环境变量控制，额外资源表用 `MVPO_GENERATION_RESOURCES`。所有 scoring 环境也须能在 prepare 时做 CPU 包版本检查。
 
 prepare 会核对训练 objective/K/stage、完整 run/checkpoint ID、adapter 文件 hash、底模和评分器资产；缺失或不匹配的 checkpoint 显式标 blocked，仅对应任务包禁止启动，不悄悄换步数。每 family 生成：
 

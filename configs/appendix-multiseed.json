@@ -48,7 +48,7 @@
         42
       ],
       "generation_batch_size": 2,
-      "cpu_offload": true,
+      "cpu_offload": false,
       "metrics": [
         "pickscore",
         "hpsv3",
