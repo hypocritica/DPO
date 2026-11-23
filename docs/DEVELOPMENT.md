@@ -1,5 +1,16 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 任务 4/5：原生 DSPO/DMPO 梯度扫描
+
+新增独立分支 `codex/mvpo-objective-scan`、原生目标 collector/probe、任务 4/5 launcher 与冻结配置。任务 4 扫 DSPO 及 Stage-wise DSPO K6 的 1000/4000/6000/10000 步；任务 5 扫 DMPO 对应两种权重的 1000/4000/10000 步。6000 双方由用户确认加入，以覆盖正文 DSPO+MVPO 主表。各扫五个 scheduler index、32 对、4×48 source 与 4×64 audit，分别 573440/430080 pair-view 观测。DSPO 每 view 三项分量 VJP，不能与 DPO 按相同反向成本解释。
+
+核验训练库存源码 SHA 与 git 9573c1e 的 objectives.py 一致。DMPO 按原 reverse-KL 及有限最优 logit；DSPO 按原 score-residual，利用 margin/winner MSE/prediction gap 的梯度与常量 reference MSE 重构完整共享 gate 梯度。初始化、重复与 batch 检查使用 native 目标；每权重独立 audit 的 native loss gradient 为方向参照。新增 schema v2 的原生 moment/Gram 记录、严格回放验证与完整热图；DPO v1 collector 和默认流程保持兼容。
+
+资源集中登记；方法与 step 均进入目录身份，四方法共享 pair/latent/noise。新代码、输出与原任务 1–3 独立，原 3735e7f checkout 不更新。用户负责在 SLAI 提交两个 2×5090 任务；默认 batch2，可显式 batch4/独立输出。拉取、两段完整启动和恢复/汇总命令见 command.md 顶部。未访问训练机器、提交 GPU 或实测新的 native 5090 显存/速度。
+
+23 项 CPU 梯度检查通过，覆盖原生损失链式梯度、batch 1/2/4 逐 view 一致、Gram 回放、checkpoint 身份和既有扫描回归。DSPO/DMPO 合成数据完成严格校验、单条件报告与跨 checkpoint 热图的端到端检查；热图已检查渲染，缺项保留 N/A。Shell 语法与 diff 检查通过；合成报告仅用于软件验证，不是实验结果。
+
+
 ## 2026-11-22 三任务 checkpoint/index 探索扫描
 
 新增 `gradient_scan.py` 与 `run_gradient_scan_slai.sh`，基于 `codex/mvpo-gradient-walkthrough` 分支扩展为三个独立 2×5090 提交任务。每任务顺序处理 SD1.5/Flow 各一个 checkpoint、各五个固定 scheduler index；配置冻结 32 对、4×48 source、4×64 audit，30 条件共 430,080 次 pair-view 观测。默认 view batch=2，可显式设为 4；合批前向但逐 view 求原始梯度，不以 batch 均值梯度替代。保留原 SD1.5 严格确定性路径、旧入口与输出。

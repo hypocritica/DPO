@@ -28,7 +28,7 @@ CHECKPOINTS = {
 }
 
 
-def load_checkpoint(family, path=None, resources=None, expected=None):
+def load_checkpoint(family, path=None, resources=None, expected=None, method=None):
     resource, step, expected_id = CHECKPOINTS[family]
     if expected is not None:
         step, expected_id = expected["step"], expected["checkpoint_id"]
@@ -50,7 +50,18 @@ def load_checkpoint(family, path=None, resources=None, expected=None):
     if digest({key: training[key] for key in keys if key in training}) != identity["run_id"]:
         raise ValueError(f"Training metadata does not match the checkpoint run ID: {run}")
     settings = training["config"]["training"]
-    if (settings["objective"] != "dpo" or settings["noise_views"] != 1
+    if method is not None:
+        from self_correct_dpo.evaluation.experiment_catalog import validate_method
+        from self_correct_dpo.evaluation.appendix_native_gradients import ARCHIVED_OBJECTIVES_SHA, objective_spec
+        if expected is None or family != "sd15" or method not in ("dspo", "dmpo", "stagewise_dspo_k6", "stagewise_dmpo_k6"):
+            raise ValueError("native method requires a frozen SD1.5 checkpoint catalog")
+        validate_method(training["config"], method, str(run))
+        objective_spec(settings)
+        if training["code"].get("objectives.py") != ARCHIVED_OBJECTIVES_SHA:
+            raise ValueError("native loss source differs from the audited training implementation")
+        if settings["prompt_mode"] != "canonical" or settings.get("reference_mode", "base") != "base":
+            raise ValueError("native probe requires canonical prompts and frozen base reference")
+    elif (settings["objective"] != "dpo" or settings["noise_views"] != 1
             or settings["prompt_mode"] != "canonical" or settings.get("reference_mode", "base") != "base"
             or settings.get("stagewise") or settings.get("independent_rollout")):
         raise ValueError("Expected canonical single-view DPO training with a frozen base reference")
@@ -505,8 +516,14 @@ def run(args, sampling):
     stage = args.experiment == "sd35-stage"
     scan = getattr(args, "scan", None)
     model, adapter, training, checkpoint = load_checkpoint(
-        family, args.checkpoint, args.resources, scan["checkpoint"] if scan else None)
+        family, args.checkpoint, args.resources, scan["checkpoint"] if scan else None,
+        scan.get("method") if scan else None)
     settings = training["config"]["training"]
+    native = bool(scan and scan.get("method"))
+    probe_class = PairProbe
+    if native:
+        from self_correct_dpo.evaluation.appendix_native_probe import NativePairProbe, initialization_native, native_measurement
+        probe_class = NativePairProbe
     output = args.output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     prepared = prepare_inputs(args, sampling, training, checkpoint, output)
@@ -538,7 +555,7 @@ def run(args, sampling):
     torch.cuda.synchronize(device)
     model_load_seconds = time.perf_counter() - load_started
     if check_initial:
-        init = initialization_check(
+        init = (initialization_native if native else initialization_check)(
             backend, float(settings["beta"]), rows, pairs, conditions,
             checkpoint["checkpoint_id"], sampling["view_seed"], init_seed,
         )
@@ -565,6 +582,9 @@ def run(args, sampling):
     ]
     if not stage:
         relevant_sources.append("evaluation/appendix_gradients.py")
+    if native:
+        relevant_sources.extend(["evaluation/appendix_native_probe.py", "evaluation/appendix_native_gradients.py",
+                                 "evaluation/experiment_catalog.py"])
     root = Path(__file__).resolve().parents[1]
     protocol = {
         "schema_version": 1, "experiment": args.experiment, "checkpoint": checkpoint,
@@ -608,6 +628,12 @@ def run(args, sampling):
             view=["rng_scope", "view", "view_seed", "pair_id", "condition", "bank", "block", "view_index"],
         )
         protocol["source"]["probe"]["evaluation/appendix_scan.py"] = sha256(root / "evaluation/appendix_scan.py")
+    if native:
+        from self_correct_dpo.evaluation.appendix_native_gradients import objective_spec
+        protocol["native_objective"] = objective_spec(settings)
+        protocol["training"]["margin"] = ("u=beta*((reference_w-policy_w)-(reference_l-policy_l))"
+            if settings["objective"] == "dmpo" else "m=beta/2*((reference_w-policy_w)-(reference_l-policy_l)); differentiable winner MSE and prediction gap")
+        protocol["native_interpretation"] = "Local fixed-index native objective; alignment is to the independent audit loss gradient. Not a whole-stage training-gradient claim."
     protocol["protocol_id"] = digest(protocol)
     (output / "pairs").mkdir(parents=True, exist_ok=True)
     publish_protocol(output, protocol)
@@ -627,7 +653,7 @@ def run(args, sampling):
             raise RuntimeError(f"Initialized policy/reference gradient check failed: {check_path}")
     if check_initial:
         pair = pairs[0]
-        probe = PairProbe(backend, parameters, float(settings["beta"]), rows[0], pair["prompt"], pair["latent_seed"])
+        probe = probe_class(backend, parameters, float(settings["beta"]), rows[0], pair["prompt"], pair["latent_seed"])
         checks = [repeat_view_check(probe, c, seed_for("repeat", checkpoint["checkpoint_id"], sampling["view_seed"],
                                                        pair["pair_id"], c["condition"])) for c in conditions]
         record = dict(protocol_id=protocol["protocol_id"], pair_id=pair["pair_id"], execution=execution,
@@ -667,7 +693,7 @@ def run(args, sampling):
                 pair_preparation_seconds = 0.0
                 if probe is None:
                     pair_started = time.perf_counter()
-                    probe = PairProbe(backend, parameters, float(settings["beta"]), rows[index],
+                    probe = probe_class(backend, parameters, float(settings["beta"]), rows[index],
                                       pair["prompt"], pair["latent_seed"])
                     torch.cuda.synchronize(device)
                     pair_preparation_seconds = time.perf_counter() - pair_started
@@ -675,6 +701,8 @@ def run(args, sampling):
                 if stage:
                     measurement = stage_measurement(probe, conditions, sampling, checkpoint["checkpoint_id"],
                                                     pair["pair_id"], schedule)
+                elif native:
+                    measurement = native_measurement(probe, condition, sampling, pair["pair_id"], args.scratch_dir, scan)
                 else:
                     measurement = gradient_measurement(probe, condition, sampling, args.experiment,
                                                        checkpoint["checkpoint_id"], pair["pair_id"], args.scratch_dir, scan)

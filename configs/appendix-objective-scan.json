@@ -1,0 +1,121 @@
+{
+  "schema_version": 2,
+  "research_phase": "exploration",
+  "panel_seed": 20261122,
+  "latent_seed": 1729,
+  "view_seed": 23,
+  "pair_count": 32,
+  "source_blocks": 4,
+  "source_views_per_block": 48,
+  "audit_blocks": 4,
+  "audit_views_per_block": 64,
+  "indices": [
+    99,
+    299,
+    499,
+    699,
+    899
+  ],
+  "view_batch_sizes": {
+    "sd15": 2
+  },
+  "tasks": [
+    {
+      "task": 4,
+      "objective": "dspo",
+      "methods": [
+        {
+          "method": "dspo",
+          "resource": "MVPO_SD15_DSPO_RUN",
+          "expected_run_id": "b30144ba3ab8ad8746a821d148ec9b7229cc6544e7d2f14198997d96da72bd22",
+          "checkpoints": [
+            {
+              "step": 1000,
+              "checkpoint_id": "89877be1c19ac15a7ef81f18c4f2fa02f9cac0f60d10e5a9272fdcbaef29ea40"
+            },
+            {
+              "step": 4000,
+              "checkpoint_id": "fdc2aba2a6e181ebb73a77747624334ccbd09845894cb1512547a1f6ee2fcb16"
+            },
+            {
+              "step": 6000,
+              "checkpoint_id": "f13cd55536f85dde4ef3744c91bf178afbc31a3ee4b5a1b9001c7b5ee92d3c68"
+            },
+            {
+              "step": 10000,
+              "checkpoint_id": "1899cb48da8b2298bf22f8f8c8a84bca591989a37c3eb59e0655575c63ae6048"
+            }
+          ]
+        },
+        {
+          "method": "stagewise_dspo_k6",
+          "resource": "MVPO_SD15_DSPO_MVPO_RUN",
+          "expected_run_id": "9c6ef4c268c6265a6e199284e8f0f8a589c786efcd766b780d1e51f73d7e83a5",
+          "checkpoints": [
+            {
+              "step": 1000,
+              "checkpoint_id": "582bc7afae6047685042602e280b7a6a735dbcba01cb17b08c0d9ed68e418d50"
+            },
+            {
+              "step": 4000,
+              "checkpoint_id": "0010d5939a1999744b39c3e559c2af740806abaf348dbcfdb3db2f4a4c60c47c"
+            },
+            {
+              "step": 6000,
+              "checkpoint_id": "d794dd59e4b29eab0bbb08a232e0bc503721ffa9b6b5abdac082dab5d257b3c7"
+            },
+            {
+              "step": 10000,
+              "checkpoint_id": "2694e7cf8160ad111e1607b0c0eff2ba5f95d72533cc53ea42b0c91d5750171f"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "task": 5,
+      "objective": "dmpo",
+      "methods": [
+        {
+          "method": "dmpo",
+          "resource": "MVPO_SD15_DMPO_RUN",
+          "expected_run_id": "b31b8654e39e5de15110bae6b56328dd979c71005a7a0b0755d485ae9d44f092",
+          "checkpoints": [
+            {
+              "step": 1000,
+              "checkpoint_id": "822d33d84c3040cc8d8fbc55556f600da37beed895ff39ca5f7879a04861c0a0"
+            },
+            {
+              "step": 4000,
+              "checkpoint_id": "2b49f4142dce77b00fcb911d3e74ab9a1aea05423a1934a0e5ac82cab2347422"
+            },
+            {
+              "step": 10000,
+              "checkpoint_id": "bd5fc77d5f0ff728f4be53f717fddf60114152a968a443020a83857640bcd97c"
+            }
+          ]
+        },
+        {
+          "method": "stagewise_dmpo_k6",
+          "resource": "MVPO_SD15_DMPO_MVPO_RUN",
+          "expected_run_id": "160cf76c2a43d824812587eae9b371472656c8e880e4356c42cf42979dafc84d",
+          "checkpoints": [
+            {
+              "step": 1000,
+              "checkpoint_id": "9090796d43f7ccc36f93253d23af72627aa2072ea2a00a231e6a8324d37d68aa"
+            },
+            {
+              "step": 4000,
+              "checkpoint_id": "f85e29a18eab11d6ba39aae1319a65e2606110f3dbbfd1b45e5996fb0462f990"
+            },
+            {
+              "step": 10000,
+              "checkpoint_id": "72e3c7292e16e59c1ab221563391aab57c5781a73e5e6b98f4fa931d901d7ece"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "native_training_objectives_sha256": "b5e29226cb929ae49d8538f40f768737e64564c9117a10cf0b08080ec482dcda"
+}

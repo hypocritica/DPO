@@ -37,6 +37,9 @@ def _mean_coefficients(weights, indices, n_rows):
 
 def _evaluate_pair(raw, source_counts, audit_counts):
     """Evaluate vectors represented as linear combinations of archived block means."""
+    if raw.get("native_objective"):
+        from self_correct_dpo.evaluation.appendix_native_gradients import evaluate_native_pair
+        return evaluate_native_pair(raw, source_counts, audit_counts)
     gram = np.asarray(raw["block_mean_gram"], dtype=np.float64)
     source = raw["source_blocks"]
     audit_margins = np.asarray(raw["audit_block_margin_means"], dtype=np.float64)
@@ -163,7 +166,8 @@ def summarize_gradient_statistics(records, *, bootstrap_repeats=2000, seed=17):
         source_blocks = len(raw_first["source_blocks"])
         audit_blocks = len(raw_first["audit_block_margin_means"])
         for pair_id, raw in pairs.items():
-            if (raw["ks"] != ks or len(raw["source_blocks"]) != source_blocks
+            if (raw.get("native_objective") != raw_first.get("native_objective")
+                    or raw["ks"] != ks or len(raw["source_blocks"]) != source_blocks
                     or len(raw["audit_block_margin_means"]) != audit_blocks
                     or any(raw[key] != raw_first[key] for key in (
                         "source_views_per_block", "audit_views_per_block", "parameter_count"
@@ -175,8 +179,12 @@ def summarize_gradient_statistics(records, *, bootstrap_repeats=2000, seed=17):
             split_counts = np.repeat(np.eye(2, dtype=np.int64), audit_blocks // 2, axis=1)
             split, split_coupling, split_audit = _evaluate_pair(raw, source_counts[[0, 0]], split_counts)
             gram = np.asarray(raw["block_mean_gram"], dtype=np.float64)
-            _, _, audit_index = _bank_layout(ks, source_blocks, audit_blocks)
-            half_h = _mean_coefficients(split_counts / (audit_blocks // 2), audit_index, len(gram))
+            if raw.get("native_objective"):
+                from self_correct_dpo.evaluation.appendix_native_gradients import audit_coefficients
+                half_h, _ = audit_coefficients(raw, split_counts)
+            else:
+                _, _, audit_index = _bank_layout(ks, source_blocks, audit_blocks)
+                half_h = _mean_coefficients(split_counts / (audit_blocks // 2), audit_index, len(gram))
             groups = {
                 "objectives": metrics,
                 "paired_differences": {
@@ -237,7 +245,8 @@ def summarize_gradient_statistics(records, *, bootstrap_repeats=2000, seed=17):
         "monte_carlo_95_unit": "Independent source and audit blocks within each fixed pair",
         "pair_bootstrap_95_unit": "Preference pairs, with objectives matched within each pair",
         "paired_difference": "MVPO minus LossAvg at the same K",
-        "covariance_sign": "Loss gradient convention, with derivative -sigmoid(-margin)",
+        "covariance_sign": ("Native loss-gradient convention; audit axis is the native loss gradient"
+                            if raw_first.get("native_objective") else "Loss gradient convention, with derivative -sigmoid(-margin)"),
         "source_correction": "Squared distance minus the estimated trace variance of the source mean; audit error remains. Negative estimates are retained.",
         "conditions": conditions,
         "pairs": pair_results,
@@ -276,8 +285,9 @@ def plot_gradient_statistics(summary, output_dir):
         interval_key = "pair_bootstrap_95" if condition["n_pairs"] > 1 else "monte_carlo_95"
         interval_label = "pair bootstrap" if condition["n_pairs"] > 1 else "source and audit block bootstrap"
         randomness = "Gaussian noise draws" if name in fixed else "Gaussian noise and scheduler-index draws"
+        label = summary.get("checkpoint_method", "")
         title = (
-            f'{titles.get(name, name)}  ·  step {summary.get("checkpoint", {}).get("step", "legacy")}  ·  {condition["n_pairs"]} preference pairs\n'
+            f'{label} {titles.get(name, name)}  ·  step {summary.get("checkpoint", {}).get("step", "legacy")}  ·  {condition["n_pairs"]} preference pairs\n'
             f'{condition["source_blocks"]}×{condition["source_views_per_block"]} source and '
             f'{condition["audit_blocks"]}×{condition["audit_views_per_block"]} audit views per pair'
             f'\n{randomness}  ·  95% {interval_label} intervals'
@@ -292,7 +302,7 @@ def plot_gradient_statistics(summary, output_dir):
         for axis, metric, ylabel in zip(
             axes.flat,
             ("source_corrected_distance_squared", "stochastic_variance", "descent_cosine", "signed_projection"),
-            ("Source-corrected squared displacement", "Trace of gradient variance", "Descent cosine to audit direction", "Signed projection on audit margin gradient"),
+            ("Source-corrected squared displacement", "Trace of gradient variance", "Descent cosine to audit direction", ("Signed projection on audit loss gradient" if summary.get("native_objective") else "Signed projection on audit margin gradient")),
         ):
             for method, (label, color, marker) in styles.items():
                 rows = [row for row in condition["objectives"] if row["objective"] == method]

@@ -1,3 +1,98 @@
+## 2026-11-23：任务 4 / 5，SD1.5 原生 DSPO / DMPO 梯度扫描
+
+新分支 **`codex/mvpo-objective-scan`**，独立代码目录 **`DPO-mvpo-objective-scan-v1`**。原任务 1–3 继续使用 `codex/mvpo-checkpoint-scan` 的 `3735e7f` 和旧输出，不在运行中的目录 pull。本节两个新任务都为 **2×5090**，默认 view batch=2，可显式设为 4；不重新训练、不生成 PartiPrompts 图片。
+
+| 提交任务 | 方法 / 训练权重 | 两种方法共同的 checkpoint（优化步） | 每 checkpoint 的 scheduler indices | 条件数 | 正式 pair-view 观测 |
+| --- | --- | --- | --- | --- | --- |
+| 4 | DSPO；Stage-wise DSPO+MVPO K=6 | 1,000、4,000、6,000、10,000 | 99、299、499、699、899 | 40 | 573,440 |
+| 5 | DMPO；Stage-wise DMPO+MVPO K=6 | 1,000、4,000、10,000 | 同上 | 30 | 430,080 |
+
+6,000 步由用户确认加入 DSPO 双方，覆盖当前正文 DSPO+MVPO 的主表权重。每个条件固定 32 对，source=4×48、audit=4×64；K=1/2/4/6/8 共用观测。两任务共 1,003,520 次 pair-view 观测，原任务 1–3 的 430,080 次不变。**DSPO 每 view 要计算三项原始梯度**（margin、winner MSE、winner prediction gap），任务 4 对应 1,720,320 次分量 VJP；DMPO 每 view 一项。另有 pilot、初始化与数值检查，不能把观测数当作相同 GPU 耗时。
+
+### 1. 远程拉取 / 更新
+
+在 SLAI 登录节点执行一次。首次 clone；已有这个独立目录则只允许在正确分支、干净目录且没有任务使用它时快进更新：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace
+if [ ! -d DPO-mvpo-objective-scan-v1 ]; then
+  git clone --single-branch --branch codex/mvpo-objective-scan https://github.com/hypocritica/DPO.git DPO-mvpo-objective-scan-v1
+else
+  test "$(git -C DPO-mvpo-objective-scan-v1 branch --show-current)" = codex/mvpo-objective-scan
+  test -z "$(git -C DPO-mvpo-objective-scan-v1 status --porcelain)"
+  git -C DPO-mvpo-objective-scan-v1 pull --ff-only origin codex/mvpo-objective-scan
+fi
+git -C DPO-mvpo-objective-scan-v1 log -1 --oneline
+)
+```
+
+### 2. SLAI 任务启动
+
+分别创建两个 2×RTX 5090 任务；各自在平台的启动命令中填写对应整段。默认使用已运行成功的 eval / dpo 解释器，不需要重新安装环境。
+
+**任务 4：DSPO + DSPO+MVPO**
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10
+export MVPO_SD15_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/dpo/bin/python3.10
+export MVPO_OBJECTIVE_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-objective-scan-v1-b2
+export MVPO_SD15_VIEW_BATCH=2
+bash scripts/run_objective_scan_slai.sh 4
+)
+```
+
+**任务 5：DMPO + DMPO+MVPO**
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10
+export MVPO_SD15_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/dpo/bin/python3.10
+export MVPO_OBJECTIVE_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-objective-scan-v1-b2
+export MVPO_SD15_VIEW_BATCH=2
+bash scripts/run_objective_scan_slai.sh 5
+)
+```
+
+每个任务内部按方法、checkpoint 顺序执行，两张卡按 pair 分片。每个权重先运行 4 对工程 pilot，覆盖五个时间位置、source=2×24、audit=2×8；初始化、重复 view 和 batch-vs-single 检查通过后才开始正式 32 对，并生成该权重的报告。任一权重缺失、身份错误、OOM 或数值检查失败即停止该任务，保留已完成产物，不自动换权重/降 batch/放宽容差。
+
+**batch=4：** 两段命令都将 `MVPO_SD15_VIEW_BATCH=2` 改为 `4`，并把结果根改为 `.../mvpo-objective-scan-v1-b4`。两个任务共用同一冻结 batch/协议；不要在旧结果根中改 batch。只测工程 pilot 可在最后命令加 `--pilot-only`；删除此参数重跑时复用已通过的 pilot。batch 合并前向，但 DMPO/DSPO 所需的原始分量梯度分别求导，不保证 2/4 倍提速。
+
+### 3. 进度、汇总和恢复
+
+默认 batch=2 时，下面命令直接可用；batch=4 时同样导出对应的 `MVPO_OBJECTIVE_SCAN_ROOT`。
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1/scripts/run_objective_scan_slai.sh plan
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1/scripts/run_objective_scan_slai.sh status-4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1/scripts/run_objective_scan_slai.sh status-5
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1/scripts/run_objective_scan_slai.sh report-4
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-objective-scan-v1/scripts/run_objective_scan_slai.sh report-5
+```
+
+`report` 不带任务后缀汇总两个任务；缺测和失败单元格标为 N/A，同时保留明细原因。中断后用同一 commit、同一环境变量重跑任务 4 或 5，按 pair-condition 核验后跳过已完成结果；更新源码须独立输出，不能将新源码直接续写冻结实验。
+
+默认结果在 `/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-objective-scan-v1-b2`：
+
+- `scan.json` 与 `task-4|5/selection.json` 冻结配置、源码、解释器、完整 run/checkpoint/adapter 身份。
+- `panels/sd15.json` 固定全部四个训练方法及 checkpoint 共享的 pair/latent 面板；同一 index 的 source/audit noise bank 跨方法和权重一致。
+- `task-N/sd15/<method>/step-XXXXXXX/pilot|formal/` 保存协议、原始统计、检查 JSON、worker 日志和单权重报告。
+- `task-N/report/` 或根 `report/` 保存全 K 扫描 CSV、两种训练权重并列的 K=6 热图、audit 可靠性及缺项状态。
+
+### 原生目标与结果含义
+
+目标实现核对了训练记录及仓库 `9573c1e` 的 `algorithms/objectives.py`，SHA256 为 `b5e29226cb929ae49d8538f40f768737e64564c9117a10cf0b08080ec482dcda`。执行时仍严格核验原生目标、K、stage 配置、checkpoint 哈希及该源码身份；历史盘点不代替机器上的权重核验。
+
+DMPO 使用原 `u=beta*(reference_gap-policy_gap)` 和 reverse-KL（含有限最优 logit），不是 DPO 的 `-sigmoid(-margin)`。DSPO 使用原 SD1.5 score-residual，保留 winner MSE、可微 winner prediction gap 和共享 gate 的全部梯度。原始 view 统计用于构造 native LossAvg 与 native MVPO；无需额外训练 LossAvg 权重。
+
+**每个训练权重内部**比较不同 K 的原生梯度估计与该权重的独立 audit 参照，报告均值距离、方差、下降方向、投影、去耦合及 audit 分半可靠性。原生目标的方向参照是 **负 audit loss gradient**，DMPO 超过有限最优 logit 时可能改变符号，不能沿用 DPO 的正 margin-gradient 解释。两个训练权重的报告并列，不把它们相对不同 audit 参照的 cosine 当成统一的“方法优劣分数”。固定 index 诊断也不替代真实阶段内采样或生成质量评估。
+
 ## 2026-11-22：梯度探索扫描，三个独立任务，每任务 2×5090
 
 本节是新扫描入口，不是旧 D1–D4 的重分片。分支 `codex/mvpo-checkpoint-scan`；代码目录、输出目录与正在运行的 `DPO-mvpo-appendix-22edcb6/runs/d-repeat-v2-code` 隔离。

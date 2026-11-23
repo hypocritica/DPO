@@ -23,6 +23,8 @@ def read_pair_records(root, protocol):
         raise ValueError("gradient protocol metadata failed its digest check")
     sampling = protocol["sampling"]
     ks = sampling["ks"]
+    if bool(protocol.get("native_objective")) != bool(protocol.get("scan", {}).get("method")):
+        raise ValueError("native objective label and checkpoint method must agree")
     conditions = {row["condition"]: row for row in protocol["conditions"]}
     expected_ranges = {"sd15_t499": (499, 500), "sd35_stage0": (0, 500), "sd35_stage1": (500, 1000)}
     if "scan" in protocol:
@@ -58,6 +60,23 @@ def read_pair_records(root, protocol):
         if identity != (protocol["protocol_id"], pair["pair_index"], pair["pair_id"], condition):
             raise ValueError(f"unexpected protocol, pair, or condition in {name}")
         raw = record["statistics"]
+        if protocol.get("native_objective"):
+            from self_correct_dpo.evaluation.appendix_native_gradients import validate_native_statistics, coefficients
+            validate_native_statistics(raw, protocol)
+            check_view_banks(record, sampling, *expected_ranges[condition], name)
+            for role in ("source", "audit"):
+                means = ([b["moment_means"] for b in raw["source_blocks"]] if role == "source"
+                         else raw["audit_block_moment_means"])
+                for bi, (views, expected) in enumerate(zip(record[f"{role}_views"], means)):
+                    moments = np.asarray([v["moments"] for v in views])
+                    if (moments.shape != (sampling[f"{role}_views_per_block"], len(expected))
+                            or not np.isfinite(moments).all() or not np.allclose(moments.mean(0), expected, rtol=1e-10, atol=1e-10)):
+                        raise ValueError(f"native moment means disagree with view bank: {name}")
+                    if role == "source" and not np.allclose(coefficients(moments, raw["native_objective"]).mean(0),
+                                                            raw["source_blocks"][bi]["coefficient_means"], rtol=1e-10, atol=1e-10):
+                        raise ValueError(f"native coefficient means disagree: {name}")
+            records.append(record)
+            continue
         source = raw["source_blocks"]
         audit = raw["audit_block_margin_means"]
         if (raw["schema_version"] != 1 or raw["ks"] != ks
@@ -162,6 +181,11 @@ def main():
     summary["protocol_id"] = protocol["protocol_id"]
     summary["lora_parameter_count"] = protocol["model"]["lora_parameter_count"]
     summary["sampling"] = protocol["sampling"]
+    if protocol.get("native_objective"):
+        summary["native_objective"] = protocol["native_objective"]
+        summary["checkpoint_method"] = protocol["scan"]["method"]
+        summary["covariance_sign"] = "Native loss-gradient convention; axis is independent audit loss gradient"
+        summary["alignment_reference"] = "Negative independent audit native-loss gradient, not positive margin gradient"
     summary["condition_definitions"] = protocol["conditions"]
     summary["checkpoint"] = protocol["checkpoint"]
     summary["view_unit"] = "Independent Gaussian noise; fixed index or uniform within the frozen interval"

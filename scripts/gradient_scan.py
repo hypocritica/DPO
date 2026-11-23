@@ -144,7 +144,10 @@ def run_checkpoint(args, config, registry, job, env):
     devices = gpu_tokens(args.gpus, env, interpreter)
     if len(devices) != 2:
         raise ValueError(f"each submitted task requires exactly 2 allocated GPUs, received {devices}")
-    parent = args.output / f"task-{args.task}" / family / f"step-{job['checkpoint']['step']:07d}"
+    parent = args.output / f"task-{args.task}" / family
+    if job.get("method"):
+        parent = parent / job["method"]
+    parent = parent / f"step-{job['checkpoint']['step']:07d}"
     parent.mkdir(parents=True, exist_ok=True)
     job_path = parent / "scan-job.json"
     frozen(job_path, job)
