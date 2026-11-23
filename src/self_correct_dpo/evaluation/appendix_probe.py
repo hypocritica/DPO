@@ -28,6 +28,25 @@ CHECKPOINTS = {
 }
 
 
+def check_adapter_metadata(saved, settings, model, path, *, allow_batch_layout=False):
+    """Accept archived native-run batch repartitioning, not objective changes."""
+    recorded = saved["training"]
+    changed = {key: {"training": settings.get(key), "adapter": recorded.get(key)}
+               for key in settings.keys() | recorded.keys()
+               if (key not in settings or key not in recorded or settings[key] != recorded[key])}
+    layout = ("batch_size", "gradient_accumulation_steps")
+    equivalent = (allow_batch_layout and set(changed) <= set(layout)
+                  and all(type(s.get(k)) is int and s[k] > 0 for s in (settings, recorded) for k in layout)
+                  and settings[layout[0]] * settings[layout[1]] == recorded[layout[0]] * recorded[layout[1]])
+    if saved["model"] != model or (changed and not equivalent):
+        detail = {f"training.{key}": value for key, value in sorted(changed.items())}
+        if saved["model"] != model:
+            detail["model"] = {"training": model, "adapter": saved["model"]}
+        raise ValueError(f"Adapter backend settings disagree with immutable training metadata: {path}; "
+                         + json.dumps(detail, ensure_ascii=False, sort_keys=True))
+    return changed
+
+
 def load_checkpoint(family, path=None, resources=None, expected=None, method=None):
     resource, step, expected_id = CHECKPOINTS[family]
     if expected is not None:
@@ -68,8 +87,8 @@ def load_checkpoint(family, path=None, resources=None, expected=None, method=Non
     if model_artifact_identity(model) != training["base_identity"]:
         raise ValueError(f"Base model inventory differs from the checkpoint training record: {model['path']}")
     backend_metadata = read_json(adapter / "backend.json")
-    if backend_metadata["training"] != settings or backend_metadata["model"] != model:
-        raise ValueError("Adapter backend settings disagree with immutable training metadata")
+    adjustments = check_adapter_metadata(backend_metadata, settings, model, adapter / "backend.json",
+                                         allow_batch_layout=method is not None)
     manifest = read_json(adapter.parent / "checkpoint.json")
     identity.update(
         path=str(adapter.parent), adapter_path=str(adapter),
@@ -77,6 +96,8 @@ def load_checkpoint(family, path=None, resources=None, expected=None, method=Non
         adapter_config_sha256=manifest["files"]["adapter/adapter_config.json"],
         adapter_backend_sha256=manifest["files"]["adapter/backend.json"],
     )
+    if adjustments:
+        identity["adapter_training_adjustments"] = adjustments
     return model, adapter, training, identity
 
 

@@ -18,7 +18,7 @@ from self_correct_dpo.evaluation.appendix_native_gradients import (
 )
 from self_correct_dpo.evaluation.appendix_gradient_reporting import summarize_gradient_statistics
 from self_correct_dpo.evaluation.appendix_native_probe import NativePairProbe, native_measurement
-from self_correct_dpo.evaluation.appendix_probe import batch_check, load_checkpoint
+from self_correct_dpo.evaluation.appendix_probe import batch_check, load_checkpoint, check_adapter_metadata
 from self_correct_dpo.evaluation.appendix_scan import fixed_conditions
 
 
@@ -38,6 +38,25 @@ def direct_loss(policy, reference, target, objective, beta, alpha, aggregation):
 
 
 class NativeGradientsTests(unittest.TestCase):
+    def test_native_backend_batch_repartition_keeps_exact_objective_and_effective_batch(self):
+        settings=dict(objective='dspo', beta=.01, batch_size=2, gradient_accumulation_steps=96)
+        model=dict(family='sd15', path='/model')
+        saved=dict(training={**settings, 'batch_size':16, 'gradient_accumulation_steps':12}, model=model)
+        changes=check_adapter_metadata(saved,settings,model,'/adapter/backend.json',allow_batch_layout=True)
+        self.assertEqual(changes,{'batch_size':{'training':2,'adapter':16},
+                                 'gradient_accumulation_steps':{'training':96,'adapter':12}})
+        self.assertEqual(settings['batch_size'],2)
+        self.assertEqual(saved['training']['batch_size'],16)
+        self.assertEqual(check_adapter_metadata(dict(training=settings,model=model),settings,model,'/x'),{})
+        for overrides in ({'beta':.02}, {'gradient_accumulation_steps':13}, {'batch_size':False}, {'batch_size':16.0}):
+            bad={**saved,'training':{**saved['training'],**overrides}}
+            with self.assertRaisesRegex(ValueError,'/adapter/backend.json'):
+                check_adapter_metadata(bad,settings,model,'/adapter/backend.json',allow_batch_layout=True)
+        with self.assertRaisesRegex(ValueError,'training.batch_size'):
+            check_adapter_metadata(saved,settings,model,'/x')
+        with self.assertRaises(ValueError):
+            check_adapter_metadata({**saved,'model':{**model,'path':'/other'}},settings,model,'/x',allow_batch_layout=True)
+
     def test_plan_covers_matched_steps_and_dspo_main_checkpoint(self):
         config=configuration(ROOT/'configs/appendix-objective-scan.json')
         p4,p5=plan(config,4),plan(config,5)

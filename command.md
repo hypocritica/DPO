@@ -1,3 +1,46 @@
+# 任务4/5：兼容训练batch拆分记录（2026-11-23）
+
+用户实际DSPO 1000步：training.json的batch_size=2/gradient_accumulation_steps=96，adapter/backend.json为16/12；两者乘积同为192，其余字段相同。native probe接受仅这两项变化且有效batch不变，原始差异写入checkpoint身份adapter_training_adjustments。所有模型、目标、beta等差异仍报具体文件/字段。不修改训练产物；不声称两种batch布局数值完全等价。DMPO 1000步用户回传无差异，若后续checkpoint报错，新报错会指明路径与差异。
+
+仍在原codex/mvpo-multiseed-generation分支。若任务1–3正在运行，使用同一分支的新worktree给4/5，不在运行中的checkout pull。首次执行（新目录必须不存在）：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git fetch origin codex/mvpo-multiseed-generation
+git worktree add --detach /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-native-fix-v1 FETCH_HEAD
+)
+```
+
+每个任务2×5090；任务4或5分别提交，仅改MVPO_NOISE_TASK；沿用旧资源文件路径，包括其机器私有覆盖。新输出根隔离已冻结的旧失败计划，原始checkpoint不动。此前精简checkpoint只是建议，此修复不改变用户已安排的checkpoint网格。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-native-fix-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export MVPO_SD15_PROBE_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/dpo/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+export MVPO_SCAN_RESOURCES="$SCD_RESOURCES"
+export MVPO_OBJECTIVE_SCAN_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-objective-explore-b2-v2
+export MVPO_SD15_VIEW_BATCH=2
+export MVPO_SKIP_NUMERICAL_CHECKS=1
+export MVPO_NOISE_TASK=4
+bash scripts/run_objective_scan_slai.sh "$MVPO_NOISE_TASK"
+)
+```
+
+---
+
 # 梯度探索：跳过数值核验，直接采集和出图（2026-11-23）
 
 按用户要求继续使用 `codex/mvpo-multiseed-generation` 和 `DPO-mvpo-multiseed-v1`。不需要之前的flow-determinism分支。`MVPO_SKIP_NUMERICAL_CHECKS=1` 同时适用于任务1–5：不运行初始化、重复view、batch对比检查，也不运行工程pilot，直接采集原定32对，逐checkpoint自动出报告。原始配置、五个index、source/audit数量、K和两卡分片不变。协议、CSV和图均标注数值核验跳过。这些是未经数值稳定性验证的探索结果。

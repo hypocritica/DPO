@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 Native adapter训练batch记录兼容
+
+用户回传DSPO step1000两份不可变元数据仅batch_size/gradient_accumulation_steps不同：2×96与16×12。native checkpoint允许这两个正整数字段重分配且乘积相同，其余训练字段和模型仍要求一致；DPO/Flow旧路径不放宽。checkpoint identity记录原始adapter_training_adjustments，不改训练文件。错误包含backend.json绝对路径和具体字段，便于区分DMPO后续checkpoint的未知差异。相同有效batch不代表浮点训练等价，本次仅允许对已保存权重做固定checkpoint测量。
+
+28项CPU梯度检查通过，覆盖真实差异、保留原字典、非整数/不同乘积/beta/模型变化拒绝、默认DPO严格比较和既有探索模式。未在GPU加载实际权重。command.md提供同分支独立worktree启动4/5，避免影响正在运行的1–3；v2输出隔离旧源码身份，未修改既定checkpoint数量。
+
 ## 2026-11-23 用户指定跳过梯度数值核验
 
 在原codex/mvpo-multiseed-generation分支新增显式MVPO_SKIP_NUMERICAL_CHECKS=1/--skip-numerical-checks探索模式，覆盖任务1–5。模式冻结于配置和job身份，probe不做初始化/repeat/batch检查，runner跳过pilot直接32对采集；续跑、collect和报告不再要求相应核验文件。保留默认旧严格流程和完整性检查，不把skip写成passed。scan.json/protocol/逐checkpoint及跨checkpoint CSV/所有图标明skipped；NaN/Inf不转换成有效结果。
