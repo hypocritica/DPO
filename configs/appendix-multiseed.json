@@ -1,0 +1,452 @@
+{
+  "version": 1,
+  "full_count": 1632,
+  "curve_count": 512,
+  "subset_salt": "MVPO appendix full benchmark curve panel v2",
+  "shards": 2,
+  "bootstrap_repeats": 10000,
+  "protocol_config": "evaluation-suite.json",
+  "families": {
+    "sd15": {
+      "seeds": [
+        0,
+        23,
+        42
+      ],
+      "generation_batch_size": 2,
+      "cpu_offload": false,
+      "metrics": [
+        "pickscore",
+        "hpsv2",
+        "image_reward",
+        "clip",
+        "aesthetic"
+      ]
+    },
+    "sdxl": {
+      "seeds": [
+        17,
+        23,
+        42
+      ],
+      "generation_batch_size": 2,
+      "cpu_offload": false,
+      "metrics": [
+        "pickscore",
+        "hpsv2",
+        "image_reward",
+        "clip",
+        "aesthetic"
+      ]
+    },
+    "sd35_medium": {
+      "seeds": [
+        17,
+        23,
+        42
+      ],
+      "generation_batch_size": 2,
+      "cpu_offload": true,
+      "metrics": [
+        "pickscore",
+        "hpsv3",
+        "image_reward",
+        "aesthetic"
+      ]
+    },
+    "zimage": {
+      "seeds": [
+        17,
+        23,
+        42
+      ],
+      "generation_batch_size": 2,
+      "cpu_offload": true,
+      "metrics": [
+        "pickscore",
+        "hpsv3",
+        "image_reward",
+        "aesthetic"
+      ]
+    }
+  },
+  "experiments": [
+    {
+      "family": "sd15",
+      "method": "dpo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dpo-p384-cu130-v1",
+      "run_id": "defa3ccadaf5d3fab96ce09cfce6cde32c22c2e6f60d732fd97d022943540517",
+      "main_step": 10000,
+      "pack": "A1",
+      "curve_pack": "E1",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "11c4dbedab00cd8d6ad32f9299733a61cf9766a203b9e9f6e7a07f0218c817af",
+        "2000": "5aff22f569d274b8373dd23af9265c75385403d5b3e0b46f0592a417a18fd72b",
+        "4000": "5a886c8bf94adc7b870b51e01e9a1944a0650221ac8a5dd7210b17d2000b0755",
+        "6000": "8a5fe5b55e67f2e7ada60b8b2d1951c0e666e9943c0d3fb084808169c80bba9b",
+        "8000": "bf715a3c30949bbddfc8922fd839b279ebc8cbd9dba62a735badbfbcb0b4c045",
+        "10000": "7d6cd430ecff524d92534308fd193d45d2ace2c86ba1d816c5dd42c8b2540bc9"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "stagewise_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "29c985fc372b5b4e2d0d50ee78973c76e5d841e25795bc9516bd8c44c1751474",
+      "main_step": 10000,
+      "pack": "A1",
+      "curve_pack": "E1",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "721a74226e2105520e9a0e5f8dfd4b12a95b25d5158abb15b2190d34c49507e3",
+        "2000": "0402e48041c19340286c808fae968baf0e6e251eb567ff5c7eebf2dfab9926a4",
+        "4000": "ce33ef9191c0f8583e15ae98df97ec3c7e3843c739cc5602c14832cd63ad2539",
+        "6000": "ba73351c7aa4f82c02649e7fae2d26690a8fe01c865908531637921d91423043",
+        "8000": "aa61da4fe2d303186a9dde17e5ba28d93e0e3529717dcc470637d759a22c4589",
+        "10000": "31d0478414811f12626ced3a42438632dc3826db0f8bb9d8d2856a72c5508911"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "dmpo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dmpo-k1-pv384-2gpu-10000-final-v1",
+      "run_id": "b31b8654e39e5de15110bae6b56328dd979c71005a7a0b0755d485ae9d44f092",
+      "main_step": 10000,
+      "pack": "A2",
+      "curve_pack": "E2",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "822d33d84c3040cc8d8fbc55556f600da37beed895ff39ca5f7879a04861c0a0",
+        "2000": "afac30ffa71af12e9a352bd06f080558eb12f635a58cccb4a029333aeebdf758",
+        "4000": "2b49f4142dce77b00fcb911d3e74ab9a1aea05423a1934a0e5ac82cab2347422",
+        "6000": "8785aba9bbec4aa9b3e28e117e607fd11656726c5f0be18569a7d4179485582b",
+        "8000": "664d55780c14e8d2c1487176520923a4bf4f28fe6be245aefb614543578470bd",
+        "10000": "bd5fc77d5f0ff728f4be53f717fddf60114152a968a443020a83857640bcd97c"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "stagewise_dmpo_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dmpo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "160cf76c2a43d824812587eae9b371472656c8e880e4356c42cf42979dafc84d",
+      "main_step": 10000,
+      "pack": "A2",
+      "curve_pack": "E2",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "9090796d43f7ccc36f93253d23af72627aa2072ea2a00a231e6a8324d37d68aa",
+        "2000": "44bee430a3eb446008e1ae3463eef6b8c061f618fc107471d92bfac57ac97d0a",
+        "4000": "f85e29a18eab11d6ba39aae1319a65e2606110f3dbbfd1b45e5996fb0462f990",
+        "6000": "d8d4cef15655b8f0050a376a99aef37a1885f55770d7ba1f59fb14de96bd6f38",
+        "8000": "db1ad258e9a35a44b375182f1cdeb8160fedd05599185d56c91144320c781f0a",
+        "10000": "72e3c7292e16e59c1ab221563391aab57c5781a73e5e6b98f4fa931d901d7ece"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "dspo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dspo-k1-pv384-2gpu-10000-final-v1",
+      "run_id": "b30144ba3ab8ad8746a821d148ec9b7229cc6544e7d2f14198997d96da72bd22",
+      "main_step": 10000,
+      "pack": "F1",
+      "curve_pack": "E3",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "89877be1c19ac15a7ef81f18c4f2fa02f9cac0f60d10e5a9272fdcbaef29ea40",
+        "2000": "37ca19ce1d1d2404072768b1ca7ff9ba5b56d7cab8733eb53c6c047a139fc34c",
+        "4000": "fdc2aba2a6e181ebb73a77747624334ccbd09845894cb1512547a1f6ee2fcb16",
+        "6000": "f13cd55536f85dde4ef3744c91bf178afbc31a3ee4b5a1b9001c7b5ee92d3c68",
+        "8000": "07c166296c28332bdc0eb9aa0a3c497c6757c1ee24b5db583dfdd5c404483f80",
+        "10000": "1899cb48da8b2298bf22f8f8c8a84bca591989a37c3eb59e0655575c63ae6048"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "stagewise_dspo_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dspo-k6-stage-pv384-2gpu-10000-final-v1",
+      "run_id": "9c6ef4c268c6265a6e199284e8f0f8a589c786efcd766b780d1e51f73d7e83a5",
+      "main_step": 6000,
+      "pack": "F1",
+      "curve_pack": "E3",
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "582bc7afae6047685042602e280b7a6a735dbcba01cb17b08c0d9ed68e418d50",
+        "2000": "283f7717fbc0553619da94b8f813c54f51c56720b11a89c67ba87bae4a8b7bca",
+        "4000": "0010d5939a1999744b39c3e559c2af740806abaf348dbcfdb3db2f4a4c60c47c",
+        "6000": "d794dd59e4b29eab0bbb08a232e0bc503721ffa9b6b5abdac082dab5d257b3c7",
+        "8000": "4cf1ff524f89e3bf451ae2770ce92318dd27587c1b5a57c55f6b7ec2e6d3faf0",
+        "10000": "2694e7cf8160ad111e1607b0c0eff2ba5f95d72533cc53ea42b0c91d5750171f"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "dpo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dpo-p192-cu130-v1",
+      "run_id": "388ae5b017de89fc3ec859e634351ecbd894225d14d1d003371e63ed5fbeb99b",
+      "main_step": 2000,
+      "pack": "D1",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "2000": "fbfec8c5c61487dc15b73948b66d067566949aa3cf9c5cd8a1d2c3f4fa0af366"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "stagewise_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dpo-k6-stage-h800-2gpu-b2-pv192-10000-v1",
+      "run_id": "73fa77108dce80c60d5a4d8d63034e4253f19d68c3324bb99e836af78d0996e4",
+      "main_step": 2000,
+      "pack": "D1",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "2000": "d81d576475eed40d94ca26ecd5aad6db1b33e59ff6fea3dcd7ce30737de59fc8"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "dmpo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dmpo-4gpu-b2-pv192-10000-v1",
+      "run_id": "f41228b3a3c1cce57a4cee4f24684de7e4a8b6a5a4c88199e0eb2f18b37e17a3",
+      "main_step": 10000,
+      "pack": "D2",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "10000": "42a52660fdc715a1c01d457e453e1cea7d03e4d21c47d3cbe2fd44270e99e396"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "stagewise_dmpo_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dmpo-k6-stage-4gpu-b2-pv192-10000-v2",
+      "run_id": "e6fc5d7fab8831b1f25aecbaa0b13c2e6a5db263295ec5f5d6802b6192cea943",
+      "main_step": 9000,
+      "pack": "D2",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "9000": "001e2528d1ea41a31ce5fe94d57811d3fbb4376d2272dad75d3cea9db0eaefbc"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "dspo",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dspo-4gpu-b2-pv192-10000-v1",
+      "run_id": "7045ee4f8629f43b265077729e26cf37feefca13c513c0c2a1a8ed2113886360",
+      "main_step": 3000,
+      "pack": "F2",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "3000": "ecc9ceb489c930ef98b4ef43a27ba70d1ada169fdec80c69abe09fd105f03b0f"
+      }
+    },
+    {
+      "family": "sdxl",
+      "method": "stagewise_dspo_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sdxl-dspo-k6-stage-4gpu-b2-pv192-10000-v1",
+      "run_id": "23ce5169f78438c47d6d69ffc08851dd1a5ac6848d614caa4f39cd32525a7404",
+      "main_step": 3000,
+      "pack": "F2",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "3000": "6c5cfd5856f29adbc76bcc0039c99a44019d7ab4ca7aeba813122d59c3998620"
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "dpo",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-dpo-k1-pair_views128-45090-b4-3200-C-bfloat16-trainonly-paper-v2-flow-b4-stat-v1",
+      "run_id": "c520c231fa74cecb70870d687e7635c20c3c0cb3c1463a751d11b58ac9e791eb",
+      "main_step": 1600,
+      "pack": "B",
+      "curve_pack": "E4",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": "bbb9e714acf003a562b032ddc4728e9e7231190e0419f4ca505affd5b9bc335f",
+        "800": "c01770cf024a8fe05104ec5772996e42c119f4a532d63017f3b7dddca7e39c3b",
+        "1200": "5786c27e1ce62fe192ec4c90ed9d21a9dbe2a4bb0ac9b8b003f2b7a8b4d1bc49",
+        "1600": "3d6cc23e4e808ec0d131a840bcccdda14a5b7e4f35ab24bd9ba9dbea314d8fff",
+        "2000": "9d4867c0b56cf37e6b9a5390f16858bf5fdf5290fddcb2341a93ff70346980df",
+        "2400": "c28b2ac812a6a731bb30ce4189a83a4c4f33333660a81c7af62fb72847cc1c81",
+        "2800": "4e9d753766e5be955974a875a7f744c937f2a7fd9d16bedfe76ac656db0ac900",
+        "3200": "625a30eb72f002e3a111d96780c090a53a2a3aa26bf518d5ac0c15a6cfb60efd"
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "linear_dpo",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-linear_dpo-k1-pair_views128-45090-b4-3200-C-bfloat16-trainonly-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "391c80e06a6d8a04150f2bec3cb772d81d56284d500875b0d1b57d7ea177b56b",
+      "main_step": 1600,
+      "pack": "B",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "1600": "cd18b94ff8dbc6b44419bec9c6d56fb8996112f9a88f26d117ca99a3bea03e37"
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "global_k4",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-C-bfloat16-trainonly-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "a54e9188016e5679d51698f20305d6063533265de116ad22ff58f6d866eba817",
+      "main_step": 1600,
+      "pack": "B",
+      "curve_pack": "E4",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": "1957e2d4c4e172fffce90403ae3af6f7f4f79794c28bd81f0becbc70c0073e6d",
+        "800": "6bd80394a4b9ad5096d53ff6966fc22dd11067643d56eb7389f89f25777d13c0",
+        "1200": "6f3f9d2a6140a77e0b2101f8b7d6b87e1ef81fb1d42f20e913d26ef5958cc568",
+        "1600": "9d2fba88a824f1ace8741d55440b7683f66f16a2012228e597978454b2770f1f",
+        "2000": "c0da6a63cbff4b6bf58c5955661db2438d46724d1fcc67d2fcc0a4d75414e874",
+        "2400": "8a13211a4bd44171500f4fb22b9d02263f288cf372afe164a29d70381e249f1f",
+        "2800": "4e0004183298518ebf5ad71c22c0ddf1a0477c5beb98e3784640ecd6cd3d4fef",
+        "3200": "c6e633b81ca4190c1bc56f94d4d1b94418a81013dd3dbc3df6d39262477d45f1"
+      }
+    },
+    {
+      "family": "sd35_medium",
+      "method": "stagewise_k4",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "sd35_medium-mvpo-k4-pair_views128-45090-b1-3200-C-bfloat16-trainonly-stage500-paper-v2-flow-microviews4-modelreport-v2",
+      "run_id": "1effaa621eff65fa3297985959d7fcea136ce0900e07ee7806360bc6d148e582",
+      "main_step": 1600,
+      "pack": "B",
+      "curve_pack": "E4",
+      "curve_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "checkpoints": {
+        "400": "14cf6f1ed911e4407ee5cbf395e2c607d5fa05b40051e17d923812d17b75358c",
+        "800": "8ac2364e01aebc1ac38acab521a8912ac30e26cd0435d2d3ee7845dde2c63e29",
+        "1200": "1f782008d930ddd9033a1cb0eb54aee39eef81d9fc83a948414bd8f9f1c880de",
+        "1600": "830ec96c3b40ebdeb8b93498372f6fb9ee5f9caf1707a973a8bb608d7d948c21",
+        "2000": "3407403dd80619ff0fa9630dd818cfb793456952b24a3b2c4e6e8f0c3a95f5c5",
+        "2400": "34a12f92aa0122777d0d06d32c96f957097651a0aa6a898a568ae5b02274d992",
+        "2800": "1da8bd1f62ed1f18226e25f16dc189308594273a8fd949ea3eceb6035207a0e8",
+        "3200": "41f534935493f7d5f6970eaa13b1efb5dd5425dabec26f8396de6099f8649208"
+      }
+    },
+    {
+      "family": "zimage",
+      "method": "dpo",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "zimage-dpo-k1-pair_views128-2h100-b4-3200-C-float32-trainonly-paper-v2-flow-b4-stat-v1",
+      "run_id": "645f592710d0c6d095d1f5fdb981fd4733f971ad19dd42b303210a372dc016af",
+      "main_step": 2300,
+      "pack": "C",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "2300": "33b7e50640bfd4436793c2638bfd31e99a83cbe7abcfb8a6a2fd88c65345e44c"
+      }
+    },
+    {
+      "family": "zimage",
+      "method": "stagewise_k4",
+      "run_resource": "FLOW_RUNS_ROOT",
+      "run": "zimage-mvpo-k4-pair_views128-2h100-b1-3200-C-float32-trainonly-stage500-paper-v2-flow-microviews4-v1",
+      "run_id": "47a629b9005d1da2b47d1642c6b5e66db846629709682defe89c440a2c44e43e",
+      "main_step": 2300,
+      "pack": "C",
+      "curve_pack": null,
+      "curve_steps": [],
+      "checkpoints": {
+        "2300": "07d0b49ce22cec7516b126ca8ce73f6933065b8be3bbdec7e0548cce576fa1ef"
+      }
+    }
+  ],
+  "notes": [
+    "SD1.5 native evaluation code uses Euler50 seed0; resolve paper PNDM50 seed17 discrepancy from original render/run.json before preparation. --protocol-source freezes actual run settings and its first seed.",
+    "DSPO SD1.5 main10000 versus MVPO6000; DMPO SDXL main10000 versus MVPO9000, not equal-budget comparisons.",
+    "No LossAvg, Base, training, optional K curves or additional same-budget main configurations."
+  ]
+}

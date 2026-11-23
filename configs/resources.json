@@ -77,5 +77,6 @@
   "PICKAPIC_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/pickapic-test-remaining.jsonl",
   "PARTIPROMPTS_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/partiprompts.jsonl",
   "HPDV3_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/hpdv3-test.jsonl",
-  "IMAGEREWARD_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/imagereward-test.jsonl"
+  "IMAGEREWARD_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/imagereward-test.jsonl",
+  "MVPO_MULTISEED_ROOT": "${EVALUATIONS_ROOT}/mvpo-multiseed-v1"
 }

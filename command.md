@@ -1,3 +1,152 @@
+## 2026-11-23：完整多种子生成、曲线精测与历史 evaluation 复用
+
+分支 `codex/mvpo-multiseed-generation`，独立 checkout `DPO-mvpo-multiseed-v1`。任务编号使用 A1/A2/B/C/D1/D2/F1/F2/E1–E4，与梯度扫描 1–5 分开。旧 evaluation 目录只读；不修改正在运行的梯度 checkout，也不追加 LossAvg 训练/生成。
+
+### 1. 拉取代码与历史产物盘点（登录节点，CPU）
+
+首次 clone；更新已有目录只在没有任务使用该目录时执行：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace
+if [ ! -d DPO-mvpo-multiseed-v1 ]; then
+  git clone --single-branch --branch codex/mvpo-multiseed-generation https://github.com/hypocritica/DPO.git DPO-mvpo-multiseed-v1
+else
+  test "$(git -C DPO-mvpo-multiseed-v1 branch --show-current)" = codex/mvpo-multiseed-generation
+  test -z "$(git -C DPO-mvpo-multiseed-v1 status --porcelain)"
+  git -C DPO-mvpo-multiseed-v1 pull --ff-only origin codex/mvpo-multiseed-generation
+fi
+git -C DPO-mvpo-multiseed-v1 log -1 --oneline
+)
+```
+
+盘点默认扫描资源表中的 `EVALUATIONS_ROOT`、`RUNS_ROOT`、`FLOW_RUNS_ROOT`，包括训练 run 内的 evaluation 子目录。既支持 evaluate_suite 的 `plan.json`，也直接发现 evaluate_batch / 原 evaluation 的 `render/run.json`；不要求旧作业一定有 plan。不会启动 GPU、生成图或评分，不读取 checkpoint 权重。不递归图片目录，只按 manifest 可选检查图片是否存在。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10
+export MVPO_INVENTORY_OUT=/mnt/afs/L202500030/xietianyu/workspace/mvpo-generation-history-$(date +%Y%m%d-%H%M%S)
+bash scripts/run_multiseed_slai.sh inventory --check-images
+)
+```
+
+**只需回传打印路径下的 `evaluation-metadata.tar.gz`。** 压缩包自带 `inventory.json`，包含原路径、各文件 hash、模型/权重、实际 sampler/seed、GPU/版本、已索引/尚存图片数、逐图分数及异常列表。不包含 PNG/JPEG、模型、LoRA 或 optimizer。无需手工制作 Excel 或逐张列图。仅有汇总均值的旧结果不能作为逐 prompt 配对数据。
+
+默认单文件上限 128 MiB，超限会明确记在 issues 中；若目标 scores.jsonl 被跳过，可加 `--max-file-mb 256` 并用新的盘点目录。存在权限错误、缺根目录、写入中变化会记录，不把它们标成可复用。尽量盘点已结束或暂停写入的 evaluation；冻结计划后历史元数据变化会拒绝继续使用。
+
+如果实际输出在其他目录，在 `inventory` 后重复传 `--history-root /实际输出根`；一旦显式传入，就以所列根目录替代默认三个根。盘点时指定的额外根也须在后续 prepare 时提供。路径可以是 `/mnt/aoss/.../evaluations` 或某个旧 run 的 `evaluations/`，不用逐个提供 checkpoint。
+
+### 2. 冻结每个模型的计划（登录节点，CPU）
+
+先看设计数量；该命令不访问权重：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh plan
+```
+
+配置已固定 18 个主表版本、完整 1632 prompts、总计三种子，以及 SD1.5 六方法×六个曲线点、SD3.5-M 三方法×八个曲线点，曲线 512 prompts / 一个种子。主表共 88128 张，与曲线去重后 114240 张；实际缺图量由 prepare 输出，不用目标量当新增量。
+
+**先根据盘点选择真实主表的协议来源。** SD1.5 正文 PNDM50/seed17 与代码 Euler50/seed0 冲突，因此其 prepare 强制要求 `--protocol-source`。来源必须是本配置主表 checkpoint 对完整 PartiPrompts 的 render/run.json（或保留完整面板身份的 shard），不可用 monitor/gallery 或其他 benchmark。其余模型也支持这个参数；未提供时沿用 `evaluation-suite.json`。
+
+下面的 `SD15_MAIN_RENDER_JSON` 是需要根据盘点填写的实际路径，不是已经核验的远端地址：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+: "${SD15_MAIN_RENDER_JSON:?先根据历史盘点设置 SD15_MAIN_RENDER_JSON 为实际主表 render/run.json 路径}"
+bash scripts/run_multiseed_slai.sh prepare-sd15 --protocol-source "$SD15_MAIN_RENDER_JSON"
+)
+```
+
+其余模型分别准备；某一模型失败不需要重新准备其他模型：
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh prepare-sd35_medium
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh prepare-zimage
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh prepare-sdxl
+```
+
+提供协议来源时，从其首个生成种子 s0 得到 `{s0,23,42}`，去重不足三种子按 17、101 补足，曲线使用 s0。同 backbone 全部方法统一。代码默认 SD1.5 为 0/23/42，其他模型为 17/23/42，实际以冻结 plan 为准。若现有 prompt 文件与原 benchmark 面板身份不同，用 `--prompts /原完整partiprompts.jsonl`，禁止按分数筛面板。
+
+默认 generation batch=2 / 每个作业两张卡；这是生图 batch，独立于梯度任务的 view batch。可在首次 prepare 加 `--batch-size 4`；协议冻结后不自动降 batch。Flow/Z-Image 默认 CPU offload=true。路径和解释器由资源表/环境变量控制，额外资源表用 `MVPO_GENERATION_RESOURCES`。所有 scoring 环境也须能在 prepare 时做 CPU 包版本检查。
+
+prepare 会核对训练 objective/K/stage、完整 run/checkpoint ID、adapter 文件 hash、底模和评分器资产；缺失或不匹配的 checkpoint 显式标 blocked，仅对应任务包禁止启动，不悄悄换步数。每 family 生成：
+
+- `plan.json`：冻结配置、代码、环境、权重、随机性与协议。
+- `full.jsonl` / `curve.jsonl`：完整面板与分数无关的固定 512 子集。
+- `reuse-summary.csv`：逐方法/step/seed 的复用分数、复用图片补分、缺图、blocked 数量。
+- `slots/*.jsonl`：逐 prompt–seed 的来源与缺项。
+- `history_audit`：不兼容资产/版本/协议的原因。
+
+有完整匹配分数但 PNG 已缺失时仍复用分数；缺指标且对应 PNG 已失效时，该 slot 重新生成并统一重新评分，不混用不同像素的旧分数。未完成但有效的逐图/评分记录也可逐项复用；损坏记录拒绝。补评分所需旧图复制到新目录的可追溯子面板，旧目录不写入；不会为其他已完整评分的图片重复评分。不同 metric 可以共用同一批生成图。
+
+配对生成要求同一 backbone 的 CUDA GPU 型号与 Torch/Diffusers 一致，且所有 renderer/scorer 包版本通过检查。复用 H100 旧图时，新种子应在匹配 H100 环境生成；若改用 5090 且要求完整配对，必须明确使用新的输出根、prepare 加 `--fresh`，该模型不复用历史图/分数。仅在旧图补评分不要求生成 GPU 相同。不要把硬件不同造成的重生成误记为可复用。
+
+### 3. SLAI 提交任务包（每包默认 2 张卡）
+
+| 包 | 训练权重 / checkpoint | 图像目标量（未扣历史复用） |
+| --- | --- | --- |
+| A1 | SD1.5 DPO / Stage-wise DPO K6，各10000 | 9792 |
+| A2 | SD1.5 DMPO / Stage-wise DMPO K6，各10000 | 9792 |
+| F1 | SD1.5 DSPO10000 / Stage-wise DSPO K6 **6000** | 9792 |
+| B | SD3.5-M DPO / LinearDPO / Global K4 / Stage-wise K4，各1600 | 19584 |
+| C | Z-Image DPO / Stage-wise K4，各2300 | 9792 |
+| D1 | SDXL DPO / Stage-wise DPO K6，各2000 | 9792 |
+| D2 | SDXL DMPO10000 / Stage-wise DMPO K6 9000 | 9792 |
+| F2 | SDXL DSPO / Stage-wise DSPO K6，各3000 | 9792 |
+| E1 / E2 / E3 | SD1.5 DPO / DMPO / DSPO 两方法的1000/2000/4000/6000/8000/10000，扣除对应主表重合点 | 各5120 |
+| E4 | SD3.5-M DPO / Global K4 / Stage-wise K4，400至3200每400步，扣除1600主表重合点 | 10752 |
+
+F1 主表步数不同，应明确写作主表生成稳定性；其 6000/10000 两个同 checkpoint 步数的比较仍在 E3 曲线中。D2 同理不是等训练预算比较。SDXL 9000 DMPO 三种子同预算补充和可选 K 曲线不自动加入本轮。
+
+在 SLAI 创建匹配 prepare 输出 `noise_runtime.gpu` 的两卡任务，填下面整段；只替换最后一行的包名即可。可以为不同包开独立容器，也可以同一容器顺序运行多个包。不要在同一两卡容器同时启动多个包。
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python3.10
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-v1
+bash scripts/run_multiseed_slai.sh A1
+)
+```
+
+全部包的调用对应为：
+
+```bash
+bash scripts/run_multiseed_slai.sh A1
+bash scripts/run_multiseed_slai.sh A2
+bash scripts/run_multiseed_slai.sh F1
+bash scripts/run_multiseed_slai.sh B
+bash scripts/run_multiseed_slai.sh C
+bash scripts/run_multiseed_slai.sh D1
+bash scripts/run_multiseed_slai.sh D2
+bash scripts/run_multiseed_slai.sh F2
+bash scripts/run_multiseed_slai.sh E1
+bash scripts/run_multiseed_slai.sh E2
+bash scripts/run_multiseed_slai.sh E3
+bash scripts/run_multiseed_slai.sh E4
+```
+
+这是可分别提交的逻辑任务包，不表示需要同时占用 12 个容器。任务内按冻结 shard 排队分给 GPU，支持已分配的 2/4/8 张卡，默认 GPU tokens 从 CUDA_VISIBLE_DEVICES 或 torch 检测。固定 shard 数默认2；换更多卡不改变图片身份。失败停止、保留已提交图片与评分，中断用原命令恢复。不同包共用主表/曲线重合点的唯一生成任务；E 可以先运行非重合点，完整曲线报告等待相关主表包完成。
+
+### 4. 汇总和回传
+
+```bash
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh status
+bash /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/scripts/run_multiseed_slai.sh report
+```
+
+每 family 的 `report/` 输出便携 `scores.jsonl`、`protocol.json`、`means.csv`、`paired-differences.csv`、`adjacent-checkpoints.csv`、完整状态与曲线 PNG/PDF。单 seed 均值、三 seed 平均及 seed 间 SD 分列；同 prompt 内先平均三个 seed，再整 prompt bootstrap 10000 次，给方法分差、各评分器胜率（平局半胜）及95%区间。所有方法/时间点使用相同抽样规则；区间为探索性逐点区间，不能称为独立训练重复。缺项不取交集凑完成，不插值、不平滑补点，CSV与图中保留缺口。
+
+本地测试使用 CPU 合成图片和统计，真实权重/评分环境/显存仍由服务器 prepare 与运行核验。拿到历史盘点包后才能确定真实复用量和匹配 GPU 分工；代码完成不表示实验结果已经产出。
+
 ## 2026-11-23：任务 4 / 5，SD1.5 原生 DSPO / DMPO 梯度扫描
 
 新分支 **`codex/mvpo-objective-scan`**，独立代码目录 **`DPO-mvpo-objective-scan-v1`**。原任务 1–3 继续使用 `codex/mvpo-checkpoint-scan` 的 `3735e7f` 和旧输出，不在运行中的目录 pull。本节两个新任务都为 **2×5090**，默认 view batch=2，可显式设为 4；不重新训练、不生成 PartiPrompts 图片。

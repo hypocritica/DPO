@@ -1,5 +1,16 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 完整多种子生成与 evaluation 产物复用
+
+独立 `codex/mvpo-multiseed-generation` 分支新增 appendix-multiseed.json、盘点/计划/分包执行/报告入口。18 个主表配置、60 个曲线点，重合点按唯一 method/step/seed/prompt 任务复用，共 105 个生成 job、114240 张目标图。SD1.5 DSPO+MVPO 主表采用已核对的6000步；10000保留曲线。SDXL DPO两者2000、DMPO10000/9000、DSPO两者3000。无 LossAvg 或新增训练。
+
+历史盘点只导出 evaluation 元数据与逐图分数，不带图片/权重，不要求旧产物有 plan.json。准备按原生 run/manifest/score 身份逐项核验，可用部分已完成记录；已有完整分数即使图片缺失也复用。缺指标的有效旧图复制到新目录的可追溯评分子面板，旧数据不写入；缺图且缺指标时统一重生成/评分，不把不同像素的分数拼接。完整运行版本、scorer、协议、权重、prompt与seed冻结，历史源更新拒绝混用。模型/包级缺权重保持blocked，不自动更换checkpoint。
+
+SD1.5 的正文 PNDM50/17 与代码 Euler50/0 尚需真实导出判定，prepare 强制指定实际主表 render/run.json；来源必须对应本次主表权重和完整 PartiPrompts。其他模型支持同样覆盖，默认沿用现有 evaluation-suite。三种子复用 s0/23/42，曲线使用s0，默认生图batch2（可显式4）。匹配历史 CUDA GPU/版本，换不兼容硬件必须另根目录显式fresh；原梯度入口不改动。根command.md包含拉取、只读盘点、CPU准备、12个任务包及汇总命令。
+
+12项新增CPU检查与23项既有梯度回归检查通过。新增检查覆盖完整数量、同图跨任务去重、协议差异、无图有分数、部分评分、错误身份、导入图像完整性、native renderer/scorer调用、断点完成跳过、准备冻结与prompt统计。合成报告包含主表均值/分差、seed波动、相邻checkpoint比较和缺项曲线；图经渲染检查。没有访问SLAI、提交GPU或实测新任务吞吐/显存。桌面清单区分“代码就绪”和“历史盘点/远端准备待完成”。
+
+
 ## 2026-11-23 任务 4/5：原生 DSPO/DMPO 梯度扫描
 
 新增独立分支 `codex/mvpo-objective-scan`、原生目标 collector/probe、任务 4/5 launcher 与冻结配置。任务 4 扫 DSPO 及 Stage-wise DSPO K6 的 1000/4000/6000/10000 步；任务 5 扫 DMPO 对应两种权重的 1000/4000/10000 步。6000 双方由用户确认加入，以覆盖正文 DSPO+MVPO 主表。各扫五个 scheduler index、32 对、4×48 source 与 4×64 audit，分别 573440/430080 pair-view 观测。DSPO 每 view 三项分量 VJP，不能与 DPO 按相同反向成本解释。
