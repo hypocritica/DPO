@@ -52,6 +52,27 @@ def score_fixture(root):
 
 
 class MultiseedTests(unittest.TestCase):
+    def test_reviewed_pre_zimage_renderer_reuses_sd15_scores(self):
+        from self_correct_dpo.runtime.zimage_precision_compat import LEGACY_RENDER_SHA256
+        from self_correct_dpo.evaluation.appendix_generation import noise_runtime
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);run,_=fixture(root)
+            run['render_sha256']=LEGACY_RENDER_SHA256
+            run['run_id']=digest({k:v for k,v in run.items() if k!='run_id'})
+            atomic_json(root/'render/run.json',run)
+            rows=read_jsonl(root/'render/manifest.jsonl')
+            for row in rows:
+                row['image_id']=digest({'run_id':run['run_id'],**{k:v for k,v in row.items() if k!='image_id'}})
+            payload_jsonl(root/'render/manifest.jsonl',rows)
+            atomic_json(root/'render/complete.json',{'images':len(rows),'manifest_sha256':sha256(root/'render/manifest.jsonl')})
+            score_fixture(root)
+            source=read_source(root/'render',{'pickscore':SCORER})
+            self.assertEqual(choose_slots(run['suite'],0,['pickscore'],{'old':source})[1]['reuse_scores'],3)
+            for family in ('sdxl','sd35_medium'):
+                self.assertEqual(noise_runtime({**run,'model':{'family':family}}),RUNTIME)
+            with self.assertRaises(ValueError):noise_runtime({**run,'model':{'family':'zimage'}})
+            with self.assertRaises(ValueError):noise_runtime({**run,'render_sha256':'unreviewed'})
+
     def test_full_scope_and_deduplication(self):
         cfg=configuration(ROOT/'configs/appendix-multiseed.json');plan=static_plan(cfg)
         self.assertEqual((plan['main_configurations'],plan['main_images'],plan['unique_images'],len(plan['jobs'])),(18,88128,114240,105))

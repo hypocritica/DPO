@@ -227,10 +227,11 @@ def noise_runtime(run):
     source = run['render_sha256']
     current = renderer_hash()
     # e6ee941 -> d3a539c changed Z-Image precision and session metadata.
-    # Its SD3.5-M sampler, initial noise and denoiser calls are identical.
-    same_sd35 = (run['model']['family'] == FAMILY and source == LEGACY_RENDER_SHA256
+    # The diff only changes Z-Image compute and session metadata; SD1.5,
+    # SDXL and SD3.5-M keep identical sampler/noise/denoiser calls.
+    same_non_zimage = (run['model']['family'] in ('sd15', 'sdxl', FAMILY) and source == LEGACY_RENDER_SHA256
                  and current == BF16_RENDER_SHA256)
-    if source != current and not same_sd35 and not compatible_sources({'render.py': source}, {'render.py': current}):
+    if source != current and not same_non_zimage and not compatible_sources({'render.py': source}, {'render.py': current}):
         raise ValueError('Cannot verify the historical CUDA noise implementation against this renderer')
     return {'gpu': run['gpu'], **{name: run['versions'][name] for name in ('torch', 'diffusers')}}
 

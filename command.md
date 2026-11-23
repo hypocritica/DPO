@@ -1,3 +1,129 @@
+## 2026-11-23 真实历史盘点后：复用分支与实际启动命令
+
+已核对用户回传的 8,341 个元数据文件、801 个 render、930,219 条逐图分数。18 个主表配置均有完整旧单种子；连同 SD1.5 DSPO+MVPO 10k 的曲线子集，原生选择器确认可复用 29,888 个图像对应完整分数，剩余 84,352 张。此数量以远端权重/评分器资产/环境仍匹配为条件，实际以 prepare 的冻结计划为准。
+
+| 模型 | 真实旧协议 | 旧 seed / 新增 seeds | 复用分数对应图数 | 新增图数（含曲线） | 复用模式生成设备 |
+| --- | --- | --- | ---: | ---: | --- |
+| SD1.5 | Euler50 / CFG7.5 / 512 | 0 / 23,42 | 10,304 | 34,432 | H100 80GB HBM3 |
+| SDXL | Euler50 / CFG5 / 1024 | 17 / 23,42 | 9,792 | 19,584 | RTX 5090 |
+| SD3.5-M | FlowMatch Euler28 / CFG4.5 / 1024 | 17 / 23,42 | 6,528 | 23,808 | H100 80GB HBM3 |
+| Z-Image | FlowMatch Euler50 / CFG4 / 1024 / BF16 forward | 17 / 23,42 | 3,264 | 6,528 | H100 80GB HBM3 |
+
+**本节替代下方盘点前的占位命令。** SD1.5 真实主表并非正文写的 PNDM50/seed17。原 b04b0de 的复用检查遗漏了 SD1.5 旧 renderer 的等价版本；新分支只增加经过 Git diff 审查的精确 SHA 兼容，保留 GPU、软件包、checkpoint 和 scorer 校验，不改变任何渲染计算。Z-Image 旧精度不纳入等价例外。
+
+当前可能还有梯度任务在运行，因此使用独立 **codex/mvpo-history-reuse-audit** 分支、**DPO-mvpo-reuse-v1** 代码目录和 **mvpo-multiseed-reuse-v1** 输出根。旧梯度 checkout 与结果根继续使用原命令。
+
+### 1. 登录节点拉取新分支
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-reuse-v1
+
+if [ ! -d DPO-mvpo-reuse-v1 ]; then
+  git clone --single-branch --branch codex/mvpo-history-reuse-audit https://github.com/hypocritica/DPO.git DPO-mvpo-reuse-v1
+fi
+cd DPO-mvpo-reuse-v1
+test "$(git branch --show-current)" = codex/mvpo-history-reuse-audit
+test -z "$(git status --porcelain)"
+git pull --ff-only origin codex/mvpo-history-reuse-audit
+git log -1 --oneline
+)
+```
+
+只在该 checkout 的任务启动前执行更新；冻结计划开始运行后保持代码版本不变。原始 inventory 无需重跑。
+
+### 2. 登录节点 prepare：每模型一次
+
+下例先准备 SDXL，适合当前 2×5090 资源。按需要把 `MVPO_GENERATION_FAMILY` 改为 sd15、sd35_medium、zimage；后面会自动选择本次核对过的真实主表协议路径。生成 batch 默认 2；有余量时首次 prepare 把最后的 `--batch-size 2` 改为 4，之后不得在同一计划内改变。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-reuse-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-reuse-v1
+export MVPO_GENERATION_FAMILY=sdxl
+history_eval_root=/mnt/aoss/xietianyu/self_correct/evaluations
+
+case "$MVPO_GENERATION_FAMILY" in
+  sd15)
+    protocol_source="$history_eval_root/sd15/main-h100-b64-v1/sd15-dpo/step-0010000/partiprompts/render/run.json"
+    prompt_source="$history_eval_root/sd15/main-h100-b64-v1/prompts/partiprompts.jsonl"
+    ;;
+  sdxl)
+    protocol_source="$history_eval_root/sdxl/paper-2000-5090-v1/main/partiprompts/sdxl-dpo/step-0002000/partiprompts/render/run.json"
+    prompt_source="$history_eval_root/sdxl/paper-2000-5090-v1/main/partiprompts/prompts/partiprompts.jsonl"
+    ;;
+  sd35_medium)
+    protocol_source="$history_eval_root/sd35_medium/compact-h100-v3/core/sd35-dpo/step-0001600/partiprompts/render/run.json"
+    prompt_source="$history_eval_root/sd35_medium/compact-h100-v3/core/prompts/partiprompts.jsonl"
+    ;;
+  zimage)
+    protocol_source="$history_eval_root/zimage/parti-2300-two-methods-seed17-2h100-b4-v1/partiprompts/zimage-dpo/step-0002300/partiprompts/render/run.json"
+    prompt_source="$history_eval_root/zimage/parti-2300-two-methods-seed17-2h100-b4-v1/partiprompts/prompts/partiprompts.jsonl"
+    ;;
+  *) echo "Unknown family: $MVPO_GENERATION_FAMILY" >&2; exit 2 ;;
+esac
+bash scripts/run_multiseed_slai.sh "prepare-$MVPO_GENERATION_FAMILY" \
+  --protocol-source "$protocol_source" --prompts "$prompt_source" --batch-size 2
+)
+```
+
+prepare 会读取并冻结真实权重、环境和源日志；对缺失 checkpoint 记录 blocked，不自动换权重。核对生成根内 `<family>/reuse-summary.csv`、`plan.json` 的 counts/blocked 与本次审计是否一致。若来源资产、包版本或评分代码不同，不能照抄预估新增量。
+
+### 3. SLAI 两卡任务启动
+
+默认以下运行 D1，申请 **2×5090**。D2、F2 同样使用 2×5090。A1/A2/F1/E1/E2/E3、B/E4、C 若按本次复用计划生成，应申请 **2×H100**；只改任务包变量，沿用已经 prepare 的同一输出根。每个两卡任务只启动一个包，包成功后自动输出统计和 win-ratio 图。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-reuse-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES="$PWD/configs/resources.json"
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_MULTISEED_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-multiseed-reuse-v1
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+export MVPO_GENERATION_PACK=D1
+export MVPO_GENERATION_AUTO_REPORT=1
+bash scripts/run_multiseed_slai.sh "$MVPO_GENERATION_PACK"
+)
+```
+
+| 包 | A1 | A2 | F1 | B | C | D1 | D2 | F2 | E1 | E2 | E3 | E4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 预计新增图 | 6528 | 6528 | 6528 | 13056 | 6528 | 6528 | 6528 | 6528 | 5120 | 5120 | 4608 | 10752 |
+
+若只安排 5090，SDXL 可先跑；其余模型如显式 `--fresh` 则必须另设结果根，并重新生成该模型全部种子，旧结果仍保留独立报告。三个原 H100 模型 fresh + SDXL 复用时共需新生成 104,448 张。不要删除 runtime 校验强行拼接两种硬件。
+
+本次 15 项 CPU 测试和真实导出分数的原生复用重放已通过。没有执行远端 prepare、GPU 生成或读取实际 PNG 字节。
+
+---
+
 ## 2026-11-23 更新：完整括号命令与自动 win-ratio 图
 
 以下按用户习惯给出 `( ... )` 完整命令。使用本次专用 `DPO-mvpo-multiseed-v1`，不把旧 `DPO-eval-v2` 的 SDXL peak 入口混入新方案。保留真实换行，不要给每一行末尾都加反斜杠。先拉取，再历史盘点和 prepare，最后提交任务包。代码更新只在任务启动前进行；已按旧源码冻结的生成计划继续用原版本，不能直接 pull 后续写。新版 report 可只读汇总已有完整分数。

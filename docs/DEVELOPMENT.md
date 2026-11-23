@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-23 真实历史复用核验
+
+回传 inventory 的 8341 个文件通过大小/SHA 校验；801 个 render、930219 条旧分数的身份、manifest 关联与 summary 均核对。18 个主表均有全量单种子；SD1.5 实际 Euler50/seed0，另有 DSPO+MVPO10k 全量。原生 read_source/choose_slots 离线重放得到复用29888、新增84352，仍需远端资产/权重/环境匹配。旧128条 monitor 面板不抵扣新的512条 Parti 曲线。
+
+Git e6ee941 到当前 renderer 的差异仅影响 Z-Image计算与会话元数据；将已存在的精确 SHA 等价检查由 SD3.5-M 扩至 SD1.5/SDXL，拒绝未知SHA及旧Z精度。15项CPU检查通过，包含真实格式旧SD1.5日志/分数复用、Z与未知版本拒绝。独立 codex/mvpo-history-reuse-audit 分支和新checkout/输出根，避免更改运行中的梯度源码身份。根command.md新增真实protocol-source、prompt路径、拉取/prepare/启动命令；SDXL沿用5090，其余主表历史生成使用H100。未执行远端prepare或GPU任务，未读取实际PNG/权重，论文协议差异仅记录未修改正文。
+
 ## 2026-11-23 自动评分器胜率与括号式运行命令
 
 按用户命令风格在command.md顶部提供完整clone/pull、conda、safe.directory、环境变量、盘点、prepare、任务包和CPU汇总块。新生成入口识别SCD_EVAL_GPUS，默认两卡；旧SDXL峰值入口及其目录不改。每任务包成功后自动按family报告，失败停止；可显式关闭自动报告。并发报告用阻塞文件锁串行发布。
