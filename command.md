@@ -1,3 +1,43 @@
+# 2026-11-24：L主表LossAvg K4按三个生成种子独立四卡运行
+
+沿用已准备的parallel计划与输出，step1600、完整1632条PartiPrompts；生成种子17/23/42各一个4×5090提交，共12卡、4896目标图，每卡408槽位、batch2。新增脚本只选择现有任务；src、flexible源码、配置、plan和图像身份不修改，无需重新prepare。不要再让旧L任务同时计算同一份K4。
+
+更新一次后提交三个独立容器，每份仅改MVPO_L_SEED为17、23或42：
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+git -c safe.directory="$PWD" pull --ff-only origin codex/mvpo-parallel-5090
+```
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+export MVPO_PARALLEL_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-parallel-5090-v1
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+export MVPO_L_SEED=17
+"$SCD_SD15_PY" scripts/run_lossavg_k4_seed.py generate --seed "$MVPO_L_SEED"
+)
+```
+
+上述只生成。需要同组随后评分，在括号结束前追加：
+
+```bash
+"$SCD_SD15_PY" scripts/run_lossavg_k4_seed.py score --seed "$MVPO_L_SEED"
+```
+
+score只等待本seed四片全部生成，不等待另外两seed；三组可以独立评分。status动作读取本seed状态。重复运行复用已完成结果；评分及最终report仍沿用冻结的原指标。三个生成种子不表示重新训练三个模型。全部评分后可沿用run_parallel_5090.sh report --tasks L汇总，缺失K2会按缺项展示。
+
 # 2026-11-24：修复5090图库worker派发并原目录续跑
 
 旧parallel图库入口误派发到原H100 worker，在生成完成后以H100 runtime检查5090而失败。

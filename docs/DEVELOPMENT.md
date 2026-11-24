@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-24 L/LossAvg K4三个生成种子拆分
+
+新增scripts/run_lossavg_k4_seed.py直接加载已冻结parallel计划，从L精确选择LossAvg K4、step1600、full、seed17/23/42之一，要求四分片各408槽位及四张分配GPU，调用原flexible调度和worker。generate/score/status分离，每seed独立协调锁，仍保留原分片锁、生成完成屏障、身份和运行环境校验。新增入口不进入原冻结code identity，src、flexible及配置字节不变。
+
+12项CPU检查通过，覆盖三个seed精确选择与4896槽位、重复任务拒绝、四卡分配与原plan传递、双卡拒绝和既有flexible/parallel检查。AOSS只读确认两种输出中K4三个seed均无完成receipt，未启动GPU。完整四卡命令见command.md首节。
+
 ## 2026-11-24 parallel图库worker派发修复
 
 回传日志确认parallel run误调用scripts/appendix_figures.py，5090完成生成后被原H100 worker的runtime检查拒绝。改为调用parallel脚本自己的worker。仅放行已发布旧launcher SHA的恢复，保留旧plan ID、历史输入、已生成PNG；重新prepare仅在其余冻结输入一致时复用原plan。没有修改src、原H100入口或flexible定量入口。
