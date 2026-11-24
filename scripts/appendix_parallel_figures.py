@@ -29,6 +29,23 @@ LABELS={'base':'Base','sft':'SFT','kto':'KTO','dpo':'DPO','linear_dpo':'LinearDP
         'stagewise_k4':'Stage MVPO K4','global_k4':'Global MVPO K4','stagewise_k2':'Stage MVPO K2',
         'global_k2':'Global MVPO K2','lossavg_k2':'LossAvg K2','lossavg_k4':'LossAvg K4'}
 PROMPTS=CONFIG_DIR/'appendix-prompts'
+# Exact published launcher with the worker-dispatch bug. Its frozen inputs and
+# native renderer remain compatible; preserve plan IDs and committed pixels.
+DISPATCH_FIX_PARENT_SHA256='8681c0ca750c12f6f032ea320b729cc7ba6c89decdfbeb24a2a35b25464797e9'
+
+
+def validate_launcher(plan):
+    if plan.get('parallel_launcher_sha256') not in (sha256(__file__),DISPATCH_FIX_PARENT_SHA256):
+        raise ValueError('Gallery launcher changed; use pinned checkout')
+
+
+def freeze_figure_plan(path,plan):
+    if path.exists():
+        old=checked_json(path,'plan_id');validate_launcher(old)
+        inputs=lambda p:{k:v for k,v in p.items() if k not in ('plan_id','parallel_launcher_sha256')}
+        if inputs(old)!=inputs(plan):raise ValueError('Gallery inputs changed; use a new output directory')
+        return
+    freeze_json(path,plan)
 
 
 def requests(spec,family):
@@ -83,7 +100,7 @@ def prepare(output,family,legacy,source_roots):
               input_sha256={str(p.relative_to(CONFIG_DIR)):sha256(p) for p in [CONFIG_DIR/'appendix-figures.json',*sorted(PROMPTS.glob('*.jsonl'))]})
     plan['source_roots']=[str(legacy),*[str(p) for p in source_roots]]
     plan['parallel_launcher_sha256']=sha256(__file__)
-    plan['plan_id']=digest(plan);freeze_json(out/'plan.json',plan)
+    plan['plan_id']=digest(plan);freeze_figure_plan(out/'plan.json',plan)
     return dict(family=family,figure_slots=sum(len(j['prompts']) for j in jobs),blocked=[(j['name'],j['blocked']) for j in jobs if j['blocked']])
 
 
@@ -92,7 +109,7 @@ def figure_plan(output,family):
     if plan['core_plan_id']!=core['plan_id']:raise ValueError('Figure/core plan differs')
     for name,h in plan['input_sha256'].items():
         if sha256(CONFIG_DIR/name)!=h:raise ValueError('Figure prompt/config inputs changed')
-    if plan.get('parallel_launcher_sha256')!=sha256(__file__):raise ValueError('Gallery launcher changed; use pinned checkout')
+    validate_launcher(plan)
     return plan,core
 
 
@@ -206,7 +223,7 @@ def run(output,family,gpus=None):
             commands=[];files={}
             for gpu,(j,i) in zip(devices,todo[start:start+len(devices)]):
                 label=j['name']+'-'+str(i);files[label]=task_root(output,family,j,i)/'progress.json'
-                commands.append((gpu,label,[sys.executable,str(ROOT/'scripts/appendix_figures.py'),'worker','--output',str(output),'--family',family,'--job',j['name'],'--index',str(i)]))
+                commands.append((gpu,label,[sys.executable,str(Path(__file__).resolve()),'worker','--output',str(output),'--family',family,'--job',j['name'],'--index',str(i)]))
             run_workers(commands,out,env,files)
         return export(output,family)
 

@@ -1,5 +1,11 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-24 parallel图库worker派发修复
+
+回传日志确认parallel run误调用scripts/appendix_figures.py，5090完成生成后被原H100 worker的runtime检查拒绝。改为调用parallel脚本自己的worker。仅放行已发布旧launcher SHA的恢复，保留旧plan ID、历史输入、已生成PNG；重新prepare仅在其余冻结输入一致时复用原plan。没有修改src、原H100入口或flexible定量入口。
+
+14项CPU检查通过：新增四卡worker派发与runtime传递、旧plan字节保留/未知launcher及输入变化拒绝、原worker render图片无新增生成恢复。AOSS只读核对Base/SFT四分片各50图的complete记录；未执行远程GPU修复任务。原目录续跑命令在command.md首节。
+
 ## 2026-11-24 四卡任务拆分
 
 独立codex/mvpo-parallel-5090基于300c274，复用本机未提交flexible实现；src及原H100入口字节不变。新增parallel配置将原79个曲线任务精确拆成E1/E2/E3与SD35七方法，固定四分片，2/4/8卡调度。图库独立脚本复用原拼图格式，为保护冻结src采用脚本内适配；SD15/SDXL可5090，SD35/Z图库仍要求H100。图库索引跳过未完成外部render，允许恢复自己的部分图片。旧产物只读，独立输出，生成/评分分离，命令见根command.md。

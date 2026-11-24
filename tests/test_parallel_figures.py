@@ -13,7 +13,8 @@ from test_multiseed_generation import fixture,RUNTIME
 from self_correct_dpo.common import read_json,read_jsonl,sha256,digest,load_suite
 from self_correct_dpo.runtime.checkpoints import atomic_json
 from self_correct_dpo.evaluation.appendix_generation import payload_jsonl
-from appendix_parallel_figures import requests,source_index,worker,results,export,PROMPTS
+from appendix_parallel_figures import (requests,source_index,worker,results,export,PROMPTS,
+                                      run,freeze_figure_plan,validate_launcher,DISPATCH_FIX_PARENT_SHA256)
 from self_correct_dpo.evaluation.appendix_progress import run_stage,committed_count
 from self_correct_dpo.evaluation.experiment_catalog import validate_method
 from self_correct_dpo.evaluation.render import check_prompt_lengths
@@ -21,6 +22,63 @@ from self_correct_dpo.evaluation.render import check_prompt_lengths
 ROOT=Path(__file__).resolve().parents[1]
 
 class ParallelFigurePixels(unittest.TestCase):
+    def test_scheduler_dispatches_parallel_worker_with_allocated_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp);(output/'work-figures/sd15').mkdir(parents=True)
+            jobs=[dict(name=name,blocked=None) for name in ('base-0-s0','sft-6000-s0')]
+            plan=dict(jobs=jobs);core=dict(interpreters={'render':sys.executable})
+            runtime=dict(RUNTIME,gpu='NVIDIA GeForce RTX 5090')
+            prefix='appendix_parallel_figures.'
+            with patch(prefix+'figure_plan',return_value=(plan,core)), \
+                 patch('appendix_jobs.gpu_tokens',return_value=['2','3','4','5']), \
+                 patch(prefix+'checked_runtime',return_value=runtime), \
+                 patch(prefix+'source_index'),patch(prefix+'results',return_value=None), \
+                 patch(prefix+'run_workers') as dispatch,patch(prefix+'export'):
+                run(output,'sd15','2,3,4,5')
+            commands,_,env,_=dispatch.call_args.args
+            self.assertEqual([c[0] for c in commands],['2','3','4','5'])
+            self.assertEqual(json.loads(env['MVPO_FIGURE_RUNTIME']),runtime)
+            self.assertEqual(env['MVPO_FIGURE_BATCH'],'16')
+            for _,_,command in commands:
+                self.assertEqual(Path(command[1]),ROOT/'scripts/appendix_parallel_figures.py')
+                self.assertEqual(command[2],'worker')
+
+    def test_dispatch_fix_keeps_old_plan_bytes_and_rejects_changed_inputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'plan.json'
+            old=dict(parallel_launcher_sha256=DISPATCH_FIX_PARENT_SHA256,jobs=['frozen'])
+            old['plan_id']=digest(old);atomic_json(path,old);before=path.read_bytes()
+            current=dict(parallel_launcher_sha256=sha256(ROOT/'scripts/appendix_parallel_figures.py'),jobs=['frozen'])
+            current['plan_id']=digest(current)
+            validate_launcher(old);validate_launcher(current)
+            freeze_figure_plan(path,current)
+            self.assertEqual(path.read_bytes(),before)
+            with self.assertRaisesRegex(ValueError,'inputs changed'):
+                freeze_figure_plan(path,dict(current,jobs=['changed']))
+            with self.assertRaisesRegex(ValueError,'launcher changed'):
+                validate_launcher(dict(old,parallel_launcher_sha256='unknown'))
+
+    def test_recovers_native_worker_pixels_without_generating_again(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp);root=output/'work-figures/sd15/jobs/dpo-10000-s0/shard-0'
+            rendered,oldrows=fixture(root,4)
+            job=dict(name='dpo-10000-s0',method='dpo',step=10000,seed=0,prompts=rendered['suite'],shards=2,blocked=None,
+                     adapter=dict(run='/fixture/run',run_id='train',path='/fixture/adapter',checkpoint_id='checkpoint',inventory={}))
+            plan=dict(plan_id='figure-recovery',family='sd15',jobs=[job],history=[])
+            core=dict(model=rendered['model'],base_identity=rendered['base_identity'],sampling=rendered['sampling'],
+                      render_versions=rendered['versions'],noise_runtime=dict(RUNTIME,gpu='NVIDIA H100'),interpreters={'render':sys.executable})
+            source_index(output,plan,core)
+            import os
+            prefix='appendix_parallel_figures.'
+            with patch(prefix+'figure_plan',return_value=(plan,core)),patch(prefix+'run_stage') as generate, \
+                 patch.dict(os.environ,{'MVPO_FIGURE_RUNTIME':json.dumps(RUNTIME),'MVPO_FIGURE_BATCH':'16'}):
+                worker(output,'sd15',job['name'],0)
+            generate.assert_not_called()
+            rows=results(output,plan,job,0)
+            self.assertEqual(len(rows),2)
+            self.assertTrue(all(r['origin']=='reused' for r in rows))
+            self.assertTrue(all(r['generation_gpu']==RUNTIME['gpu'] for r in rows))
+
     def test_pixels_reuse_missing_generation_resume_and_shallow_export(self):
         with tempfile.TemporaryDirectory() as temp:
             output=Path(temp);old=output/'old';run,oldrows=fixture(old,4)

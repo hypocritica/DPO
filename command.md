@@ -1,3 +1,36 @@
+# 2026-11-24：修复5090图库worker派发并原目录续跑
+
+旧parallel图库入口误派发到原H100 worker，在生成完成后以H100 runtime检查5090而失败。
+修复派发至parallel worker，仅兼容已发布旧launcher的精确SHA；旧plan及已保存PNG不重写。
+恢复前确认失败的gallery实例已经退出；这次更新不修改src、定量flexible入口及原H100入口。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+git pull --ff-only origin codex/mvpo-parallel-5090
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+export MVPO_GENERATION_RESOURCES="$SCD_RESOURCES"
+export MVPO_FLEX_LEGACY_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+export MVPO_PARALLEL_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-parallel-5090-v1
+export MVPO_PARALLEL_GALLERY_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-gallery-parallel-v1
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+bash scripts/run_parallel_5090.sh gallery sd15 run
+)
+```
+
+同类SDXL任务将最后一行的sd15改为sdxl；保持原图库输出根，无需删除图片或重新prepare。
+旧worker的render会重新索引并按身份及PNG SHA验证后复用；后续缺图使用当前GPU runtime。
+最终导出位于mvpo-gallery-parallel-v1/figures/index.html。
+
 # 2026-11-24：12组四卡5090并行曲线与图库
 
 分支 `codex/mvpo-parallel-5090` 基于运行中H100版本300c274；`src/`、原A/B入口和原冻结配置不变。新定量目录 `mvpo-appendix-parallel-5090-v1`，图库目录 `mvpo-gallery-parallel-v1`，旧H100目录只读。新入口也带上先前尚未提交的flexible复用代码。
