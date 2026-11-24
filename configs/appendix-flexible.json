@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "shards": 4,
+  "full_count": 1632,
+  "curve_count": 512,
+  "sd15_extra": [
+    {
+      "family": "sd15",
+      "method": "lossavg_k2",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-B-k2-fixedviews384-cu130-v1",
+      "run_id": "3c95182f42efc8072ab2b7d92543bacbaa58c868a9d606676354174edee51476",
+      "main_step": 10000,
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "898a1ee3d8ffa9ea7d8111920a4ff45e3a822206c08eddd744b9f3eee7bb57a7",
+        "2000": "5de83b62cd75fa6f7331e6b866a182637aa34932c3aac4d8e9365f4c78ef7422",
+        "4000": "5c8aab9c84c5f4eeaa00d80fdd8ce0d9b62578f75f5d7450aa2ce2cb5e6c8d70",
+        "6000": "b647e86cfb23ed109dc10b09c669dd25fef61711fab0e200a3929fc17de59833",
+        "8000": "0356724f25a22556ea22f48e5deef5d54e3c1dc0d6f142f53976047a59533191",
+        "10000": "0e29d93a7bac7719ba1ba78164e097524b2fc6ec68469b2d3d31476f6eb68077"
+      },
+      "matched_reference": "global_k2"
+    },
+    {
+      "family": "sd15",
+      "method": "global_k2",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-C-k2-fixedviews384-cu130-v2",
+      "run_id": "3ee7bac59afc79f2943e0237283925da699e7ba06555ffe76db327d081b58d73",
+      "main_step": 10000,
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "7372d80d9edb7a68ad80726b3e16e698cdc28152dfc5271e735de30c178ae2b9",
+        "2000": "ebb8668205d54cc3f8d3cb9725b30c81fcf080987322be8229fe2bba395dedf9",
+        "4000": "1b52f5ce0e07ff0c6aaf6b1a10b14abb0ccbd5800f1c16af5d9b276439ed2879",
+        "6000": "3f28b751863ce969c901516c3a95a625437c60f5efbee8d5de3a3d0f5c2e8464",
+        "8000": "867bdd1b0aa047aa1f4e4bc4c8a6aec0064da98887f06e7c85c4b81241c62895",
+        "10000": "ddb4753cb6dc2cc6b5cb7742e760f4ee2ec26968aac31cd3340773cea82e59e5"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "global_k6",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-gaussian-C-k6-v384-cu130-v1",
+      "run_id": "befd532bca84a4d7766e6a3d77faf12bd7f982d67abe492eeaab48e72366e14e",
+      "main_step": 10000,
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "052cd5b5487cd8066c3ab08cd2f65dd71562387fe037ca1c9780495e29d6fee7",
+        "2000": "c4cdd8752778a1bc84ede563b86d8c452a62230f5e76273a86b1d716a84a536b",
+        "4000": "beeef855ec137e5bcd4a4c07f88fc27115e8e48e4c193d335cb9f5479d3057e5",
+        "6000": "d4de105f368fa68c8d1344901a47f90c67d5cd908487c796d3e0bc1727f89228",
+        "8000": "a986b737384532e7d2879b8f965e1745c75ae8066ddcbfcd2768908a05c19309",
+        "10000": "45ca3ba953b69a7668bbd25f49d0237c46a2e9622c75c7f8cb4bb43de3d4f48e"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "stagewise_k2",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-stagewise-dpo-k2-p192-2gpu-10000-slai-v1",
+      "run_id": "848deea074b5ee129532f5c8fa8e524860a36a9d6396b6861f539fcea885c584",
+      "main_step": 10000,
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "913e7a91f62827fc69d958ea78767281d4cc1a204e6b72155e3d91f6b3c7afa3",
+        "2000": "08a722fc86207a4c223574980082a603001da09e80a9837581cd346a7fa270e4",
+        "4000": "f5549d576e7c2b120e19d8fa0b1c835b7c782342eda83967bb33ef0dd4806ad0",
+        "6000": "6eb97986058808751d8425bf86cdd176e395c636c41d939534c56d4e797c671c",
+        "8000": "7c1c20f81f5d7a7969d4167d0f16bf8484abdf10920d0de5484a1661bca9bc89",
+        "10000": "7ed89fc1e4ec5630a15b62eb4394bb343507de50b0f811d14f5147f60e9e2311"
+      }
+    },
+    {
+      "family": "sd15",
+      "method": "stagewise_k4",
+      "run_resource": "RUNS_ROOT",
+      "run": "sd15-dpo-stagewise-C-gaussian-k4-pair_views384-2gpu-train-v1",
+      "run_id": "af7682e1c7238d1549d5f90f61d853a550b3fbe648adc0ab3848b43e1fabf83a",
+      "main_step": 10000,
+      "curve_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "checkpoints": {
+        "1000": "4aecca95c907bad9f5f8f0a24e6596d61844e5be86d8eda04a93a34e237ea97b",
+        "2000": "ade19b9fb2a021bc42510bdaa9fab909bf6a2bc30e712cd97999b88c8d1a07e8",
+        "4000": "bb61f289e20629c2f763b0dc0100f2301378291a02d8a899c49d702efb9969c2",
+        "6000": "301191f21764a493d5d2c47c5648eeb28bae004164e3b9f9e1967758a632ba08",
+        "8000": "0e372236d3daaa5f691e0c7e390bc7b74e70adf942df73cd91a51182650abd1b",
+        "10000": "7faa344ab917cdd1a7eae2fb428f1d2cf4537007e3697e98e81aed1c2ca7adc2"
+      }
+    }
+  ],
+  "batch_sizes": {
+    "h100": {
+      "sd15": 16,
+      "sdxl": 8,
+      "sd35_medium": 8,
+      "zimage": 4
+    },
+    "5090": {
+      "sd15": 16,
+      "sdxl": 4,
+      "sd35_medium": 2,
+      "zimage": 1
+    }
+  },
+  "tasks": {
+    "sd35-table": {
+      "family": "sd35_medium",
+      "methods": [
+        "base",
+        "sft",
+        "dpo",
+        "linear_dpo",
+        "lossavg_k2",
+        "global_k2",
+        "stagewise_k2",
+        "lossavg_k4",
+        "global_k4",
+        "stagewise_k4"
+      ],
+      "panel": "full",
+      "seeds": [
+        17
+      ],
+      "steps": [
+        0,
+        1600
+      ],
+      "recommended": "2xH100; only the two LossAvg rows normally need new images"
+    },
+    "sd15-curves": {
+      "family": "sd15",
+      "methods": [
+        "dpo",
+        "lossavg_k2",
+        "global_k2",
+        "global_k6",
+        "stagewise_k2",
+        "stagewise_k4",
+        "stagewise_k6"
+      ],
+      "seeds": [
+        0
+      ],
+      "steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "recommended": "4x5090"
+    },
+    "sd35-curves-dpo-lossavg": {
+      "family": "sd35_medium",
+      "methods": [
+        "dpo",
+        "lossavg_k4"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "recommended": "4x5090",
+      "omit_table_main": true
+    },
+    "sd35-curves-global-stage": {
+      "family": "sd35_medium",
+      "methods": [
+        "global_k4",
+        "stagewise_k4"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "recommended": "4x5090",
+      "omit_table_main": true
+    },
+    "sd35-curves-k2": {
+      "family": "sd35_medium",
+      "methods": [
+        "lossavg_k2",
+        "global_k2",
+        "stagewise_k2"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1600,
+        2400,
+        3200
+      ],
+      "recommended": "4x5090",
+      "omit_table_main": true
+    },
+    "sd35-lossavg-multiseed": {
+      "family": "sd35_medium",
+      "methods": [
+        "lossavg_k4"
+      ],
+      "seeds": [
+        23,
+        42
+      ],
+      "steps": [
+        1600
+      ],
+      "panel": "full",
+      "recommended": "2xH100"
+    }
+  },
+  "notes": [
+    "Old A/B jobs remain available through explicit A/B selectors.",
+    "Generate all selected core jobs before score core; no automatic scorer after each image job.",
+    "Logical shards are fixed at four; GPU allocation may use 2/4/8 devices and switch H100/5090 between sessions."
+  ]
+}

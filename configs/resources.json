@@ -78,5 +78,9 @@
   "PARTIPROMPTS_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/partiprompts.jsonl",
   "HPDV3_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/hpdv3-test.jsonl",
   "IMAGEREWARD_TEST_SDXL": "${BENCHMARKS_ROOT}/sdxl/imagereward-test.jsonl",
-  "MVPO_MULTISEED_ROOT": "${EVALUATIONS_ROOT}/mvpo-multiseed-v1"
+  "MVPO_MULTISEED_ROOT": "${EVALUATIONS_ROOT}/mvpo-multiseed-v1",
+  "MVPO_FLEX_ROOT": "${EVALUATIONS_ROOT}/mvpo-appendix-flex-v1",
+  "MVPO_FLEX_LEGACY_ROOT": "${EVALUATIONS_ROOT}/mvpo-appendix-h100-v2",
+  "MVPO_PARALLEL_ROOT": "${EVALUATIONS_ROOT}/mvpo-appendix-parallel-5090-v1",
+  "MVPO_PARALLEL_GALLERY_ROOT": "${EVALUATIONS_ROOT}/mvpo-gallery-parallel-v1"
 }

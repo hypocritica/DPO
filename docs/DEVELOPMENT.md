@@ -1,5 +1,10 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-24 四卡任务拆分
+
+独立codex/mvpo-parallel-5090基于300c274，复用本机未提交flexible实现；src及原H100入口字节不变。新增parallel配置将原79个曲线任务精确拆成E1/E2/E3与SD35七方法，固定四分片，2/4/8卡调度。图库独立脚本复用原拼图格式，为保护冻结src采用脚本内适配；SD15/SDXL可5090，SD35/Z图库仍要求H100。图库索引跳过未完成外部render，允许恢复自己的部分图片。旧产物只读，独立输出，生成/评分分离，命令见根command.md。
+
+
 ## 2026-11-23 双H100生成、LossAvg匹配对照与浅层绘图包
 
 同分支保留梯度修复cd80347，在当前生成代码扩展group-h100-a/b各2卡。batch=16/8/8/4且全部无offload。新增SD35 LossAvg K2/K4、Global/Stage K2主表与400步间隔曲线；22主表、92曲线点去重148160图，离线历史分数复用33152、新增115008。LossAvg校验formal_arm B、相同K目标/data/base及训练设置；checkpoint仅从指定run/step解析并冻结，不用latest。实际权重仍待服务器核验。

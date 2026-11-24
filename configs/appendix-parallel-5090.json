@@ -1,0 +1,315 @@
+{
+  "version": 1,
+  "shards": 4,
+  "full_count": 1632,
+  "curve_count": 512,
+  "sd15_extra": [],
+  "batch_sizes": {
+    "h100": {
+      "sd15": 16,
+      "sdxl": 8,
+      "sd35_medium": 8,
+      "zimage": 4
+    },
+    "5090": {
+      "sd15": 16,
+      "sdxl": 4,
+      "sd35_medium": 2,
+      "zimage": 1
+    }
+  },
+  "tasks": {
+    "E1": {
+      "family": "sd15",
+      "methods": [
+        "dpo",
+        "stagewise_k6"
+      ],
+      "seeds": [
+        0
+      ],
+      "steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "panel": "curve",
+      "old_pack": "E1",
+      "report_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ]
+    },
+    "E2": {
+      "family": "sd15",
+      "methods": [
+        "dmpo",
+        "stagewise_dmpo_k6"
+      ],
+      "seeds": [
+        0
+      ],
+      "steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "panel": "curve",
+      "old_pack": "E2",
+      "report_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ]
+    },
+    "E3": {
+      "family": "sd15",
+      "methods": [
+        "dspo",
+        "stagewise_dspo_k6"
+      ],
+      "seeds": [
+        0
+      ],
+      "steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ],
+      "panel": "curve",
+      "old_pack": "E3",
+      "report_steps": [
+        1000,
+        2000,
+        4000,
+        6000,
+        8000,
+        10000
+      ]
+    },
+    "sd35-dpo": {
+      "family": "sd35_medium",
+      "methods": [
+        "dpo"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-global_k4": {
+      "family": "sd35_medium",
+      "methods": [
+        "global_k4"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-stagewise_k4": {
+      "family": "sd35_medium",
+      "methods": [
+        "stagewise_k4"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-global_k2": {
+      "family": "sd35_medium",
+      "methods": [
+        "global_k2"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-stagewise_k2": {
+      "family": "sd35_medium",
+      "methods": [
+        "stagewise_k2"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-lossavg_k2": {
+      "family": "sd35_medium",
+      "methods": [
+        "lossavg_k2"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    },
+    "sd35-lossavg_k4": {
+      "family": "sd35_medium",
+      "methods": [
+        "lossavg_k4"
+      ],
+      "seeds": [
+        17
+      ],
+      "steps": [
+        400,
+        800,
+        1200,
+        2000,
+        2400,
+        2800,
+        3200
+      ],
+      "panel": "curve",
+      "report_steps": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800,
+        3200
+      ]
+    }
+  },
+  "notes": [
+    "Old A/B jobs remain available through explicit A/B selectors.",
+    "Generate all selected core jobs before score core; no automatic scorer after each image job.",
+    "Logical shards are fixed at four; GPU allocation may use 2/4/8 devices and switch H100/5090 between sessions."
+  ]
+}

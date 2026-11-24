@@ -1,3 +1,136 @@
+# 2026-11-24：12组四卡5090并行曲线与图库
+
+分支 `codex/mvpo-parallel-5090` 基于运行中H100版本300c274；`src/`、原A/B入口和原冻结配置不变。新定量目录 `mvpo-appendix-parallel-5090-v1`，图库目录 `mvpo-gallery-parallel-v1`，旧H100目录只读。新入口也带上先前尚未提交的flexible复用代码。
+
+## 分配表
+
+每行一个独立4×5090提交，合计48卡。不要把表内所有命令串进同一个提交。
+
+|任务名|范围|额外checkpoint任务数|
+|---|---|---:|
+|E1|SD15 DPO / Stagewise K6|10|
+|E2|SD15 DMPO / Stagewise DMPO K6|10|
+|E3|SD15 DSPO / Stagewise DSPO K6|10（其中1个可复用旧分数）|
+|sd35-dpo|SD35 DPO|7|
+|sd35-global_k4|SD35 Global K4|7|
+|sd35-stagewise_k4|SD35 Stagewise K4|7|
+|sd35-global_k2|SD35 Global K2|7|
+|sd35-stagewise_k2|SD35 Stagewise K2|7|
+|sd35-lossavg_k2|SD35 LossAvg K2|7|
+|sd35-lossavg_k4|SD35 LossAvg K4|7|
+|gallery sd15|SD15全部图库|17个方法/checkpoint/seed组合|
+|gallery sdxl|SDXL全部图库|16个组合，缺权重会标记并跳过|
+
+E1/E2/E3与旧包精确一致。SD35保留400/800/1200/2000/2400/2800/3200全部七点；1600复用主表，未改成稀疏K2曲线。定量共79个512-prompt任务、40448目标槽位（含历史复用）。四份逻辑分片，每张卡各跑一份；图库保留两份逻辑分片，四卡并发两个组合。可用2/4/8卡调度，单次卡型一致。默认5090每卡batch为SD15=16、SDXL=4、SD35=2，显存不跨卡合并；尚需远程实测，不代表4卡线性提速。
+
+## 1. 独立部署
+
+在登录/编辑环境执行；不要在正在运行的DPO-mvpo-h100-v2目录里pull。
+
+```bash
+git clone --branch codex/mvpo-parallel-5090 --single-branch https://github.com/hypocritica/DPO.git /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+```
+
+先让旧A/B退出并确认worker停止，再prepare历史快照。不删除旧产物；中断前已提交的PNG/manifest行可复用。旧A/B若继续写相同来源，会触发历史哈希校验失败；停止后可用`refresh-history`重新盘点。新任务之间也不要在生成/评分过程中刷新历史索引。
+
+## 2. 公共环境与准备（一次）
+
+下面公共环境可保存到容器自己的shell配置；每次独立提交都需设置。SCD_RESOURCES沿用你已使用的机器资源表；新路径明确由环境给出。
+
+```bash
+(
+set -eo pipefail
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export SCD_SD15_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_EVAL_PY="$SCD_SD15_PY"
+export SCD_FLOW_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-flow-v1/bin/python
+export SCD_HPSV3_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-hpsv3-v1/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+export MVPO_PARALLEL_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-parallel-5090-v1
+export MVPO_PARALLEL_GALLERY_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-gallery-parallel-v1
+export MVPO_FLEX_LEGACY_ROOT=/mnt/aoss/xietianyu/self_correct/evaluations/mvpo-appendix-h100-v2
+bash scripts/run_parallel_5090.sh prepare
+for family in sd15 sdxl sd35_medium zimage; do
+  bash scripts/run_parallel_5090.sh gallery "$family" prepare
+done
+bash scripts/run_parallel_5090.sh status
+)
+```
+
+`prepare`会核验权重与数据身份，打印blocked；缺失不自动换latest。新图库保留原prompt、seed、截断记录、GPU来源。SDXL DPO 6000/8000/10000若仍缺权重，导出保留空格。
+
+## 3. 四卡独立提交模板
+
+每个提交先执行上面括号内从`set`到最后一个`export`的公共环境，然后在同一个括号内放下列任务段。每组只改TASK，取分配表中的十个定量任务名之一：
+
+```bash
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+TASK=E1
+bash scripts/run_parallel_5090.sh generate "$TASK"
+# 生成与评分分开；若希望本组生成完即评分，继续执行：
+bash scripts/run_parallel_5090.sh score "$TASK"
+```
+
+也可暂不执行score，之后用空闲4卡独立运行同组score。每个score只要求本组全部分片已生成，无需等待其他九组；不会自动补图。切换卡数/卡型后只补缺图，H100/5090来源逐图保留，不能把硬件差异当作纯seed差异。
+
+两组5090图库同样加载公共环境，分别执行：
+
+```bash
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+bash scripts/run_parallel_5090.sh gallery sd15 run
+# 另一独立四卡提交运行：
+# bash scripts/run_parallel_5090.sh gallery sdxl run
+```
+
+图库能与定量生成并发：只索引已完成的外部render，正在生成的外部目录跳过；因此早跑图库可能多生成一些可复用图片。图库断点重启可复用自己的已提交图片，输出与定量结果独立。保留真实批大小及GPU记录。
+
+## 4. H100接续与最后导出
+
+停止旧组后，若F2或L还未完，可在新入口恢复缺图/分数，不重启旧A/B串行队列。公共环境相同，每组2×H100：
+
+```bash
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+# 一个H100提交：F2已经全完成可跳过，它会导入已有分数。
+bash scripts/run_parallel_5090.sh generate F2
+bash scripts/run_parallel_5090.sh score F2
+# 另一个H100提交：L随后C。
+# bash scripts/run_parallel_5090.sh generate L
+# bash scripts/run_parallel_5090.sh score L
+# bash scripts/run_parallel_5090.sh generate C
+# bash scripts/run_parallel_5090.sh score C
+```
+
+SD35和Z-Image图库仍要求H100，可在对应定量完成后分别提交：
+
+```bash
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+bash scripts/run_parallel_5090.sh gallery sd35_medium run
+# 另一H100提交或随后运行：
+# bash scripts/run_parallel_5090.sh gallery zimage run
+```
+
+十组曲线评分结束后，CPU汇总；图库生成结束后再export一次把最新定量表/图复制进图库：
+
+```bash
+bash scripts/run_parallel_5090.sh report --tasks A B
+for family in sd15 sdxl sd35_medium zimage; do
+  bash scripts/run_parallel_5090.sh gallery "$family" export
+done
+```
+
+`report`逐family有锁，但不同范围报告会覆盖同family文件；不要并发跑各组report。定量表图在`$MVPO_PARALLEL_ROOT/report/`；图库入口为`$MVPO_PARALLEL_GALLERY_ROOT/figures/index.html`。旧分数/新分数合并保留每图身份；暂缺项显示missing，不把未完成当作零分。图库`*-status.json`明确列出缺checkpoint。
+
+## 验证边界
+
+本地验证任务精确覆盖/互不重叠、四卡图库调度、真实小PNG复用与缺图生成、跨硬件部分结果恢复、生成/评分隔离及报告输出。没有在远程加载真实5090模型或提交GPU任务；正式大规模提交前先用一组四卡核实首个checkpoint的显存与持续出图。
+
+---
+
 # 2026-11-23 当前生成与绘图任务：两个独立 2×H100
 
 沿用 `codex/mvpo-multiseed-generation` 与 `DPO-mvpo-multiseed-v1`。同分支梯度扫描修复也保留；下文旧三组5090/H100方案仅作历史记录。新生成结果根为 `mvpo-appendix-h100-v2`，不混写旧冻结计划。
