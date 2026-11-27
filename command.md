@@ -20,6 +20,41 @@ git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- scripts/r
 )
 ```
 
+**两张 H100 测试 GenEval**
+
+默认测试 SDXL pretrained 和 DPO 2000 步，各 553 条 prompt × 4 seed，共 4,424 张已有图。每张卡评分一个完整版本；成功后输出 `sdxl/paper-2000-5090-v1/main/geneval/geneval-test-two-h100.csv/json`。与其他 GenEval 作业使用相同完成记录，避免同时启动覆盖这两行的其他评分进程。
+
+```bash
+(
+set -eo pipefail
+AFS=/mnt/afs/L202500030/xietianyu
+cd "$AFS/workspace/DPO-eval-v2"
+
+git -c safe.directory="$PWD" fetch origin codex/reuse-composition-slai
+git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- scripts/run_reuse_composition.sh
+
+unset PYTHONHOME PYTHONPATH
+source "$AFS/miniconda3/etc/profile.d/conda.sh"
+conda activate "$AFS/envs/scd-eval-geneval-v1"
+export PYTHONNOUSERSITE=1
+export SCD_GENEVAL_PY="$AFS/envs/scd-eval-geneval-v1/bin/python"
+export SCD_EVAL_PY="$SCD_GENEVAL_PY"
+SITE=$("$SCD_GENEVAL_PY" -I -c 'import sysconfig; print(sysconfig.get_path("platlib"))')
+export LD_LIBRARY_PATH="$SITE/torch/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export SCD_RESOURCES="$AFS/workspace/DPO-mvpo-multiseed-v1/configs/resources.json"
+export SCD_COMPOSITIONAL_CONFIG="$PWD/configs/compositional.json"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1}"
+
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export GIT_CONFIG_KEY_1=safe.directory
+export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["GENEVAL_REPO"])')"
+
+bash scripts/run_reuse_composition.sh geneval-test
+)
+```
+
 **作业 1 · 4 张 H100 · SDXL 和 SD3.5-M 全部 GenEval**
 
 ```bash

@@ -6,11 +6,11 @@ export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 mode=${1:-help}
 case "$mode" in
-  geneval|dpg-smoke|report) [[ $# == 1 ]] || { echo "Unexpected arguments" >&2; exit 2; } ;;
+  geneval|geneval-test|dpg-smoke|report) [[ $# == 1 ]] || { echo "Unexpected arguments" >&2; exit 2; } ;;
   dpg-group)
     [[ $# == 3 && $2 =~ ^[1-9][0-9]*$ && $3 =~ ^[1-9][0-9]*$ ]] || { echo 'dpg-group GROUP TOTAL (1-based)' >&2; exit 2; }
     (( $2 <= $3 )) || { echo 'GROUP exceeds TOTAL' >&2; exit 2; } ;;
-  *) echo 'Usage: run_reuse_composition.sh geneval | dpg-smoke | dpg-group GROUP TOTAL | report'; exit 2 ;;
+  *) echo 'Usage: run_reuse_composition.sh geneval | geneval-test | dpg-smoke | dpg-group GROUP TOTAL | report'; exit 2 ;;
 esac
 legacy=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 coord=${SCD_EVAL_PY:-$legacy}
@@ -30,13 +30,14 @@ if [[ "$mode" == report ]]; then
 fi
 
 envroot=/mnt/afs/L202500030/xietianyu/envs
-if [[ "$mode" == geneval ]]; then
+if [[ "$mode" == geneval || "$mode" == geneval-test ]]; then
     scorer=${SCD_GENEVAL_PY:-$envroot/scd-eval-geneval-v1/bin/python}
 else
     scorer=${SCD_DPG_PY:-$envroot/scd-eval-dpg-v1/bin/python}
 fi
 [[ -x "$scorer" ]] || { echo "Missing scorer Python: $scorer. Set SCD_GENEVAL_PY or SCD_DPG_PY to the installed environment." >&2; exit 2; }
 count=4
+[[ "$mode" != geneval-test ]] || count=2
 [[ "$mode" != dpg-smoke ]] || count=1
 gpu_list=${SCD_EVAL_GPUS:-${CUDA_VISIBLE_DEVICES:-}}
 if [[ -z "$gpu_list" ]]; then
@@ -53,7 +54,7 @@ for gpu in "${gpus[@]}"; do
     seen+="$gpu,"
 done
 
-if [[ "$mode" == geneval ]]; then
+if [[ "$mode" == geneval || "$mode" == geneval-test ]]; then
     if [[ -n ${SCD_COMPOSITIONAL_CONFIG:-} ]]; then
         suite+=(--compositional-config "$SCD_COMPOSITIONAL_CONFIG")
     fi
@@ -63,6 +64,12 @@ if [[ "$mode" == geneval ]]; then
         "$coord" evaluate_suite.py score --out "$plan" "${suite[@]}" --methods "$@" \
             --execution standalone --python "$scorer" --gpus "$gpu_list" --keep-going
     }
+    if [[ "$mode" == geneval-test ]]; then
+        score "$xl" base dpo
+        "$coord" evaluate_suite.py summarize --out "$xl" --benchmarks geneval --metrics geneval \
+            --methods base dpo --summary-name geneval-test-two-h100
+        exit 0
+    fi
     status=0
     score "$xl" base dpo stagewise_k6 sft || status=$?
     (( status < 128 )) || exit "$status"
