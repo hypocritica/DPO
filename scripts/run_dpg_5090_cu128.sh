@@ -12,7 +12,7 @@ prefix="$afs/envs/scd-eval-dpg-5090-cu128-v1"
 py="$prefix/bin/python"
 unset PYTHONHOME PYTHONPATH
 export PYTHONNOUSERSITE=1
-source "$afs/miniconda3/bin/activate"
+source "$afs/miniconda3/etc/profile.d/conda.sh"
 if [[ "$1" == setup-smoke ]]; then
     exec 9>"$prefix.setup.lock"
     flock -n 9 || { echo 'Another job is installing this shared environment' >&2; exit 1; }
