@@ -1,3 +1,58 @@
+## SLAI 已有图评分（2026-11-28）
+
+| 冻结计划（相对 EVALUATIONS_ROOT） | 范围 | 图片 |
+|---|---|---:|
+| `sdxl/paper-2000-5090-v1/main/geneval` | GenEval，Base + 9 个 2,000 步版本 | 22,120 |
+| `sd35_medium/compact-h100-v3/core` | GenEval，Base + 7 个 1,600 步版本 | 17,696 |
+| `sd35_medium/dpg-5090-four-seed-v1/dpg` | DPG-Bench，Base + 7 个 1,600 步版本 | 34,080 |
+
+先在远程共享 AFS 同步两个入口，再在各自分配的容器中运行。命令从原有评测 checkout 读取资源表与冻结计划。默认从平台的 `CUDA_VISIBLE_DEVICES` 取卡，未设置时从当前评分环境探测可见卡数；可用 `SCD_EVAL_GPUS` 明确指定本作业的 GPU token。
+
+```bash
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+git fetch origin codex/reuse-composition-slai
+git restore --source=FETCH_HEAD --worktree -- scripts/run_reuse_composition.sh scripts/reuse_dpg.py
+```
+
+下列各作业均在上面的 checkout 运行；在容器启动命令中也可用脚本绝对路径。正式评分消费已有完整 PNG。GenEval 用独立 Mask2Former/MMCV 环境，默认 `/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python`。若环境不在默认位置，设置 `SCD_GENEVAL_PY`。DPG 使用包含官方 ModelScope mPLUG 及支持当前 GPU 的 PyTorch 的环境，默认 `/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python`，可用 `SCD_DPG_PY` 指定。资源表中的 `DPG_REPO`、`DPG_MODEL_DIR` 分别指向固定 ELLA 源码与已下载的 mPLUG 快照。已有 cu118 的 H100 配方在 5090 上需实测，设置 `SCD_DPG_PY` 时应在单卡和四卡作业中保持一致。
+
+**四张 H100，跑两个 backbone 的全部 GenEval**
+
+```bash
+bash scripts/run_reuse_composition.sh geneval
+```
+
+先给两个 backbone 分别跑 pretrained、论文基线、论文 MVPO 和 SFT，然后完成其余版本。每卡每轮评分一个版本，复用正式评分器的完整性校验和按 prompt 恢复机制。每个版本的 `scores/geneval/summary.json` 包含 overall 和六类别。
+
+**一张 5090，跑真实 DPG 测试**
+
+```bash
+bash scripts/run_reuse_composition.sh dpg-smoke
+```
+
+该命令读取 SD3.5-M pretrained 的第一个 DPG prompt、4 个 seed 的原图，用正式 mPLUG 回答全部 40 个问题，校验输出后打印 `DPG_SMOKE_OK` 并退出。该结果仅用于确认环境，试跑可以和 H100 作业同时启动。
+
+**多组四张 5090，分摊全部 DPG**
+
+看到 `DPG_SMOKE_OK` 后启动正式组。格式为 `dpg-group 组号 总组数`，编号从 1 开始。以四组（16 卡）为例，每条命令对应一个单独的四卡作业：
+
+```bash
+bash scripts/run_reuse_composition.sh dpg-group 1 4
+bash scripts/run_reuse_composition.sh dpg-group 2 4
+bash scripts/run_reuse_composition.sh dpg-group 3 4
+bash scripts/run_reuse_composition.sh dpg-group 4 4
+```
+
+如有五组（20 卡），各作业分别指定 `1 5` 到 `5 5`。每组启四个进程，按版本和 32 条 prompt 划分不重叠的工作块，最后一个块为 9 条。四张 seed 原图始终一起评分。官方四宫格临时写本机临时盘，每次只建一个 prompt 的网格，逐题结果与块完成记录写 AOSS。作业中断可重跑原组号，已核验块跳过，未提交块重新计分。如已有原生完整 DPG 结果，会在汇总时核验并读入。保持资源、权重、评分代码和正式 DPG 软硬件环境一致。
+
+**汇总三组结果（CPU）**
+
+```bash
+bash scripts/run_reuse_composition.sh report
+```
+
+等待所有作业完成再汇总。两个 GenEval 计划各自输出 `geneval-review-all.csv/json`；DPG 输出 `EVALUATIONS_ROOT/composition-review-v1/sd35-dpg/summary.json`。DPG 采用项目固定的 `dpg-complete-csv-four-samples-v1` 协议，保留官方 CSV 的全部 14,392 道题与依赖关系，四张图共 57,568 次问答/版本。完整汇总校验每个版本的 1,065 条 prompt 和 4,260 张图。
+
 ## SDXL四行峰值补评：HPS与Parti/PickV2两组（2026-11-17）
 
 完整命令见[SDXL_PEAK_SUPPLEMENT.md](docs/SDXL_PEAK_SUPPLEMENT.md)。
