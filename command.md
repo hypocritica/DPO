@@ -75,6 +75,60 @@ bash scripts/run_reuse_composition.sh dpg-smoke
 
 前两个作业可同时启动。上面的 scorer Python 是项目记录的默认位置，如路径不同，用 SLAI 环境变量指定实际解释器。单卡作业会用 mPLUG 给一个 prompt 的四张图完成 40 次问答，成功标志是 `DPG_SMOKE_OK`。
 
+**单卡 DPG 在 import torch 阶段报 GradientEdge 时的重试命令**
+
+在单卡 5090 上执行。此命令激活 DPG 环境、优先加载该环境的 Torch 动态库，显示安装版本并测试 CUDA 运算；成功后直接跑一条真实 DPG 提示词。若出现 DPG_SMOKE_OK，正式组沿用此环境设置，将卡号缺省值改成 0,1,2,3，最后一行改为对应组的 dpg-group 命令。
+
+```bash
+(
+set -eo pipefail
+AFS=/mnt/afs/L202500030/xietianyu
+DPG="$AFS/envs/scd-eval-dpg-v1"
+cd "$AFS/workspace/DPO-eval-v2"
+unset PYTHONHOME PYTHONPATH
+source "$AFS/miniconda3/bin/activate"
+conda activate "$DPG"
+
+export SCD_DPG_PY="$DPG/bin/python"
+export SCD_EVAL_PY="$SCD_DPG_PY"
+export SCD_RESOURCES="$AFS/workspace/DPO-mvpo-multiseed-v1/configs/resources.json"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0}"
+export PYTHONNOUSERSITE=1
+SITE=$("$SCD_DPG_PY" -I -c 'import sysconfig; print(sysconfig.get_path("platlib"))')
+export LD_LIBRARY_PATH="$SITE/torch/lib:$DPG/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+"$SCD_DPG_PY" -I -u - <<'PY'
+import sys
+from importlib import metadata
+from pathlib import Path
+
+print("DPG_PYTHON", sys.executable)
+for pkg in ("torch", "torchvision", "modelscope"):
+    try:
+        print("PACKAGE", pkg, metadata.version(pkg))
+    except metadata.PackageNotFoundError:
+        print("PACKAGE", pkg, "missing")
+try:
+    import torch
+    print("TORCH", torch.__version__, torch.version.cuda, torch.__file__)
+    print("GPU", torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))
+    print("CUDA_KERNEL_OK", torch.ones(4, device="cuda").sum().item())
+except Exception:
+    for path in sorted({line.split()[-1] for line in Path("/proc/self/maps").read_text().splitlines()
+                        if any(s in line for s in ("libtorch", "libc10", "/torch/_C."))}):
+        print("LOADED_LIB", path)
+    raise
+PY
+
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$PWD"
+export GIT_CONFIG_KEY_1=safe.directory
+GIT_CONFIG_VALUE_1=$(PYTHONPATH="$PWD/src" "$SCD_DPG_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["DPG_REPO"])')
+export GIT_CONFIG_VALUE_1
+bash scripts/run_reuse_composition.sh dpg-smoke
+)
+```
+
 **作业 3 · 每组 4 张 5090 · 全部 SD3.5-M DPG**
 
 单卡通过后按下面模板开多个独立作业。20 张卡开五组，每份只改 `GROUP`，依次为 1、2、3、4、5，全部保持 `TOTAL=5`；16 张卡对应四组，统一设 `TOTAL=4`。所有正式组沿用单卡测试通过的 DPG 环境。
