@@ -33,7 +33,7 @@ envroot=/mnt/afs/L202500030/xietianyu/envs
 if [[ "$mode" == geneval ]]; then
     scorer=${SCD_GENEVAL_PY:-$envroot/scd-eval-geneval-v1/bin/python}
 else
-    scorer=${SCD_DPG_PY:-$envroot/scd-dpg-v2/bin/python}
+    scorer=${SCD_DPG_PY:-$envroot/scd-eval-dpg-v1/bin/python}
 fi
 [[ -x "$scorer" ]] || { echo "Missing scorer Python: $scorer. Set SCD_GENEVAL_PY or SCD_DPG_PY to the installed environment." >&2; exit 2; }
 count=4

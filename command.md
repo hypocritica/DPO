@@ -6,7 +6,7 @@
 | `sd35_medium/compact-h100-v3/core` | GenEval，Base + 7 个 1,600 步版本 | 17,696 |
 | `sd35_medium/dpg-5090-four-seed-v1/dpg` | DPG-Bench，Base + 7 个 1,600 步版本 | 34,080 |
 
-以下是 SLAI 作业启动命令。先在共享 AFS 同步一次，然后将每个 GPU 作业的完整代码块分别粘贴到平台。目录沿用 `DPO-mvpo-parallel-5090-v1`，资源表沿用 `DPO-mvpo-multiseed-v1/configs/resources.json`。
+以下是 SLAI 作业启动命令。先在共享 AFS 同步一次，然后将每个 GPU 作业的完整代码块分别粘贴到平台。目录沿用 `DPO-eval-v2`，资源表沿用 `DPO-mvpo-multiseed-v1/configs/resources.json`。
 
 **共享目录同步一次**
 
@@ -14,7 +14,7 @@
 (
 set -eo pipefail
 
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 git -c safe.directory="$PWD" fetch origin codex/reuse-composition-slai
 git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- scripts/run_reuse_composition.sh scripts/reuse_dpg.py
 )
@@ -29,7 +29,7 @@ set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
 
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
 
@@ -40,7 +40,7 @@ export GIT_CONFIG_KEY_1=safe.directory
 export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["GENEVAL_REPO"])')"
 
 export SCD_COMPOSITIONAL_CONFIG="$PWD/configs/compositional.json"
-export SCD_GENEVAL_PY="${SCD_GENEVAL_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python}"
+export SCD_GENEVAL_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python
 export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 bash scripts/run_reuse_composition.sh geneval
@@ -56,7 +56,7 @@ set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
 
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
 
@@ -66,7 +66,7 @@ export GIT_CONFIG_VALUE_0="$PWD"
 export GIT_CONFIG_KEY_1=safe.directory
 export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["DPG_REPO"])')"
 
-export SCD_DPG_PY="${SCD_DPG_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python}"
+export SCD_DPG_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-dpg-v1/bin/python
 export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0}"
 
 bash scripts/run_reuse_composition.sh dpg-smoke
@@ -86,7 +86,7 @@ set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
 
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
 
@@ -96,7 +96,7 @@ export GIT_CONFIG_VALUE_0="$PWD"
 export GIT_CONFIG_KEY_1=safe.directory
 export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["DPG_REPO"])')"
 
-export SCD_DPG_PY="${SCD_DPG_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python}"
+export SCD_DPG_PY=/mnt/afs/L202500030/xietianyu/envs/scd-eval-dpg-v1/bin/python
 export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 GROUP=1
@@ -117,7 +117,7 @@ set -eo pipefail
 source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
 conda activate eval
 
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
 export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
 
