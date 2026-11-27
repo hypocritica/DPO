@@ -6,52 +6,126 @@
 | `sd35_medium/compact-h100-v3/core` | GenEval，Base + 7 个 1,600 步版本 | 17,696 |
 | `sd35_medium/dpg-5090-four-seed-v1/dpg` | DPG-Bench，Base + 7 个 1,600 步版本 | 34,080 |
 
-先在远程共享 AFS 同步两个入口，再在各自分配的容器中运行。命令从原有评测 checkout 读取资源表与冻结计划。默认从平台的 `CUDA_VISIBLE_DEVICES` 取卡，未设置时从当前评分环境探测可见卡数；可用 `SCD_EVAL_GPUS` 明确指定本作业的 GPU token。
+以下是 SLAI 作业启动命令。先在共享 AFS 同步一次，然后将每个 GPU 作业的完整代码块分别粘贴到平台。目录沿用 `DPO-mvpo-parallel-5090-v1`，资源表沿用 `DPO-mvpo-multiseed-v1/configs/resources.json`。
+
+**共享目录同步一次**
 
 ```bash
-cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
-git fetch origin codex/reuse-composition-slai
-git restore --source=FETCH_HEAD --worktree -- scripts/run_reuse_composition.sh scripts/reuse_dpg.py
+(
+set -eo pipefail
+
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+git -c safe.directory="$PWD" fetch origin codex/reuse-composition-slai
+git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- scripts/run_reuse_composition.sh scripts/reuse_dpg.py
+)
 ```
 
-下列各作业均在上面的 checkout 运行；在容器启动命令中也可用脚本绝对路径。正式评分消费已有完整 PNG。GenEval 用独立 Mask2Former/MMCV 环境，默认 `/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python`。若环境不在默认位置，设置 `SCD_GENEVAL_PY`。DPG 使用包含官方 ModelScope mPLUG 及支持当前 GPU 的 PyTorch 的环境，默认 `/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python`，可用 `SCD_DPG_PY` 指定。资源表中的 `DPG_REPO`、`DPG_MODEL_DIR` 分别指向固定 ELLA 源码与已下载的 mPLUG 快照。已有 cu118 的 H100 配方在 5090 上需实测，设置 `SCD_DPG_PY` 时应在单卡和四卡作业中保持一致。
-
-**四张 H100，跑两个 backbone 的全部 GenEval**
+**作业 1 · 4 张 H100 · SDXL 和 SD3.5-M 全部 GenEval**
 
 ```bash
+(
+set -eo pipefail
+
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export GIT_CONFIG_KEY_1=safe.directory
+export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["GENEVAL_REPO"])')"
+
+export SCD_COMPOSITIONAL_CONFIG="$PWD/configs/compositional.json"
+export SCD_GENEVAL_PY="${SCD_GENEVAL_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-eval-geneval-v1/bin/python}"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+
 bash scripts/run_reuse_composition.sh geneval
+)
 ```
 
-先给两个 backbone 分别跑 pretrained、论文基线、论文 MVPO 和 SFT，然后完成其余版本。每卡每轮评分一个版本，复用正式评分器的完整性校验和按 prompt 恢复机制。每个版本的 `scores/geneval/summary.json` 包含 overall 和六类别。
-
-**一张 5090，跑真实 DPG 测试**
+**作业 2 · 1 张 5090 · SD3.5-M DPG 真图测试**
 
 ```bash
+(
+set -eo pipefail
+
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export GIT_CONFIG_KEY_1=safe.directory
+export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["DPG_REPO"])')"
+
+export SCD_DPG_PY="${SCD_DPG_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python}"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0}"
+
 bash scripts/run_reuse_composition.sh dpg-smoke
+)
 ```
 
-该命令读取 SD3.5-M pretrained 的第一个 DPG prompt、4 个 seed 的原图，用正式 mPLUG 回答全部 40 个问题，校验输出后打印 `DPG_SMOKE_OK` 并退出。该结果仅用于确认环境，试跑可以和 H100 作业同时启动。
+前两个作业可同时启动。上面的 scorer Python 是项目记录的默认位置，如路径不同，用 SLAI 环境变量指定实际解释器。单卡作业会用 mPLUG 给一个 prompt 的四张图完成 40 次问答，成功标志是 `DPG_SMOKE_OK`。
 
-**多组四张 5090，分摊全部 DPG**
+**作业 3 · 每组 4 张 5090 · 全部 SD3.5-M DPG**
 
-看到 `DPG_SMOKE_OK` 后启动正式组。格式为 `dpg-group 组号 总组数`，编号从 1 开始。以四组（16 卡）为例，每条命令对应一个单独的四卡作业：
+单卡通过后按下面模板开多个独立作业。20 张卡开五组，每份只改 `GROUP`，依次为 1、2、3、4、5，全部保持 `TOTAL=5`；16 张卡对应四组，统一设 `TOTAL=4`。所有正式组沿用单卡测试通过的 DPG 环境。
 
 ```bash
-bash scripts/run_reuse_composition.sh dpg-group 1 4
-bash scripts/run_reuse_composition.sh dpg-group 2 4
-bash scripts/run_reuse_composition.sh dpg-group 3 4
-bash scripts/run_reuse_composition.sh dpg-group 4 4
+(
+set -eo pipefail
+
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$PWD"
+export GIT_CONFIG_KEY_1=safe.directory
+export GIT_CONFIG_VALUE_1="$(PYTHONPATH="$PWD/src" "$SCD_EVAL_PY" -c 'from self_correct_dpo.resources import load_resources; print(load_resources()["DPG_REPO"])')"
+
+export SCD_DPG_PY="${SCD_DPG_PY:-/mnt/afs/L202500030/xietianyu/envs/scd-dpg-v2/bin/python}"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+
+GROUP=1
+TOTAL=5
+
+bash scripts/run_reuse_composition.sh dpg-group "$GROUP" "$TOTAL"
+)
 ```
 
-如有五组（20 卡），各作业分别指定 `1 5` 到 `5 5`。每组启四个进程，按版本和 32 条 prompt 划分不重叠的工作块，最后一个块为 9 条。四张 seed 原图始终一起评分。官方四宫格临时写本机临时盘，每次只建一个 prompt 的网格，逐题结果与块完成记录写 AOSS。作业中断可重跑原组号，已核验块跳过，未提交块重新计分。如已有原生完整 DPG 结果，会在汇总时核验并读入。保持资源、权重、评分代码和正式 DPG 软硬件环境一致。
+每个作业将 32 条 prompt 作为一个工作块，四个 seed 一起评分。中断后重跑原组号，校验通过的块会跳过。
 
-**汇总三组结果（CPU）**
+**CPU 汇总 · 全部评分结束后执行一次**
 
 ```bash
+(
+set -eo pipefail
+
+source /mnt/afs/L202500030/xietianyu/miniconda3/bin/activate
+conda activate eval
+
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-parallel-5090-v1
+export SCD_EVAL_PY=/mnt/afs/L202500030/xietianyu/miniconda3/envs/eval/bin/python
+export SCD_RESOURCES=/mnt/afs/L202500030/xietianyu/workspace/DPO-mvpo-multiseed-v1/configs/resources.json
+
 bash scripts/run_reuse_composition.sh report
+)
 ```
 
-等待所有作业完成再汇总。两个 GenEval 计划各自输出 `geneval-review-all.csv/json`；DPG 输出 `EVALUATIONS_ROOT/composition-review-v1/sd35-dpg/summary.json`。DPG 采用项目固定的 `dpg-complete-csv-four-samples-v1` 协议，保留官方 CSV 的全部 14,392 道题与依赖关系，四张图共 57,568 次问答/版本。完整汇总校验每个版本的 1,065 条 prompt 和 4,260 张图。
+GenEval 在两个冻结计划目录各输出 `geneval-review-all.csv/json`。DPG 输出 `EVALUATIONS_ROOT/composition-review-v1/sd35-dpg/summary.json`，按完整 1,065 个 prompt、每版本 4,260 张图汇总。
 
 ## SDXL四行峰值补评：HPS与Parti/PickV2两组（2026-11-17）
 

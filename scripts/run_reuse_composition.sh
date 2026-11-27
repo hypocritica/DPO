@@ -54,6 +54,9 @@ for gpu in "${gpus[@]}"; do
 done
 
 if [[ "$mode" == geneval ]]; then
+    if [[ -n ${SCD_COMPOSITIONAL_CONFIG:-} ]]; then
+        suite+=(--compositional-config "$SCD_COMPOSITIONAL_CONFIG")
+    fi
     score() {
         local plan=$1
         shift
