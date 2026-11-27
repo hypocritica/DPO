@@ -47,9 +47,9 @@ bash scripts/run_reuse_composition.sh geneval
 )
 ```
 
-**作业 2 · 1 张 5090 · 建立 cu128 环境并做真实 DPG 测试**
+**先在无 GPU 容器安装 DPG 环境**
 
-2026-11-28 实机日志确认历史 DPG 环境装有 torch 2.0.0+cu118，缺少 ModelScope，CUDA 运算在 RTX 5090（sm_120）上失败。以下命令在共享 AFS 的独立前缀 `envs/scd-eval-dpg-5090-cu128-v1` 安装 Python 3.10、torch 2.7.1+cu128、配套 torchvision/torchaudio 及项目固定的 ModelScope mPLUG 依赖。首次安装需能访问 Conda、PyPI、PyTorch wheel 源，并有 C/C++ 编译器供 fairseq 构建。仅开一个安装作业；失败后在同一个新前缀重跑可复用已安装的软件包。
+2026-11-28 实机日志确认历史 DPG 环境装有 torch 2.0.0+cu118，缺少 ModelScope，CUDA 运算在 RTX 5090（sm_120）上失败。以下命令在共享 AFS 的独立前缀 `envs/scd-eval-dpg-5090-cu128-v1` 通过 conda-forge 创建 Python 3.10 环境，并安装 torch 2.7.1+cu128、配套 torchvision/torchaudio 及项目固定的 ModelScope mPLUG 依赖。首次安装需能访问 Conda、PyPI、PyTorch wheel 源，并有 C/C++ 编译器供 fairseq 构建。仅开一个安装作业；失败后在同一个新前缀重跑可复用已安装的软件包。
 
 ```bash
 (
@@ -57,8 +57,20 @@ set -eo pipefail
 cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 git -c safe.directory="$PWD" fetch origin codex/reuse-composition-slai
 git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- scripts/run_dpg_5090_cu128.sh scripts/run_reuse_composition.sh scripts/reuse_dpg.py
+bash scripts/run_dpg_5090_cu128.sh setup
+)
+```
+
+安装完成打印 `DPG_ENV_READY` 并退出。此阶段使用 CPU 安装与检查导入。创建环境时显式使用 conda-forge 和 --override-channels，解决 defaults 源的 ToS 拦截。
+
+**分配 1 张 5090 后执行真实 DPG 测试**
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
 export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0}"
-bash scripts/run_dpg_5090_cu128.sh setup-smoke
+bash scripts/run_dpg_5090_cu128.sh smoke
 )
 ```
 
