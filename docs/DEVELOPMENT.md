@@ -1,5 +1,16 @@
 # Self Correct DPO 开发与实验约定
 
+## 2026-11-28 GenEval H100 算子修复
+
+独立 reuse_geneval_h100.py 固定使用 MMCV 1.7.2 的 PyTorch deformable-attention
+实现，在 CUDA 上推理，绕过可能静默返回零的旧扩展。保留原图片和分数，独立新评分
+目录及 runtime_patch 源码身份；不改 compositional.py 和 DPG 的来源身份。
+四卡启动先逐卡运行隔离的原生诊断与必须通过的参考实现数值检查，完成后自动汇总。
+本机通过已知答案、静默零值拒绝和上游参考函数 CPU 数值检查，以及4项入口回归与
+4项既有 compositional 测试。没有本机 H100，远程根因与实际分数以自检/重跑为准。
+完整同步/运行命令在 command.md 首节。
+
+
 ## 2026-11-17 SDXL峰值补评
 
 新增prepare_sdxl_peak.py与run_sdxl_peak.sh，固定DSPO两行3000、DMPO10000及Stagewise DMPO

@@ -1,5 +1,62 @@
 ## SLAI 已有图评分（2026-11-28）
 
+## GenEval H100 评分修复与重跑（2026-11-28）
+
+旧分数的 counting / position / color_attr 在所有版本均为零。上游 GenEval
+issue #12 报告相同 H100 症状：MMCV deformable-attention CUDA 内核架构不匹配。
+MMCV 1.7.2 的 CUDA 实现遇到 kernel launch 错误只 printf，并可能返回零张量。
+本次远程根因仍须以启动时的 native 算子自检为准，不能仅凭低分宣布确认。
+
+新入口固定使用 mmcv 1.7.2 自带的 multi_scale_deformable_attn_pytorch，
+特征、采样坐标和权重仍在 CUDA 上运算；仅空间形状元数据送 CPU。
+不改检测器权重、阈值、prompt、seed、图片或官方 GenEval 判定函数。
+每张卡独立检查 native 算子（失败只作诊断），然后必须通过 reference
+算子的已知答案 9.1 及多头/多层/边界数值检查，才开始评分。
+
+只新增脚本，不修改 compositional.py，避免改变已完成 DPG 的源码身份。
+评分输出写入各版本 scores/geneval-pytorch-h100-v1；旧 scores/geneval 保留。
+复用完整 render，旧异常 raw 分数不复用。每卡一进程，固定分配18个版本；
+重复运行校验并续跑新目录。全部完成后自动核验、输出18行 CSV/JSON。
+汇总：EVALUATIONS_ROOT/composition-review-v1/geneval-pytorch-h100-v1/summary.csv。
+分卡日志位于同目录 logs/gpu-0.log 到 gpu-3.log。
+
+有网 CPU 终端同步（评分作业启动前执行一次）：
+
+```bash
+(
+set -eo pipefail
+cd /mnt/afs/L202500030/xietianyu/workspace/DPO-eval-v2
+git -c safe.directory="$PWD" fetch origin codex/reuse-composition-slai
+git -c safe.directory="$PWD" restore --source=FETCH_HEAD --worktree -- \
+  scripts/reuse_geneval_h100.py scripts/run_geneval_h100_repair.sh
+)
+```
+
+四张 H100 作业运行（离线，使用原 GenEval 环境，不安装依赖）：
+
+```bash
+(
+set -eo pipefail
+AFS=/mnt/afs/L202500030/xietianyu
+cd "$AFS/workspace/DPO-eval-v2"
+export SCD_RESOURCES="$AFS/workspace/DPO-mvpo-multiseed-v1/configs/resources.json"
+export SCD_COMPOSITIONAL_CONFIG="$PWD/configs/compositional.json"
+export SCD_EVAL_GPUS="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+mkdir -p logs
+bash scripts/run_geneval_h100_repair.sh run 2>&1 | tee -a logs/geneval-h100-repair.log
+)
+```
+
+单独重新汇总：`bash scripts/run_geneval_h100_repair.sh report`。
+启动日志中的 NATIVE_MSDA_STATUS 非零表示旧算子自检失败；具体错误在分卡日志。
+GENEVAL_BACKEND_OK 是替代算子数值检查通过，GENEVAL_ALL_OK 才是18版本全量完成。
+
+依据：
+- https://github.com/djghosh13/geneval/issues/12
+- https://github.com/open-mmlab/mmcv/blob/v1.7.2/mmcv/ops/multi_scale_deform_attn.py
+- https://github.com/open-mmlab/mmcv/blob/v1.7.2/mmcv/ops/csrc/pytorch/cuda/ms_deform_attn_cuda.cu
+
+
 | 冻结计划（相对 EVALUATIONS_ROOT） | 范围 | 图片 |
 |---|---|---:|
 | `sdxl/paper-2000-5090-v1/main/geneval` | GenEval，Base + 9 个 2,000 步版本 | 22,120 |
